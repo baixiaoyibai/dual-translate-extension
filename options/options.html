@@ -89,7 +89,7 @@
             <div class="setting-desc">留空则继承页面字体</div>
           </div>
           <div class="setting-control">
-            <input type="text" id="translationFont" placeholder="继承页面字体">
+            <input type="text" id="translationFont" placeholder="继承页面字体" pattern="^[\w\s,.&#39;\-]{0,100}$" title="合法字体名: 字母/数字/空格/常见符号 (最长 100 字符)">
           </div>
         </div>
         <div class="setting-row">
@@ -98,7 +98,7 @@
             <div class="setting-desc">行间距 / 段间距</div>
           </div>
           <div class="setting-control">
-            <input type="text" id="translationSpacing" value="4px">
+            <input type="text" id="translationSpacing" value="4px" pattern="^[0-9]+(\.[0-9]+)?(px|em|rem|%|vh|vw)?$" title="合法间距: 数字+单位 (px/em/rem/%/vh/vw)">
           </div>
         </div>
       </div>
@@ -427,6 +427,7 @@
   </div>
 
   <div class="saved-tip" id="savedTip">✓ 设置已保存</div>
+  <script src="../lib/escape-utils.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

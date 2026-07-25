@@ -160,16 +160,30 @@ function setupDisplaySettings() {
   const translationFont = document.getElementById('translationFont');
   translationFont.value = d.translationFont || '';
   translationFont.addEventListener('change', () => {
-    settings.display.translationFont = translationFont.value;
-    saveSetting('display.translationFont', translationFont.value);
+    const v = translationFont.value;
+    // P2-02 兜底: 即便绕过 HTML pattern, JS 也拒绝危险值
+    if (v && !/^[\w\s,.'"\-]{0,100}$/.test(v)) {
+      alert('字体名包含非法字符，请使用字母/数字/常见符号');
+      translationFont.value = d.translationFont || '';
+      return;
+    }
+    settings.display.translationFont = v;
+    saveSetting('display.translationFont', v);
     showSavedTip();
   });
 
   const translationSpacing = document.getElementById('translationSpacing');
   translationSpacing.value = d.translationSpacing;
   translationSpacing.addEventListener('change', () => {
-    settings.display.translationSpacing = translationSpacing.value;
-    saveSetting('display.translationSpacing', translationSpacing.value);
+    const v = translationSpacing.value;
+    // P2-02 兜底: 拒绝含 ; { } ( ) 等 CSS 注入字符
+    if (!/^[0-9]+(\.[0-9]+)?(px|em|rem|%|vh|vw)?$/.test(v)) {
+      alert('间距格式不合法，应为数字+单位 (如 4px / 1.5em / 50%)');
+      translationSpacing.value = d.translationSpacing;
+      return;
+    }
+    settings.display.translationSpacing = v;
+    saveSetting('display.translationSpacing', v);
     showSavedTip();
   });
 
@@ -549,7 +563,7 @@ function renderApiCards() {
                 <input type="checkbox" class="api-enable" data-api="${apiName}" ${enabled ? 'checked' : ''}>
                 <span class="toggle-slider"></span>
               </label>
-              ${provider.name}
+              ${escapeAttr(provider.name)}
             </span>
             <span class="api-card-status ${statusClass}">${status?.status === 'available' ? '可用' : status?.status === 'quota_exceeded' ? '额度不足' : status?.status === 'error' ? '异常' : status?.status === 'auth_error' ? '密钥错误' : '未配置'}</span>
             <button class="btn btn-sm api-test-btn" data-api="${apiName}">测试</button>
@@ -826,7 +840,7 @@ function renderCustomProviders() {
           </div>
           <div class="api-field-group">
             <label class="toggle-switch" style="vertical-align:middle;">
-              <input type="checkbox" class="custom-provider-toggle" data-provider-id="${provider.id}" data-field="enabled" ${provider.enabled ? 'checked' : ''}>
+              <input type="checkbox" class="custom-provider-toggle" data-provider-id="${escapeAttr(provider.id)}" data-field="enabled" ${provider.enabled ? 'checked' : ''}>
               <span class="toggle-slider"></span>
             </label>
             <span style="margin-left:8px;">启用</span>
