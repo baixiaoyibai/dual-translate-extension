@@ -856,7 +856,7 @@ function updatePanel(segSubset) {
     ct.appendChild(row);
   }
   let collapsed=false;
-  hd.querySelector('.panel-toggle-btn').addEventListener('click',()=>{collapsed=!collapsed;panel.style.transform=collapsed?(pos==='right'?'translateX(calc(100% - 30px))':'translateY(calc(100% - 30px))'):'translate(0)';});
+  hd.querySelector('.panel-toggle-btn').addEventListener('click',()=>{collapsed=!collapsed;panel.style.transform=collapsed?(pos==='right'?'translateX(calc(100% - 30px))':'translateY(calc(100% - 30px))'):'translate(0)';hd.querySelector('.panel-toggle-btn').textContent=collapsed?'▶':'◀';});
   hd.querySelector('.panel-close-btn').addEventListener('click',()=>{panel.remove();panelInstance=null;document.body.style.marginRight='';document.body.style.marginBottom='';});
   let isDragging=false,sX,sY,sW,sH;
   const mdh=e=>{if(e.target.tagName==='BUTTON')return;isDragging=true;sX=e.clientX;sY=e.clientY;const r=panel.getBoundingClientRect();sW=r.width;sH=r.height;document.body.style.userSelect='none';};

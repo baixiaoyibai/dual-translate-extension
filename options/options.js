@@ -298,6 +298,13 @@ function setupGlossaryManagement() {
     glossaryEntries.push({ source: '', target: '', matchType: 'exact', preserve: false });
     renderGlossaryTable();
     saveGlossary();
+    // 聚焦到新行第一个输入框（最后一个 tr 的 source input）
+    const rows = document.querySelectorAll('#glossaryTable tbody tr');
+    if (rows.length) {
+      const lastRow = rows[rows.length - 1];
+      const firstInput = lastRow.querySelector('input');
+      if (firstInput) firstInput.focus();
+    }
   });
 
   document.getElementById('exportGlossaryBtn').addEventListener('click', () => {
@@ -612,6 +619,11 @@ function renderApiCards() {
   container.querySelectorAll('.api-test-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const apiName = btn.dataset.api;
+      // 清除该按钮上一次的恢复 timer，避免极端时序下新测试被旧 timer 覆盖文字
+      if (btn._testRestoreTimer) {
+        clearTimeout(btn._testRestoreTimer);
+        btn._testRestoreTimer = null;
+      }
       btn.textContent = '测试中...';
       btn.disabled = true;
       let config = settings.api.apiKeys?.[apiName] || {};
@@ -635,13 +647,13 @@ function renderApiCards() {
         btn.textContent = '✓ 成功';
         btn.style.background = '#4CAF50';
         btn.style.color = '#fff';
-        setTimeout(() => { btn.textContent = '测试'; btn.style.background = ''; btn.style.color = ''; }, 2000);
+        btn._testRestoreTimer = setTimeout(() => { btn.textContent = '测试'; btn.style.background = ''; btn.style.color = ''; btn._testRestoreTimer = null; }, 2000);
       } else {
         btn.textContent = '✗ 失败';
         btn.style.background = '#f44336';
         btn.style.color = '#fff';
         alert('测试失败：' + ((res && res.error) || '未知错误'));
-        setTimeout(() => { btn.textContent = '测试'; btn.style.background = ''; btn.style.color = ''; }, 2000);
+        btn._testRestoreTimer = setTimeout(() => { btn.textContent = '测试'; btn.style.background = ''; btn.style.color = ''; btn._testRestoreTimer = null; }, 2000);
       }
     });
   });
@@ -802,13 +814,13 @@ function renderCustomProviders() {
         btn.textContent = '✓ 成功';
         btn.style.background = '#4CAF50';
         btn.style.color = '#fff';
-        setTimeout(() => { btn.textContent = '测试'; btn.style.background = ''; btn.style.color = ''; }, 2000);
+        btn._testRestoreTimer = setTimeout(() => { btn.textContent = '测试'; btn.style.background = ''; btn.style.color = ''; btn._testRestoreTimer = null; }, 2000);
       } else {
         btn.textContent = '✗ 失败';
         btn.style.background = '#f44336';
         btn.style.color = '#fff';
         alert('测试失败：' + ((res && res.error) || '未知错误'));
-        setTimeout(() => { btn.textContent = '测试'; btn.style.background = ''; btn.style.color = ''; }, 2000);
+        btn._testRestoreTimer = setTimeout(() => { btn.textContent = '测试'; btn.style.background = ''; btn.style.color = ''; btn._testRestoreTimer = null; }, 2000);
       }
     });
   });

@@ -220,11 +220,13 @@ function setupEventListeners() {
 
   // 源语言选择器变更监听
   const sourceLangSelect = document.getElementById('sourceLangSelect');
+  const sourceLangHint = document.getElementById('sourceLangHint');
   if (sourceLangSelect) {
     let sourceLangDebounceTimer = null;
     sourceLangSelect.addEventListener('change', (e) => {
       const newLang = e.target.value;
       sourceLangSelect.disabled = true;
+      if (sourceLangHint) sourceLangHint.style.display = 'block';
       clearTimeout(sourceLangDebounceTimer);
       sourceLangDebounceTimer = setTimeout(async () => {
         try {
@@ -237,6 +239,7 @@ function setupEventListeners() {
           alert('切换源语言失败');
         } finally {
           sourceLangSelect.disabled = false;
+          if (sourceLangHint) sourceLangHint.style.display = 'none';
         }
       }, 300);
       // background 中已根据 api.sourceLanguage 变更触发 retranslateWithSource，避免重复触发
@@ -252,7 +255,9 @@ function setupEventListeners() {
     if (tab) {
       try {
         await chrome.tabs.sendMessage(tab.id, { action: 'restoreAll' });
-      } catch {}
+      } catch (e) {
+        alert('当前页面无法翻译，请在普通网页上重试');
+      }
     }
   });
 
