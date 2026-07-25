@@ -149,3 +149,9 @@ body {
 .btn-secondary:hover {
   background: #e0e0e0;
 }
+
+/* 键盘焦点可见反馈 */
+.btn:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: 2px;
+}

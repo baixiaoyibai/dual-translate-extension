@@ -169,6 +169,17 @@ async function handleMessage(message, sender) {
       chrome.runtime.openOptionsPage();
       return { success: true };
 
+    case 'closeWelcomeTab':
+      // 关闭发送此消息的 tab（welcome 页面由 chrome.tabs.create 打开，window.close() 在 tab 里被静默拒绝）
+      if (sender && sender.tab && typeof sender.tab.id === 'number') {
+        try {
+          await chrome.tabs.remove(sender.tab.id);
+        } catch {
+          // tab 可能已被用户手动关闭，忽略
+        }
+      }
+      return { success: true };
+
     case 'cancelTranslation':
       // 转发到当前活跃 tab 的 content script
       try {

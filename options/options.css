@@ -119,6 +119,12 @@ body {
   box-shadow: 0 2px 8px rgba(26,115,232,0.3);
 }
 
+/* 键盘焦点可见反馈 */
+.sidebar-tab:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -2px;
+}
+
 .sidebar-footer {
   padding: 12px 10px;
   border-top: 1px solid rgba(255,255,255,0.08);

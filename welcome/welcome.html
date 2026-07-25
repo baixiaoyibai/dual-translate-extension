@@ -94,7 +94,7 @@
 
     document.getElementById('closeBtn').addEventListener('click', () => {
       chrome.runtime.sendMessage({ action: 'updateSettings', path: 'general.hasCompletedWelcome', value: true });
-      window.close();
+      chrome.runtime.sendMessage({ action: 'closeWelcomeTab' });
     });
   </script>
 </body>
