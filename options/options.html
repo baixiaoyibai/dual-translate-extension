@@ -140,6 +140,28 @@
           </div>
         </div>
       </div>
+
+      <div class="section-card">
+        <div class="section-card-header">🌐 页面元素翻译（v1.0.2 新增）</div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">翻译页面标题 &lt;title&gt;</div>
+            <div class="setting-desc">浏览器标签页和书签显示的页面标题会被翻译成"译文 / 原文"格式</div>
+          </div>
+          <div class="setting-control">
+            <label class="toggle-switch"><input type="checkbox" id="translatePageTitle" checked><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">翻译图片 alt 文本</div>
+            <div class="setting-desc">为图片的可访问性描述（alt 属性）提供中文翻译。仅翻译长度 2-200 字符的图片</div>
+          </div>
+          <div class="setting-control">
+            <label class="toggle-switch"><input type="checkbox" id="translateImgAlt" checked><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div id="tab-rules" class="tab-content">
@@ -361,6 +383,26 @@
         <p class="setting-desc" style="margin-bottom:12px;">已翻译的文本会缓存 3 天，再次遇到相同内容时直接使用缓存，无需重复调用 API。每次命中会自动刷新有效期。</p>
         <div id="cacheStats" class="cache-stats" style="margin-bottom:10px;font-size:13px;color:#666;">加载中...</div>
         <button class="btn btn-danger" id="clearCacheBtn">🗑 清除全部缓存</button>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">📋 日志级别（v1.0.2 新增）</div>
+        <p class="setting-desc" style="margin-bottom:12px;">控制扩展运行时在浏览器开发者工具控制台输出的日志详细程度。普通用户保持"仅错误"即可，调试时可调到"调试"获取完整调用链。</p>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">日志级别</div>
+            <div class="setting-desc">0=静默 / 1=仅错误 / 2=警告+错误（默认）/ 3=信息 / 4=调试</div>
+          </div>
+          <div class="setting-control">
+            <select id="logLevel">
+              <option value="0">0 静默</option>
+              <option value="1">1 仅错误</option>
+              <option value="2" selected>2 警告（默认）</option>
+              <option value="3">3 信息</option>
+              <option value="4">4 调试</option>
+            </select>
+          </div>
+        </div>
       </div>
     </div>
   </div>

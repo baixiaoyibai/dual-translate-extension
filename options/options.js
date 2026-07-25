@@ -193,6 +193,10 @@ function setupDisplaySettings() {
     saveSetting('display.panelWidth', parseInt(panelWidth.value));
     showSavedTip();
   });
+
+  // v1.0.2: §3.2 页面元素翻译开关
+  bindToggle('translatePageTitle', 'display.translatePageTitle', d.translatePageTitle !== false);
+  bindToggle('translateImgAlt', 'display.translateImgAlt', d.translateImgAlt !== false);
 }
 
 function setupRulesSettings() {
@@ -890,6 +894,20 @@ function setupAdvancedSettings() {
   bindNumber('requestTimeout', 'advanced.requestTimeout', a.requestTimeout);
   bindNumber('retryCount', 'advanced.retryCount', a.retryCount);
   bindNumber('retryInterval', 'advanced.retryInterval', a.retryInterval);
+
+  // v1.0.2: §3.6 日志级别（0-4）
+  const logLevelEl = document.getElementById('logLevel');
+  if (logLevelEl) {
+    const curLevel = (settings.general && typeof settings.general.logLevel === 'number') ? settings.general.logLevel : 2;
+    logLevelEl.value = String(curLevel);
+    logLevelEl.addEventListener('change', () => {
+      const v = parseInt(logLevelEl.value);
+      if (!settings.general) settings.general = {};
+      settings.general.logLevel = v;
+      saveSetting('general.logLevel', v);
+      showSavedTip();
+    });
+  }
 
   loadLlmPrompt();
 

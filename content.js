@@ -13,6 +13,49 @@ let hoverCleanupHandlers = [];
 let globalCleanupHandlers = [];
 let loadingElement = null;
 let panelInstance = null;
+
+// v1.0.2: dtLog —— content script 内联日志 helper（§3.6 / §10.2 修复）
+// logger.js 是 ESM，content script 走非模块路径无法 import；自己写 4 个 level 函数
+const DT_LOG_LEVELS = { silent: 0, error: 1, warn: 2, info: 3, debug: 4 };
+function dtNormLevel(v) {
+  if (typeof v === 'number') return Math.max(0, Math.min(4, v | 0));
+  if (typeof v === 'string' && DT_LOG_LEVELS[v.toLowerCase()] != null) return DT_LOG_LEVELS[v.toLowerCase()];
+  return 2;
+}
+function dtLogLevel() { return dtNormLevel(settings?.general?.logLevel ?? 2); }
+function dtError() { if (dtLogLevel() >= 1) console.error('[dual-translate]', ...arguments); }
+function dtWarn()  { if (dtLogLevel() >= 2) console.warn('[dual-translate]',  ...arguments); }
+function dtInfo()  { if (dtLogLevel() >= 3) console.info('[dual-translate]',  ...arguments); }
+function dtDebug() { if (dtLogLevel() >= 4) console.debug('[dual-translate]', ...arguments); }
+
+// v1.0.2: 术语表匹配缓存（§3.3 / §10.2 修复）
+// 用闭包存 glossaryEntries，loadGlossary 后填充；applyGlossary 在每段翻译前查
+let glossaryEntries = [];
+function loadGlossary() {
+  return sendMessage('getGlossary').then(r => { glossaryEntries = (r && r.glossary) || []; }).catch(() => { glossaryEntries = []; });
+}
+function applyGlossary(text) {
+  if (!glossaryEntries.length || !text) return text;
+  let out = text;
+  for (const entry of glossaryEntries) {
+    if (!entry || !entry.source || !entry.target) continue;
+    const src = entry.source;
+    const tgt = entry.target;
+    const matchType = entry.matchType || 'exact';
+    if (matchType === 'fuzzy') {
+      // 模糊：大小写不敏感 + 包含即替换（escape 简单 regex 字符）
+      const escaped = src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(escaped, 'gi');
+      out = out.replace(re, tgt);
+    } else {
+      // 精确：大小写不敏感 + 全词匹配
+      const escaped = src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp('\\b' + escaped + '\\b', 'gi');
+      out = out.replace(re, tgt);
+    }
+  }
+  return out;
+}
 let errorBannerElement = null;
 let hoverClickRegistered = false;
 let mutationObserver = null;
@@ -204,7 +247,7 @@ function hideOriginalText(seg) {
     
     seg._originalHidden = true;
   } catch (e) {
-    console.error('[dual-translate] hideOriginalText error:', e);
+    dtError('hideOriginalText error:', e);
   }
 }
 
@@ -262,6 +305,8 @@ async function loadSettings() {
   const resp = await sendMessage('getSettings');
   settings = resp.settings;
   if (settings) currentMode = settings.general.lastMode||settings.display.defaultMode||BILINGUAL;
+  // v1.0.2: 并行加载术语表（独立失败，glossary 缺不影响翻译）
+  loadGlossary();
   return settings;
 }
 async function checkAndTranslate(url) {
@@ -269,7 +314,7 @@ async function checkAndTranslate(url) {
   if (!settings||!settings.general.translationEnabled) return;
   if (!settings.trigger.autoTranslate) return;
   const domain = new URL(url).hostname;
-  console.debug('[dual-translate] checkAndTranslate:', domain, 'shouldAutoTranslate:', shouldAutoTranslate(domain));
+  dtDebug('checkAndTranslate:', domain, 'shouldAutoTranslate:', shouldAutoTranslate(domain));
   if (!shouldAutoTranslate(domain)) return;
   
   // 读取源语言设置
@@ -365,7 +410,7 @@ function shouldTranslateWithSource(detectedLang) {
       return detectedLang !== 'zh'; // 只要不是中文就翻译
     default:
       // 回退到 'auto' 行为
-      console.warn(`Unknown sourceLanguage: ${sourceLanguage}, falling back to auto`);
+      dtWarn('Unknown sourceLanguage: ' + sourceLanguage + ', falling back to auto');
       return isValidLangForTranslation(detectedLang);
   }
 }
@@ -517,6 +562,9 @@ async function startTranslation() {
     placePendingSpans();
     await translateSegments(segments, currentAbortController.signal);
     hideLoading();
+    // v1.0.2: 翻译页面 title 和 img alt（§3.2 / §10.2 修复，独立于正文翻译）
+    // 失败不抛错（已在函数内 try/catch）
+    translatePageMeta().catch(e => dtError('translatePageMeta error:', e));
     await sendMessage('setIconState',{state:'translated'});
     translationCompletedOnce = true;
     setupMutationObserver();
@@ -525,7 +573,7 @@ async function startTranslation() {
     if (e.name === 'AbortError') {
       resetAll();
     } else {
-      console.error('[dual-translate] startTranslation error:', e);
+      dtError('startTranslation error:', e);
       try { await sendMessage('setIconState',{state:'idle'}); } catch {}
     }
     translationCompletedOnce = false;
@@ -630,6 +678,81 @@ function extractSegments() {
     result.push({id:'seg_'+result.length,text:text,node:node,blockParent:bp&&blockTags.has(bp.tagName.toLowerCase())?bp:null});
   }
   return result;
+}
+
+// v1.0.2: 翻译页面 <title> 和图片 alt（§3.2 / §10.2 修复）
+// 不进 segments 数组，单独走 sendMessage('translateTexts') batch
+// 失败/用户关闭开关时静默跳过
+async function translatePageMeta() {
+  if (!settings) return;
+  if (currentAbortController && currentAbortController.signal.aborted) return;
+
+  const sourceLang = settings.api.sourceLanguage === 'auto' ? detectPageLanguage() : (settings.api.sourceLanguage || 'auto');
+  if (sourceLang === 'zh') return; // 中文页不翻
+
+  // 收集要翻译的 (text, type, target) 三元组
+  const items = [];
+
+  // 1) <title>
+  if (settings.display.translatePageTitle !== false) {
+    const origTitle = (document.title || '').trim();
+    // 跳过中文标题（避免无用 API 调用）
+    if (origTitle.length >= 2 && !/^[\s\u4E00-\u9FFF]*$/.test(origTitle)) {
+      // 跳过已翻译过的（data 属性标记）
+      if (!document.documentElement.hasAttribute('data-dt-orig-title')) {
+        document.documentElement.setAttribute('data-dt-orig-title', origTitle);
+      }
+      const storedTitle = document.documentElement.getAttribute('data-dt-orig-title');
+      items.push({ text: storedTitle, type: 'title' });
+    }
+  }
+
+  // 2) img[alt] —— 只翻当前视口附近 + 长度合理 + 非空
+  if (settings.display.translateImgAlt !== false) {
+    try {
+      const imgs = Array.from(document.querySelectorAll('img[alt]'));
+      const seen = new Set();
+      for (const img of imgs) {
+        const alt = (img.getAttribute('alt') || '').trim();
+        if (alt.length < 2 || alt.length > 200) continue;
+        if (/^[\s\u4E00-\u9FFF]*$/.test(alt)) continue; // 已是中文
+        if (seen.has(alt)) continue;
+        // 跳过已翻译过的（data 属性标记 + ImgSet 跟踪）
+        if (img.hasAttribute('data-dt-orig-alt')) continue;
+        seen.add(alt);
+        // 存原文到 data 属性
+        img.setAttribute('data-dt-orig-alt', alt);
+        items.push({ text: alt, type: 'alt', img });
+      }
+    } catch (e) {
+      dtError('collect alt error:', e);
+    }
+  }
+
+  if (items.length === 0) return;
+  dtInfo('translatePageMeta items:', items.length, 'source:', sourceLang);
+
+  // 一次性发 API（用翻译管线相同的 background 入口，自动走 cache）
+  try {
+    const resp = await sendMessage('translateTexts', { texts: items.map(i => i.text), sourceLang });
+    if (!resp || !resp.translations || resp.error) return;
+
+    // 回写
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const r = resp.translations[i];
+      const tr = (r && r.translation) || '';
+      if (!tr) continue;
+      const preTr = applyGlossary(tr); // 术语再过一遍
+      if (item.type === 'title') {
+        document.title = preTr + ' / ' + (document.documentElement.getAttribute('data-dt-orig-title') || document.title);
+      } else if (item.type === 'alt' && item.img && item.img.isConnected) {
+        item.img.setAttribute('alt', preTr);
+      }
+    }
+  } catch (e) {
+    dtError('translatePageMeta API error:', e);
+  }
 }
 
 function placePendingSpans() {
@@ -738,8 +861,15 @@ async function translateSegments(segs, signal) {
     const uncached=[];const uncachedIds=[];
     for(let j=0;j<batch.length;j++){
       if(!translationCache.has(batch[j].id)){
-        uncached.push(batch[j].text);
-        uncachedIds.push(batch[j].id);
+        // v1.0.2: 术语表预处理（先查 glossary，命中则直接填 cache 不调 API）
+        const preText = applyGlossary(batch[j].text);
+        if (preText !== batch[j].text) {
+          // 术语命中，标记为"已翻译"（直接使用预处理结果）
+          translationCache.set(batch[j].id, preText);
+        } else {
+          uncached.push(batch[j].text);
+          uncachedIds.push(batch[j].id);
+        }
       }
     }
 
@@ -902,15 +1032,26 @@ function switchMode(nm) {
   else{resetAll();}
 }
 function resetAll() {
-  if (currentAbortController) { 
-    currentAbortController.abort(); 
-    currentAbortController = null; 
+  if (currentAbortController) {
+    currentAbortController.abort();
+    currentAbortController = null;
   }
   if (mutationObserver) { mutationObserver.disconnect(); mutationObserver = null; }
   if (retranslateTimer) { clearTimeout(retranslateTimer); retranslateTimer = null; }
   observerPaused = false;
   translationCompletedOnce = false;
   cleanupAllInjections();
+  // v1.0.2: 还原页面 title 和图片 alt（§3.2 / §10.2 修复）
+  if (document.documentElement.hasAttribute('data-dt-orig-title')) {
+    document.title = document.documentElement.getAttribute('data-dt-orig-title');
+    document.documentElement.removeAttribute('data-dt-orig-title');
+  }
+  try {
+    document.querySelectorAll('img[data-dt-orig-alt]').forEach(img => {
+      img.setAttribute('alt', img.getAttribute('data-dt-orig-alt'));
+      img.removeAttribute('data-dt-orig-alt');
+    });
+  } catch (e) { dtError('resetAll alt restore error:', e); }
   segments=[];
   translationCache.clear();
   hoverCleanupHandlers=[];
@@ -948,7 +1089,7 @@ chrome.runtime.onMessage.addListener((m,s,resp)=>{
       default:resp({error:'Unknown action'});
     }
     } catch(err) {
-      console.error('[dual-translate] onMessage error:', err);
+      dtError('onMessage error:', err);
       try { resp({error: err && err.message ? err.message : String(err)}); } catch {}
     }
   })();return true;
@@ -957,8 +1098,8 @@ chrome.runtime.onMessage.addListener((m,s,resp)=>{
 (function init(){loadSettings().then(()=>{if(settings&&settings.general.translationEnabled!==false&&settings.trigger.autoTranslate){const url=location.href;if(url.startsWith('http')&&shouldAutoTranslate(new URL(url).hostname)){/* 由 background 触发翻译，content 仅预加载 settings 避免双触发 */}}});})();
 
 // SPA 路由变化时清理模块级状态，避免跨页面污染
-window.addEventListener('popstate', () => { try { resetAll(); } catch (err) { console.error('[dual-translate] popstate reset error:', err); } });
-window.addEventListener('hashchange', () => { try { resetAll(); } catch (err) { console.error('[dual-translate] hashchange reset error:', err); } });
+window.addEventListener('popstate', () => { try { resetAll(); } catch (err) { dtError('popstate reset error:', err); } });
+window.addEventListener('hashchange', () => { try { resetAll(); } catch (err) { dtError('hashchange reset error:', err); } });
 
 // 监听 display 颜色/字体变化，实时更新已渲染的译文样式
 chrome.storage.onChanged.addListener((changes, area) => {
