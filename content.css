@@ -45,14 +45,6 @@
   opacity: 1;
 }
 
-.dual-translate-tooltip {
-  display: none;
-}
-
-.dual-translate-tooltip.visible {
-  display: block;
-}
-
 .dual-translate-hover {
   transition: opacity 0.15s ease;
 }

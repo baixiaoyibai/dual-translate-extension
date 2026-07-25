@@ -138,7 +138,7 @@ function isAiModelName(text) {
   if (AI_MODEL_NAMES.has(normalized)) return true;
   
   // 检查基础名称（去除版本号后缀）
-  const baseName = normalized.replace(/(?:-turbo|-flash|-pro|-mini|-plus|-ultra|-opus|-sonnet|-haiku|-lightning|-large|r1|v2|v3|2\.0|3\.0|4\.0|1\.5|2\.5|3\.5|4\.5)\s*$/i, '');
+  const baseName = normalized.replace(/(?:-turbo|-flash|-pro|-mini|-plus|-ultra|-opus|-sonnet|-haiku|-lightning|-large|r1|v2|v3|2\.0|3\.0|4\.0|1\.5|2\.5|3\.5|4\.5|\s3\.7|\s3\.8|\s4\.5|\s5\.0|\s5\.5|\s3\.6|\s3\.9|\s4\.1|\s4\.2|\s4\.3|\s4\.4|\s4\.6|\s4\.7)\s*$/i, '');
   if (AI_MODEL_NAMES.has(baseName)) return true;
   
   return false;
@@ -212,7 +212,7 @@ function showLoading(title, subtitle) {
   hideLoading();
   const el = document.createElement('div');
   el.className = 'dual-translate-loading-overlay';
-  el.innerHTML = `<div class="dual-translate-loading-spinner"></div><div class="dual-translate-loading-info"><div class="dual-translate-loading-title">${title||'正在翻译...'}</div>${subtitle?`<div class="dual-translate-loading-subtitle">${subtitle}</div>`:''}<div class="dual-translate-loading-progress"><div class="dual-translate-loading-progress-bar" style="width:0%"></div></div></div>`;
+  el.innerHTML = `<div class="dual-translate-loading-spinner"></div><div class="dual-translate-loading-info"><div class="dual-translate-loading-title">${escapeHtml(title||'正在翻译...')}</div>${subtitle?`<div class="dual-translate-loading-subtitle">${escapeHtml(subtitle)}</div>`:''}<div class="dual-translate-loading-progress"><div class="dual-translate-loading-progress-bar" style="width:0%"></div></div></div>`;
   document.body.appendChild(el);
   loadingElement = el;
 }
@@ -258,9 +258,11 @@ function sendMessage(action, data={}, timeoutMs=8000) {
   });
 }
 async function loadSettings() {
+  if (settings) return settings;
   const resp = await sendMessage('getSettings');
   settings = resp.settings;
   if (settings) currentMode = settings.general.lastMode||settings.display.defaultMode||BILINGUAL;
+  return settings;
 }
 async function checkAndTranslate(url) {
   await loadSettings();
@@ -286,14 +288,14 @@ function hostMatchesPattern(hostname, pattern) {
   try {
     let p = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     p = p.replace(/\\\*/g, '.*');
-    p = p.replace(/^\.\*\\\./, '(?:.*\\.)?');
-    const matched = new RegExp('^' + p + '$').test(hostname);
-    
-    // 兜底：若 pattern 形如 *.xxx.yyy，且正则未匹配成功，则检查 hostname 是否等于去除 "*.\" 后的根域名
+    p = p.replace(/^\.\*\\\./, '(?:.*\.)?');
+    const matched = new RegExp('^' + p + '$', 'i').test(hostname);
+
+    // 兜底：若 pattern 形如 *.xxx.yyy，且正则未匹配成功，则检查 hostname 是否等于去除 "*." 后的根域名
     if (!matched && pattern.startsWith('*.') && hostname === pattern.substring(2)) {
       return true;
     }
-    
+
     return matched;
   } catch {
     return hostname === pattern;
@@ -928,6 +930,7 @@ function showSelectionTranslation(original,translation){
 
 chrome.runtime.onMessage.addListener((m,s,resp)=>{
   (async()=>{
+    try {
     switch(m.action){
       case'checkAndTranslate':await checkAndTranslate(m.url);resp({success:true});break;
       case'toggleTranslate':toggleTranslation();resp({success:true});break;
@@ -944,10 +947,18 @@ chrome.runtime.onMessage.addListener((m,s,resp)=>{
         break;
       default:resp({error:'Unknown action'});
     }
+    } catch(err) {
+      console.error('[dual-translate] onMessage error:', err);
+      try { resp({error: err && err.message ? err.message : String(err)}); } catch {}
+    }
   })();return true;
 });
 
 (function init(){loadSettings().then(()=>{if(settings&&settings.general.translationEnabled!==false&&settings.trigger.autoTranslate){const url=location.href;if(url.startsWith('http')&&shouldAutoTranslate(new URL(url).hostname)){/* 由 background 触发翻译，content 仅预加载 settings 避免双触发 */}}});})();
+
+// SPA 路由变化时清理模块级状态，避免跨页面污染
+window.addEventListener('popstate', () => { try { resetAll(); } catch (err) { console.error('[dual-translate] popstate reset error:', err); } });
+window.addEventListener('hashchange', () => { try { resetAll(); } catch (err) { console.error('[dual-translate] hashchange reset error:', err); } });
 
 // 监听 display 颜色/字体变化，实时更新已渲染的译文样式
 chrome.storage.onChanged.addListener((changes, area) => {

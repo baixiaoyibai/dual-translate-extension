@@ -255,7 +255,7 @@ function renderExcludeList() {
   const list = settings.trigger.excludeList || [];
   container.innerHTML = list.map((domain, i) => `
     <div class="exclude-item">
-      <span>${domain}</span>
+      <span>${escapeAttr(domain)}</span>
       <button data-index="${i}" class="remove-exclude">✕</button>
     </div>
   `).join('');
@@ -411,7 +411,12 @@ async function saveGlossary() {
 }
 
 function escapeAttr(str) {
-  return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function setupApiManagement() {
@@ -438,7 +443,6 @@ function renderApiCards() {
   const apiKeys = settings.api.apiKeys || {};
 
   container.innerHTML = priority.map(apiName => {
-      if (apiName === 'tencent') return '';
       const enabled = enabledApis[apiName] !== false;
     const status = apiStatus[apiName];
     const statusClass = status?.status || 'unconfigured';
@@ -466,19 +470,19 @@ function renderApiCards() {
           <div class="api-card-body">
             <div class="api-field-group">
               <span class="api-field-label">显示名称</span>
-              <input type="text" class="api-field" data-api="${apiName}" data-field="name" value="${provider.name}">
+              <input type="text" class="api-field" data-api="${apiName}" data-field="name" value="${escapeAttr(provider.name)}">
             </div>
             <div class="api-field-group">
               <span class="api-field-label">API Key</span>
-              <input type="password" class="api-field" data-api="${apiName}" data-field="apiKey" value="${provider.apiKey}">
+              <input type="password" class="api-field" data-api="${apiName}" data-field="apiKey" value="${escapeAttr(provider.apiKey)}">
             </div>
             <div class="api-field-group">
               <span class="api-field-label">Endpoint</span>
-              <input type="text" class="api-field" data-api="${apiName}" data-field="endpoint" value="${provider.endpoint}">
+              <input type="text" class="api-field" data-api="${apiName}" data-field="endpoint" value="${escapeAttr(provider.endpoint)}">
             </div>
             <div class="api-field-group">
               <span class="api-field-label">模型</span>
-              <input type="text" class="api-field" data-api="${apiName}" data-field="model" value="${provider.model}">
+              <input type="text" class="api-field" data-api="${apiName}" data-field="model" value="${escapeAttr(provider.model)}">
             </div>
             <div class="api-field-group">
               <label class="toggle-switch" style="vertical-align:middle;">
@@ -496,16 +500,16 @@ function renderApiCards() {
     if (['baidu', 'baidu_llm'].includes(apiName)) {
       fieldsHtml = fields.map(f => `
         <div class="api-field-group">
-          <span class="api-field-label">${f.label}</span>
+          <span class="api-field-label">${escapeAttr(f.label)}</span>
           <input type="${f.type || 'text'}" class="api-field" data-api="${apiName}" data-field="${f.key}"
-            value="${keys[f.key] || ''}" placeholder="${f.default || ''}">
+            value="${escapeAttr(keys[f.key] || '')}" placeholder="${escapeAttr(f.default || '')}">
         </div>
       `).join('');
     } else {
       fieldsHtml = `
         <div class="api-field-group">
           <span class="api-field-label">API Key</span>
-          <input type="password" class="api-field" data-api="${apiName}" data-field="apiKey" value="${keys.apiKey || ''}">
+          <input type="password" class="api-field" data-api="${apiName}" data-field="apiKey" value="${escapeAttr(keys.apiKey || '')}">
         </div>
       `;
     }
@@ -515,12 +519,12 @@ function renderApiCards() {
         <div class="api-field-group">
           <span class="api-field-label">Endpoint</span>
           <input type="text" class="api-field" data-api="${apiName}" data-field="endpoint"
-            value="${settings.api.apiEndpoints?.[apiName] || DEFAULT_API_ENDPOINTS[apiName]}">
+            value="${escapeAttr(settings.api.apiEndpoints?.[apiName] || DEFAULT_API_ENDPOINTS[apiName] || '')}">
         </div>
         <div class="api-field-group">
           <span class="api-field-label">模型</span>
           <input type="text" class="api-field" data-api="${apiName}" data-field="model"
-            value="${settings.api.apiModels?.[apiName] || DEFAULT_API_MODELS[apiName] || ''}">
+            value="${escapeAttr(settings.api.apiModels?.[apiName] || DEFAULT_API_MODELS[apiName] || '')}">
         </div>
       `;
     }
@@ -539,7 +543,7 @@ function renderApiCards() {
               <input type="checkbox" class="api-enable" data-api="${apiName}" ${enabled ? 'checked' : ''}>
               <span class="toggle-slider"></span>
             </label>
-            ${getApiDisplayName(apiName)}
+            ${escapeAttr(getApiDisplayName(apiName))}
           </span>
           <span class="api-card-status ${statusClass}">${statusText}</span>
           <button class="btn btn-sm api-test-btn" data-api="${apiName}">测试</button>
@@ -651,7 +655,7 @@ function renderApiPriority() {
   container.innerHTML = priority.map(apiName => `
     <div class="api-priority-item" data-api="${apiName}">
       <span class="drag-handle">☰</span>
-      <span>${getApiDisplayName(apiName)}</span>
+      <span>${escapeAttr(getApiDisplayName(apiName))}</span>
     </div>
   `).join('');
 
@@ -706,27 +710,27 @@ function renderCustomProviders() {
     return `
       <div class="custom-provider-card">
         <div class="custom-provider-header">
-          <span class="custom-provider-name">${provider.name}</span>
+          <span class="custom-provider-name">${escapeAttr(provider.name)}</span>
           <span class="custom-provider-status ${statusClass}">${statusText}</span>
           <button class="btn btn-sm custom-provider-test-btn" data-api="${apiName}">测试</button>
-          <button class="btn btn-sm btn-danger custom-provider-delete-btn" data-id="${provider.id}">删除</button>
+          <button class="btn btn-sm btn-danger custom-provider-delete-btn" data-id="${escapeAttr(provider.id)}">删除</button>
         </div>
         <div class="custom-provider-body">
           <div class="api-field-group">
             <span class="api-field-label">显示名称</span>
-            <input type="text" class="custom-provider-field" data-provider-id="${provider.id}" data-field="name" value="${provider.name}">
+            <input type="text" class="custom-provider-field" data-provider-id="${escapeAttr(provider.id)}" data-field="name" value="${escapeAttr(provider.name)}">
           </div>
           <div class="api-field-group">
             <span class="api-field-label">API Key</span>
-            <input type="password" class="custom-provider-field" data-provider-id="${provider.id}" data-field="apiKey" value="${provider.apiKey}">
+            <input type="password" class="custom-provider-field" data-provider-id="${escapeAttr(provider.id)}" data-field="apiKey" value="${escapeAttr(provider.apiKey)}">
           </div>
           <div class="api-field-group">
             <span class="api-field-label">Endpoint</span>
-            <input type="text" class="custom-provider-field" data-provider-id="${provider.id}" data-field="endpoint" value="${provider.endpoint}">
+            <input type="text" class="custom-provider-field" data-provider-id="${escapeAttr(provider.id)}" data-field="endpoint" value="${escapeAttr(provider.endpoint)}">
           </div>
           <div class="api-field-group">
             <span class="api-field-label">模型</span>
-            <input type="text" class="custom-provider-field" data-provider-id="${provider.id}" data-field="model" value="${provider.model}">
+            <input type="text" class="custom-provider-field" data-provider-id="${escapeAttr(provider.id)}" data-field="model" value="${escapeAttr(provider.model)}">
           </div>
           <div class="api-field-group">
             <label class="toggle-switch" style="vertical-align:middle;">
@@ -858,7 +862,7 @@ function renderApiUsage() {
     const pct = Math.round((item.count / maxCount) * 100);
     return `
       <div class="api-usage-item">
-        <span class="api-usage-name">${item.displayName}</span>
+        <span class="api-usage-name">${escapeAttr(item.displayName)}</span>
         <div class="api-usage-bar"><div class="api-usage-bar-fill" style="width:${pct}%"></div></div>
         <span class="api-usage-count">${item.count.toLocaleString()} 字符</span>
       </div>

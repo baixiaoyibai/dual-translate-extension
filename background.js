@@ -3,18 +3,23 @@ import { apiManager } from './lib/api-manager.js';
 import { translationCache } from './lib/translation-cache.js';
 
 let initialized = false;
+let initPromise = null;
 
 async function init() {
   if (initialized) return;
-  await settingsManager.loadSettings();
-  await apiManager.init();
-  try { await translationCache.sweep(); } catch {}
-  setupContextMenu();
-  setupCommands();
-  // 定期维护：重置API配额 + 清理缓存
-  await settingsManager.resetApiQuotaIfNeeded();
-  try { await translationCache.sweep(); } catch {}
-  initialized = true;
+  if (initPromise) return initPromise;
+  initPromise = (async () => {
+    await settingsManager.loadSettings();
+    await apiManager.init();
+    try { await translationCache.sweep(); } catch {}
+    setupContextMenu();
+    setupCommands();
+    // 定期维护：重置API配额 + 清理缓存
+    await settingsManager.resetApiQuotaIfNeeded();
+    try { await translationCache.sweep(); } catch {}
+    initialized = true;
+  })();
+  return initPromise;
 }
 
 function setupContextMenu() {
