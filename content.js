@@ -31,8 +31,12 @@ function dtDebug() { if (dtLogLevel() >= 4) console.debug('[dual-translate]', ..
 // v1.0.2: 术语表匹配缓存（§3.3 / §10.2 修复）
 // 用闭包存 glossaryEntries，loadGlossary 后填充；applyGlossary 在每段翻译前查
 let glossaryEntries = [];
+// v1.0.4: 域名专属术语表（§3.3）— content script 用 hostname 查合并后的 entries
 function loadGlossary() {
-  return sendMessage('getGlossary').then(r => { glossaryEntries = (r && r.glossary) || []; }).catch(() => { glossaryEntries = []; });
+  const domain = location.hostname || '';
+  return sendMessage('getGlossaryForDomain', { domain })
+    .then(r => { glossaryEntries = (r && r.glossary) || []; })
+    .catch(() => { glossaryEntries = []; });
 }
 function applyGlossary(text) {
   if (!glossaryEntries.length || !text) return text;

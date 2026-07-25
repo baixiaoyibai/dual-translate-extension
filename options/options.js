@@ -1,5 +1,7 @@
 let settings = null;
-let glossaryEntries = [];
+// v1.0.4: 域名专属术语表（§3.3）— glossaryByDomain: { _global: [...], "host": [...], "*.wildcard": [...] }
+let glossaryByDomain = { _global: [] };
+let currentScope = '_global';
 let apiStatus = {};
 let dailyUsage = {};
 
@@ -94,7 +96,8 @@ async function loadAllData() {
   }
   const glossaryRes = await chrome.runtime.sendMessage({ action: 'getGlossary' });
   if (glossaryRes && glossaryRes.glossary) {
-    glossaryEntries = glossaryRes.glossary;
+    glossaryByDomain = glossaryRes.glossary;
+    if (!glossaryByDomain._global) glossaryByDomain._global = [];
   }
   const apiRes = await chrome.runtime.sendMessage({ action: 'getApiStatus' });
   if (apiRes && apiRes.status) {
@@ -295,14 +298,36 @@ document.getElementById('addExcludeBtn')?.addEventListener('click', () => {
   input.value = '';
 });
 
+function getCurrentEntries() {
+  if (!glossaryByDomain[currentScope]) glossaryByDomain[currentScope] = [];
+  return glossaryByDomain[currentScope];
+}
+
+function populateScopeSelect() {
+  const select = document.getElementById('glossaryScope');
+  if (!select) return;
+  select.innerHTML = '';
+  const keys = Object.keys(glossaryByDomain).sort((a, b) => {
+    if (a === '_global') return -1;
+    if (b === '_global') return 1;
+    return a.localeCompare(b);
+  });
+  for (const k of keys) {
+    const opt = document.createElement('option');
+    opt.value = k;
+    opt.textContent = (k === '_global') ? '🌐 全局' : k;
+    if (k === currentScope) opt.selected = true;
+    select.appendChild(opt);
+  }
+}
+
 function setupGlossaryManagement() {
-  renderGlossaryTable();
+  populateScopeSelect();
 
   document.getElementById('addGlossaryBtn').addEventListener('click', () => {
-    glossaryEntries.push({ source: '', target: '', matchType: 'exact', preserve: false });
+    getCurrentEntries().push({ source: '', target: '', matchType: 'exact', preserve: false });
     renderGlossaryTable();
     saveGlossary();
-    // 聚焦到新行第一个输入框（最后一个 tr 的 source input）
     const rows = document.querySelectorAll('#glossaryTable tbody tr');
     if (rows.length) {
       const lastRow = rows[rows.length - 1];
@@ -315,7 +340,8 @@ function setupGlossaryManagement() {
     const area = document.getElementById('importExportArea');
     area.style.display = 'block';
     const textarea = document.getElementById('importExportText');
-    textarea.value = JSON.stringify(glossaryEntries, null, 2);
+    // 导出仅当前 scope（v1.0.4 域名专属）
+    textarea.value = JSON.stringify(getCurrentEntries(), null, 2);
     const btn = document.getElementById('confirmImportBtn');
     const orig = btn.textContent;
     btn.textContent = '已导出 ✓';
@@ -338,7 +364,7 @@ function setupGlossaryManagement() {
     try {
       const data = JSON.parse(text);
       if (!Array.isArray(data)) throw new Error('格式错误');
-      glossaryEntries = data;
+      glossaryByDomain[currentScope] = data;
       renderGlossaryTable();
       saveGlossary();
       document.getElementById('importExportArea').style.display = 'none';
@@ -358,19 +384,63 @@ function setupGlossaryManagement() {
       const resp = await fetch(chrome.runtime.getURL('config/default-glossary.json'));
       const defaults = await resp.json();
       if (!Array.isArray(defaults)) throw new Error('默认术语表格式错误');
-      await chrome.runtime.sendMessage({ action: 'saveGlossary', glossary: defaults });
-      glossaryEntries = defaults;
+      // 恢复默认 → 写入 _global
+      glossaryByDomain._global = defaults;
+      // 清理其他 scope（让用户重头开始）
+      for (const k of Object.keys(glossaryByDomain)) {
+        if (k !== '_global') delete glossaryByDomain[k];
+      }
+      currentScope = '_global';
+      populateScopeSelect();
       renderGlossaryTable();
+      await saveGlossary();
       showSavedTip();
     } catch (e) {
       alert('恢复默认术语表失败：' + e.message);
     }
   });
+
+  // v1.0.4: 切换 scope 重新渲染
+  document.getElementById('glossaryScope').addEventListener('change', (e) => {
+    currentScope = e.target.value;
+    renderGlossaryTable();
+  });
+
+  // v1.0.4: 添加新域名 scope
+  document.getElementById('addScopeBtn').addEventListener('click', () => {
+    const input = document.getElementById('addCustomScope');
+    const host = (input.value || '').trim();
+    if (!host) { alert('请输入域名，如 example.com 或 *.example.com'); return; }
+    if (host === '_global') { alert('_global 是保留名'); return; }
+    if (glossaryByDomain[host]) { alert('该域名已存在'); currentScope = host; populateScopeSelect(); renderGlossaryTable(); return; }
+    // 简单校验：必须是字母数字 + . + - + *
+    if (!/^[a-z0-9.*-]+$/i.test(host)) { alert('域名格式无效'); return; }
+    glossaryByDomain[host] = [];
+    currentScope = host;
+    input.value = '';
+    populateScopeSelect();
+    renderGlossaryTable();
+    saveGlossary();
+  });
+
+  // v1.0.4: 删除当前 scope（_global 不可删）
+  document.getElementById('deleteScopeBtn').addEventListener('click', () => {
+    if (currentScope === '_global') { alert('全局范围不可删除'); return; }
+    if (!confirm(`确定删除域名范围 "${currentScope}" 的所有术语？`)) return;
+    delete glossaryByDomain[currentScope];
+    currentScope = '_global';
+    populateScopeSelect();
+    renderGlossaryTable();
+    saveGlossary();
+  });
+
+  renderGlossaryTable();
 }
 
 function renderGlossaryTable() {
   const tbody = document.getElementById('glossaryBody');
-  tbody.innerHTML = glossaryEntries.map((entry, i) => `
+  const entries = getCurrentEntries();
+  tbody.innerHTML = entries.map((entry, i) => `
     <tr>
       <td><input type="text" value="${escapeAttr(entry.source)}" data-index="${i}" data-field="source"></td>
       <td><input type="text" value="${escapeAttr(entry.target)}" data-index="${i}" data-field="target"></td>
@@ -394,7 +464,9 @@ function renderGlossaryTable() {
     input.addEventListener('change', () => {
       const idx = parseInt(input.dataset.index);
       const field = input.dataset.field;
-      glossaryEntries[idx][field] = input.type === 'checkbox' ? input.checked : input.value;
+      const arr = getCurrentEntries();
+      if (!arr[idx]) return;
+      arr[idx][field] = input.type === 'checkbox' ? input.checked : input.value;
       saveGlossary();
     });
   });
@@ -402,7 +474,9 @@ function renderGlossaryTable() {
   tbody.querySelectorAll('select[data-field]').forEach(select => {
     select.addEventListener('change', () => {
       const idx = parseInt(select.dataset.index);
-      glossaryEntries[idx].matchType = select.value;
+      const arr = getCurrentEntries();
+      if (!arr[idx]) return;
+      arr[idx].matchType = select.value;
       saveGlossary();
     });
   });
@@ -410,7 +484,9 @@ function renderGlossaryTable() {
   tbody.querySelectorAll('button[data-action="delete"]').forEach(btn => {
     btn.addEventListener('click', () => {
       const idx = parseInt(btn.dataset.index);
-      glossaryEntries.splice(idx, 1);
+      const arr = getCurrentEntries();
+      if (idx < 0 || idx >= arr.length) return;
+      arr.splice(idx, 1);
       renderGlossaryTable();
       saveGlossary();
     });
@@ -418,7 +494,7 @@ function renderGlossaryTable() {
 }
 
 async function saveGlossary() {
-  await chrome.runtime.sendMessage({ action: 'saveGlossary', glossary: glossaryEntries });
+  await chrome.runtime.sendMessage({ action: 'saveGlossary', glossary: glossaryByDomain });
 }
 
 function escapeAttr(str) {

@@ -276,6 +276,13 @@
           <button class="btn" id="importGlossaryBtn">⬆ 导入 JSON</button>
           <button class="btn btn-danger" id="resetGlossaryBtn" style="margin-left:auto;">恢复默认</button>
         </div>
+        <div class="glossary-scope-bar" style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
+          <label style="font-weight:500;">范围:</label>
+          <select id="glossaryScope" style="min-width:180px;"></select>
+          <input type="text" id="addCustomScope" placeholder="example.com 或 *.example.com" style="flex:1;min-width:200px;">
+          <button class="btn" id="addScopeBtn">+ 添加域名</button>
+          <button class="btn btn-danger btn-sm" id="deleteScopeBtn" title="删除当前范围的术语（仅该范围）">删除范围</button>
+        </div>
         <div class="import-export-area" id="importExportArea" style="display:none;">
           <textarea id="importExportText" placeholder="在此粘贴 JSON 格式的术语表..."></textarea>
           <div style="margin-top:8px;display:flex;gap:8px;">

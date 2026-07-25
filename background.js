@@ -137,6 +137,9 @@ async function handleMessage(message, sender) {
     case 'getGlossary':
       return { glossary: await settingsManager.getGlossary() };
 
+    case 'getGlossaryForDomain':
+      return { glossary: await settingsManager.getGlossaryForDomain(message.domain) };
+
     case 'saveGlossary':
       await settingsManager.saveGlossary(message.glossary);
       return { success: true };
