@@ -366,6 +366,18 @@
             <input type="number" id="retryInterval" value="5" min="1" max="60"> 分钟
           </div>
         </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">懒加载（视口内才翻译）</div>
+            <div class="setting-desc">开启后仅翻译当前可见的段落，滚动到新区域时再补全。可显著节省 API 配额并提升首屏速度</div>
+          </div>
+          <div class="setting-control">
+            <label class="toggle-switch">
+              <input type="checkbox" id="lazyTranslate" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
       </div>
 
       <div class="section-card">

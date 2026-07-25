@@ -895,6 +895,9 @@ function setupAdvancedSettings() {
   bindNumber('retryCount', 'advanced.retryCount', a.retryCount);
   bindNumber('retryInterval', 'advanced.retryInterval', a.retryInterval);
 
+  // v1.0.3: §3.4 懒加载开关
+  bindToggle('lazyTranslate', 'advanced.lazyTranslate', a.lazyTranslate !== false);
+
   // v1.0.2: §3.6 日志级别（0-4）
   const logLevelEl = document.getElementById('logLevel');
   if (logLevelEl) {

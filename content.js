@@ -559,8 +559,17 @@ async function startTranslation() {
     }
 
     updateLoadingProgress(0,segments.length,'已提取 '+segments.length+' 段文本');
-    placePendingSpans();
-    await translateSegments(segments, currentAbortController.signal);
+    // v1.0.3: 懒加载（§3.4 性能优化）—— 仅翻译视口内段落，滚动时再补全
+    const enableLazy = settings?.advanced?.lazyTranslate !== false
+      && currentMode !== HOVER && currentMode !== PANEL
+      && typeof IntersectionObserver !== 'undefined';
+    if (enableLazy) {
+      placePendingSpans();
+      await translateSegmentsLazy(segments, currentAbortController.signal);
+    } else {
+      placePendingSpans();
+      await translateSegments(segments, currentAbortController.signal);
+    }
     hideLoading();
     // v1.0.2: 翻译页面 title 和 img alt（§3.2 / §10.2 修复，独立于正文翻译）
     // 失败不抛错（已在函数内 try/catch）
@@ -819,6 +828,78 @@ function fillTranslations() {
 
 function normText(s){return String(s==null?'':s).trim().replace(/\s+/g,' ');}
 
+// v1.0.3: 懒加载翻译（§3.4 性能优化）—— 复用 translateSegments 子流程
+let lazyTranslateObserver = null;
+const lazyPendingSegs = new Map();
+const lazyObservedSegs = new Map();
+
+function teardownLazyObserver() {
+  if (lazyTranslateObserver) {
+    try { lazyTranslateObserver.disconnect(); } catch (e) { dtWarn('lazy observer disconnect:', e); }
+    lazyTranslateObserver = null;
+  }
+  lazyPendingSegs.clear();
+  lazyObservedSegs.clear();
+}
+
+function isSegInViewport(seg) {
+  try {
+    const anchor = seg.blockParent || (seg.node && seg.node.parentElement);
+    if (!anchor || !anchor.getBoundingClientRect) return false;
+    const r = anchor.getBoundingClientRect();
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    const vw = window.innerWidth || document.documentElement.clientWidth;
+    return r.bottom > -200 && r.top < vh + 200 && r.right > -200 && r.left < vw + 200;
+  } catch (e) { return false; }
+}
+
+async function translateSegmentsLazy(segs, signal) {
+  if (segs.length === 0) return;
+  teardownLazyObserver();
+  const initialSegs = segs.filter(isSegInViewport);
+  for (const seg of segs) {
+    if (!initialSegs.includes(seg)) lazyPendingSegs.set(seg.id, seg);
+  }
+  dtInfo('lazy translate: in-viewport =', initialSegs.length, '/ total =', segs.length);
+  if (!('IntersectionObserver' in window)) {
+    await translateSegments(segs, signal);
+    return;
+  }
+  lazyTranslateObserver = new IntersectionObserver((entries) => {
+    if (signal && signal.aborted) return;
+    const visibleSegs = [];
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      const span = e.target;
+      const segId = span && span.getAttribute && span.getAttribute('data-dt-seg');
+      if (!segId) continue;
+      const seg = lazyPendingSegs.get(segId);
+      if (!seg) continue;
+      lazyPendingSegs.delete(segId);
+      lazyObservedSegs.delete(segId);
+      try { lazyTranslateObserver.unobserve(span); } catch (_) {}
+      visibleSegs.push(seg);
+    }
+    if (visibleSegs.length > 0) {
+      translateSegments(visibleSegs, signal).catch(err => {
+        if (err && err.name !== 'AbortError') dtError('lazy translate batch error:', err);
+      });
+    }
+  }, { rootMargin: '200px', threshold: 0 });
+  const spans = document.querySelectorAll('.dual-translate-placeholder[data-dt-seg]');
+  spans.forEach(span => {
+    const segId = span.getAttribute('data-dt-seg');
+    if (!segId) return;
+    if (lazyPendingSegs.has(segId)) {
+      lazyObservedSegs.set(segId, span);
+      try { lazyTranslateObserver.observe(span); } catch (e) { dtWarn('lazy observe:', e); }
+    }
+  });
+  if (initialSegs.length > 0) {
+    await translateSegments(initialSegs, signal);
+  }
+}
+
 async function translateSegments(segs, signal) {
   if (segs.length===0) return;
   const batchSize=settings.advanced.batchSize||10;
@@ -1038,6 +1119,8 @@ function resetAll() {
   }
   if (mutationObserver) { mutationObserver.disconnect(); mutationObserver = null; }
   if (retranslateTimer) { clearTimeout(retranslateTimer); retranslateTimer = null; }
+  // v1.0.3: 清理懒加载 observer（§3.4）
+  if (typeof teardownLazyObserver === 'function') teardownLazyObserver();
   observerPaused = false;
   translationCompletedOnce = false;
   cleanupAllInjections();
