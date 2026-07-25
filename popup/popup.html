@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>双语翻译助手</title>
+  <link rel="stylesheet" href="popup.css">
+  <style>
+    .cancel-btn {
+      width: 100%;
+      padding: 10px;
+      margin-top: 8px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      background: #ff5722;
+      color: #fff;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .cancel-btn:hover { opacity: 0.9; }
+    .cancel-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      background: #999;
+    }
+    .cancel-btn.cancelling { 
+      background: #999; 
+    }
+  </style>
+</head>
+<body>
+  <div class="popup-container">
+    <div class="popup-header">
+      <h1 class="popup-title">双语翻译助手</h1>
+    </div>
+
+    <div class="popup-toggle">
+      <button id="toggleBtn" class="toggle-btn active">
+        <span class="toggle-icon">⏸</span>
+        <span class="toggle-text">关闭翻译</span>
+      </button>
+      <!-- 取消翻译按钮 -->
+      <button id="cancelBtn" class="cancel-btn" style="display:none;">
+        <span class="cancel-icon">✕</span>
+        <span class="cancel-text">取消翻译</span>
+      </button>
+    </div>
+
+    <div class="popup-section">
+      <div class="section-title">显示模式</div>
+      <div class="mode-selector" id="modeSelector">
+        <button class="mode-btn active" data-mode="bilingual">
+          <span class="mode-icon">📄</span>
+          <span class="mode-label">双语对照</span>
+        </button>
+        <button class="mode-btn" data-mode="translation-only">
+          <span class="mode-icon">🔄</span>
+          <span class="mode-label">仅译文</span>
+        </button>
+        <button class="mode-btn" data-mode="hover">
+          <span class="mode-icon">🖱</span>
+          <span class="mode-label">悬停翻译</span>
+        </button>
+        <button class="mode-btn" data-mode="panel">
+          <span class="mode-icon">📋</span>
+          <span class="mode-label">对照面板</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="popup-section">
+      <div class="section-title">源语言</div>
+      <div class="source-lang-selector">
+        <select id="sourceLangSelect">
+          <option value="auto">自动检测</option>
+          <option value="en">英文</option>
+          <option value="ja">日文</option>
+          <option value="all">所有非中文</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="popup-section">
+      <div class="section-title">API 状态</div>
+      <div id="apiStatus" class="api-status">
+        <div class="status-loading">加载中...</div>
+      </div>
+    </div>
+
+    <div class="popup-section">
+      <div class="section-title">缓存</div>
+      <div id="cacheInfo" class="cache-info" style="font-size:12px;color:#888;">
+        加载中...
+      </div>
+    </div>
+
+    <div class="popup-footer">
+      <button id="settingsBtn" class="footer-btn">⚙ 设置</button>
+      <button id="restoreBtn" class="footer-btn">↺ 还原原文</button>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

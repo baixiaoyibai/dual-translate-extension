@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>双语翻译助手 - 设置</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-header-icon">T</div>
+      <div>
+        <div class="sidebar-header-text">双语翻译助手</div>
+        <div class="sidebar-header-sub">设置中心</div>
+      </div>
+    </div>
+    <div class="sidebar-nav">
+      <button class="sidebar-tab active" data-tab="display">
+        <span class="tab-icon">🎨</span>显示设置
+      </button>
+      <button class="sidebar-tab" data-tab="rules">
+        <span class="tab-icon">📋</span>翻译规则
+      </button>
+      <button class="sidebar-tab" data-tab="glossary">
+        <span class="tab-icon">📖</span>术语管理
+      </button>
+      <button class="sidebar-tab" data-tab="api">
+        <span class="tab-icon">🔌</span>API 管理
+      </button>
+      <button class="sidebar-tab" data-tab="advanced">
+        <span class="tab-icon">⚙</span>高级设置
+      </button>
+    </div>
+    <div class="sidebar-footer">
+      <div class="sidebar-footer-hint">所有设置在修改后<br>自动保存生效</div>
+    </div>
+  </div>
+
+  <div class="main-content">
+    <div id="tab-display" class="tab-content active">
+      <h2>显示设置</h2>
+      <p class="section-subtitle">调整译文的显示样式</p>
+
+      <div class="section-card">
+        <div class="section-card-header">📄 基础显示</div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">默认显示模式</div>
+            <div class="setting-desc">新页面加载时使用的翻译显示模式</div>
+          </div>
+          <div class="setting-control">
+            <select id="defaultMode">
+              <option value="bilingual">双语对照</option>
+              <option value="translation-only">仅译文</option>
+              <option value="hover">悬停翻译</option>
+              <option value="panel">对照面板</option>
+            </select>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">译文文字颜色</div>
+            <div class="setting-desc">译文使用的文字颜色</div>
+          </div>
+          <div class="setting-control">
+            <input type="color" id="translationColor" value="#888888">
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">译文文字大小</div>
+            <div class="setting-desc">相对于原文的比例</div>
+          </div>
+          <div class="setting-control">
+            <select id="translationSize">
+              <option value="75%">75%</option>
+              <option value="80%">80%</option>
+              <option value="85%">85%（默认）</option>
+              <option value="90%">90%</option>
+              <option value="95%">95%</option>
+              <option value="100%">100%</option>
+            </select>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">译文字体</div>
+            <div class="setting-desc">留空则继承页面字体</div>
+          </div>
+          <div class="setting-control">
+            <input type="text" id="translationFont" placeholder="继承页面字体">
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">译文与原文间距</div>
+            <div class="setting-desc">行间距 / 段间距</div>
+          </div>
+          <div class="setting-control">
+            <input type="text" id="translationSpacing" value="4px">
+          </div>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">⏱ 交互设置</div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">悬停翻译触发延迟</div>
+            <div class="setting-desc">鼠标悬停后弹出译文浮层的延迟</div>
+          </div>
+          <div class="setting-control">
+            <input type="number" id="hoverDelay" value="200" min="0" max="2000"> ms
+          </div>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">📋 对照面板</div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">面板位置</div>
+            <div class="setting-desc">对照面板出现在页面的哪一侧</div>
+          </div>
+          <div class="setting-control">
+            <select id="panelPosition">
+              <option value="right">右侧</option>
+              <option value="bottom">底部</option>
+            </select>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">面板默认宽度</div>
+            <div class="setting-desc">面板初始宽度（右侧模式有效）</div>
+          </div>
+          <div class="setting-control">
+            <input type="number" id="panelWidth" value="400" min="200" max="800"> px
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-rules" class="tab-content">
+      <h2>翻译规则设置</h2>
+      <p class="section-subtitle">控制哪些内容需要翻译</p>
+
+      <div class="section-card">
+        <div class="section-card-header">🌐 语言检测</div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">仅翻译英语和日语</div>
+            <div class="setting-desc">忽略其他语言（如韩语、法语等）</div>
+          </div>
+          <div class="setting-control">
+            <label class="toggle-switch"><input type="checkbox" id="onlyEnJa" checked><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">📝 翻译范围</div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">翻译代码块内容</div>
+            <div class="setting-desc">翻译 &lt;code&gt; 和 &lt;pre&gt; 中的内容</div>
+          </div>
+          <div class="setting-control">
+            <label class="toggle-switch"><input type="checkbox" id="translateCodeBlocks"><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">最小翻译长度</div>
+            <div class="setting-desc">少于此字符数的文本跳过不翻译</div>
+          </div>
+          <div class="setting-control">
+            <input type="number" id="minTextLength" value="3" min="1" max="20"> 字符
+          </div>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">▶ 触发行为</div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">自动翻译</div>
+            <div class="setting-desc">在新页面加载完成后自动触发翻译</div>
+          </div>
+          <div class="setting-control">
+            <label class="toggle-switch"><input type="checkbox" id="autoTranslate" checked><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">右键菜单翻译</div>
+            <div class="setting-desc">右键菜单中添加"翻译选中文字"</div>
+          </div>
+          <div class="setting-control">
+            <label class="toggle-switch"><input type="checkbox" id="contextMenu" checked><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">翻译延迟</div>
+            <div class="setting-desc">页面加载完成后等待多久开始翻译</div>
+          </div>
+          <div class="setting-control">
+            <input type="number" id="translateDelay" value="500" min="0" max="10000"> ms
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">翻译缓存</div>
+            <div class="setting-desc">缓存已翻译的内容，避免重复请求</div>
+          </div>
+          <div class="setting-control">
+            <label class="toggle-switch"><input type="checkbox" id="translationCache" checked><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">🚫 网站排除列表</div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">列表模式</div>
+            <div class="setting-desc">黑名单：排除列表中的网站；白名单：仅翻译列表中的网站</div>
+          </div>
+          <div class="setting-control">
+            <select id="excludeMode">
+              <option value="blacklist">黑名单模式</option>
+              <option value="whitelist">白名单模式</option>
+            </select>
+          </div>
+        </div>
+        <div class="exclude-list" id="excludeList"></div>
+        <div class="add-exclude-form">
+          <input type="text" id="newExcludeDomain" placeholder="输入域名，如 *.example.com">
+          <button class="btn btn-primary" id="addExcludeBtn">添加</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-glossary" class="tab-content">
+      <h2>术语管理</h2>
+      <p class="section-subtitle">管理游戏和 MOD 社区的专业术语翻译规则</p>
+
+      <div class="section-card">
+        <div class="glossary-actions">
+          <button class="btn btn-primary" id="addGlossaryBtn">+ 添加术语</button>
+          <button class="btn" id="exportGlossaryBtn">⬇ 导出 JSON</button>
+          <button class="btn" id="importGlossaryBtn">⬆ 导入 JSON</button>
+          <button class="btn btn-danger" id="resetGlossaryBtn" style="margin-left:auto;">恢复默认</button>
+        </div>
+        <div class="import-export-area" id="importExportArea" style="display:none;">
+          <textarea id="importExportText" placeholder="在此粘贴 JSON 格式的术语表..."></textarea>
+          <div style="margin-top:8px;display:flex;gap:8px;">
+            <button class="btn btn-primary" id="confirmImportBtn">确认导入</button>
+            <button class="btn" id="cancelImportBtn">取消</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-card" style="padding:12px 0 0 0;">
+        <div class="glossary-table-wrap">
+          <table class="glossary-table" id="glossaryTable">
+            <thead>
+              <tr><th>原文术语</th><th>目标译文</th><th>匹配模式</th><th>保留原文</th><th style="width:60px;"></th></tr>
+            </thead>
+            <tbody id="glossaryBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-api" class="tab-content">
+      <h2>API 管理</h2>
+      <p class="section-subtitle">配置和管理翻译接口</p>
+      <div id="apiCardsContainer"></div>
+
+      <div class="section-card">
+        <div class="section-card-header">🧩 自定义大模型供应商</div>
+        <p class="setting-desc" style="margin-bottom:10px;">添加你自己的 LLM API 供应商（兼容 OpenAI 接口格式）</p>
+        <div id="customProvidersContainer"></div>
+        <button class="btn btn-primary" id="addCustomProviderBtn" style="margin-top:10px;">+ 添加供应商</button>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">📊 今日用量统计</div>
+        <p class="setting-desc" style="margin-bottom:10px;">各 API 今日已使用的字符数（每日 0 点重置）</p>
+        <div id="apiUsageContainer" class="api-usage-container">
+          <div class="status-loading">加载中...</div>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">🔢 API 使用优先级</div>
+        <p class="setting-desc" style="margin-bottom:8px;">拖拽调整翻译接口的使用顺序，排在上面的优先使用</p>
+        <div class="api-priority-list" id="apiPriorityList"></div>
+      </div>
+    </div>
+
+    <div id="tab-advanced" class="tab-content">
+      <h2>高级设置</h2>
+      <p class="section-subtitle">翻译引擎和网络请求参数</p>
+
+      <div class="section-card">
+        <div class="section-card-header">📡 请求配置</div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">批量翻译段落数</div>
+            <div class="setting-desc">每次 API 请求发送的段落数量</div>
+          </div>
+          <div class="setting-control">
+            <input type="number" id="batchSize" value="10" min="1" max="50"> 段
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">请求超时时间</div>
+            <div class="setting-desc">单次 API 请求的最大等待时间</div>
+          </div>
+          <div class="setting-control">
+            <input type="number" id="requestTimeout" value="10" min="1" max="60"> 秒
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">失败重试次数</div>
+            <div class="setting-desc">单个 API 失败后重试的次数（切换下一个前）</div>
+          </div>
+          <div class="setting-control">
+            <input type="number" id="retryCount" value="1" min="0" max="5"> 次
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">全部不可用时重试间隔</div>
+            <div class="setting-desc">所有 API 都不可用后多久重新尝试</div>
+          </div>
+          <div class="setting-control">
+            <input type="number" id="retryInterval" value="5" min="1" max="60"> 分钟
+          </div>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">🤖 大模型翻译 Prompt</div>
+        <p class="setting-desc" style="margin-bottom:12px;">自定义发送给大模型的翻译指令，可微调翻译效果</p>
+        <textarea id="llmPrompt" class="prompt-editor"></textarea>
+        <div style="margin-top:10px;display:flex;gap:8px;">
+          <button class="btn btn-primary" id="saveLlmPromptBtn">💾 保存 Prompt</button>
+          <button class="btn" id="resetLlmPromptBtn">↺ 恢复默认</button>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">💾 翻译缓存</div>
+        <p class="setting-desc" style="margin-bottom:12px;">已翻译的文本会缓存 3 天，再次遇到相同内容时直接使用缓存，无需重复调用 API。每次命中会自动刷新有效期。</p>
+        <div id="cacheStats" class="cache-stats" style="margin-bottom:10px;font-size:13px;color:#666;">加载中...</div>
+        <button class="btn btn-danger" id="clearCacheBtn">🗑 清除全部缓存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="saved-tip" id="savedTip">✓ 设置已保存</div>
+  <script src="options.js"></script>
+</body>
+</html>

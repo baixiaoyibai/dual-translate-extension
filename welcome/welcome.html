@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>欢迎使用双语翻译助手</title>
+  <link rel="stylesheet" href="welcome.css">
+</head>
+<body>
+  <div class="welcome-container">
+    <div class="welcome-icon">🌐</div>
+    <h1 class="welcome-title">欢迎使用双语翻译助手</h1>
+    <p class="welcome-subtitle">
+      一款强大的多模式网页翻译扩展，支持英语/日语翻译为简体中文<br>
+      自动 API 轮换，确保翻译永不中断
+    </p>
+
+    <div class="features">
+      <div class="feature-item">
+        <span class="feature-icon">📄</span>
+        <div class="feature-text">
+          <strong>双语对照</strong>原文+译文逐段对照显示
+        </div>
+      </div>
+      <div class="feature-item">
+        <span class="feature-icon">🔄</span>
+        <div class="feature-text">
+          <strong>仅译文模式</strong>替换为中文，悬停查看原文
+        </div>
+      </div>
+      <div class="feature-item">
+        <span class="feature-icon">🖱</span>
+        <div class="feature-text">
+          <strong>悬停翻译</strong>鼠标悬停段落即显示译文
+        </div>
+      </div>
+      <div class="feature-item">
+        <span class="feature-icon">📋</span>
+        <div class="feature-text">
+          <strong>对照面板</strong>右侧/底部同步对照面板
+        </div>
+      </div>
+      <div class="feature-item">
+        <span class="feature-icon">🔄</span>
+        <div class="feature-text">
+          <strong>API 自动轮换</strong>多平台冗余，宕机自动切换
+        </div>
+      </div>
+      <div class="feature-item">
+        <span class="feature-icon">🎮</span>
+        <div class="feature-text">
+          <strong>游戏术语优化</strong>内置游戏和 MOD 社区术语表
+        </div>
+      </div>
+    </div>
+
+    <div class="steps">
+      <h3 style="margin-bottom:16px;text-align:left;">快速开始（3步）</h3>
+      <div class="step-item">
+        <span class="step-number">1</span>
+        <div class="step-content">
+          <strong>配置一个翻译 API</strong><br>
+          在设置页面中启用并填写任一免费翻译 API 的密钥（百度翻译免费额度 200 万字符/月）
+        </div>
+      </div>
+      <div class="step-item">
+        <span class="step-number">2</span>
+        <div class="step-content">
+          <strong>选择默认显示模式</strong><br>
+          推荐"双语对照"模式，您可以在设置中切换为仅译文、悬停翻译或对照面板
+        </div>
+      </div>
+      <div class="step-item">
+        <span class="step-number">3</span>
+        <div class="step-content">
+          <strong>浏览外文网页体验翻译</strong><br>
+          打开任意英文或日文网页，扩展将自动检测语言并翻译为简体中文
+        </div>
+      </div>
+    </div>
+
+    <div class="welcome-actions">
+      <button class="btn btn-primary" id="goSettingsBtn">前往设置页面</button>
+      <button class="btn btn-secondary" id="closeBtn">稍后配置</button>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('goSettingsBtn').addEventListener('click', () => {
+      chrome.runtime.sendMessage({ action: 'openOptions' }).catch(() => {
+        chrome.runtime.openOptionsPage();
+      });
+    });
+
+    document.getElementById('closeBtn').addEventListener('click', () => {
+      chrome.runtime.sendMessage({ action: 'updateSettings', path: 'general.hasCompletedWelcome', value: true });
+      window.close();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,208 @@
+:root {
+  /* 亮色模式默认值 */
+  --dt-bg-primary: #ffffff;
+  --dt-bg-secondary: #f8f8f8;
+  --dt-bg-hover: #f5f5f5;
+  --dt-bg-highlight: #fff3cd;
+  --dt-bg-error: #fff3cd;
+  --dt-bg-progress: #f0f0f0;
+  --dt-text-primary: #333333;
+  --dt-text-secondary: #888888;
+  --dt-text-muted: #999999;
+  --dt-text-error: #856404;
+  --dt-text-brand: #1a73e8;
+  --dt-text-fail: #bbbbbb;
+  --dt-border-primary: #dddddd;
+  --dt-border-light: #f0f0f0;
+  --dt-border-error: #ffeaa7;
+  --dt-spinner-track: #e0e0e0;
+  --dt-spinner-active: #1a73e8;
+  --dt-shadow: rgba(0,0,0,0.12);
+}
+
+.dual-translate-translation {
+  color: var(--dt-text-secondary);
+  font-size: 85%;
+  margin-top: 4px;
+  display: block;
+  line-height: 1.6;
+  opacity: 0.85;
+  font-family: inherit;
+}
+
+.dual-translate-translation-inline {
+  color: var(--dt-text-secondary);
+  font-size: 85%;
+  opacity: 0.85;
+  font-family: inherit;
+}
+
+.dual-translate-replaced {
+  cursor: default;
+}
+
+.dual-translate-translation:hover {
+  opacity: 1;
+}
+
+.dual-translate-tooltip {
+  display: none;
+}
+
+.dual-translate-tooltip.visible {
+  display: block;
+}
+
+.dual-translate-hover {
+  transition: opacity 0.15s ease;
+}
+
+.dual-translate-hover.pinned {
+  cursor: pointer;
+}
+
+.dual-translate-panel {
+  transition: transform 0.3s ease;
+}
+
+.dual-translate-panel-row {
+  transition: background 0.15s ease;
+}
+
+.dual-translate-panel-row:hover {
+  background: var(--dt-bg-hover);
+}
+
+.dual-translate-panel-row.highlight {
+  background: var(--dt-bg-highlight) !important;
+}
+
+.dual-translate-loading-overlay {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 2147483646;
+  background: var(--dt-bg-primary);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px var(--dt-shadow);
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-size: 13px;
+  color: var(--dt-text-primary);
+  min-width: 200px;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: none;
+  user-select: none;
+}
+
+.dual-translate-loading-overlay.hiding {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+.dual-translate-loading-spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--dt-spinner-track);
+  border-top-color: var(--dt-spinner-active);
+  border-radius: 50%;
+  animation: dual-translate-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes dual-translate-spin {
+  to { transform: rotate(360deg); }
+}
+
+.dual-translate-loading-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dual-translate-loading-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--dt-text-brand);
+}
+
+.dual-translate-loading-subtitle {
+  font-size: 11px;
+  color: var(--dt-text-muted);
+  line-height: 1.4;
+}
+
+.dual-translate-loading-progress {
+  margin-top: 4px;
+  height: 3px;
+  background: var(--dt-bg-progress);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.dual-translate-loading-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #1a73e8, #4fc3f7);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.dual-translate-placeholder {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 2px 0;
+  opacity: 0.7;
+}
+
+.dual-translate-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--dt-spinner-track);
+  border-top-color: var(--dt-spinner-active);
+  border-radius: 50%;
+  animation: dual-translate-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.dual-translate-loader-text {
+  font-size: 11px;
+  color: var(--dt-text-muted);
+}
+
+/* 暗色模式支持 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* 暗色模式变量值 */
+    --dt-bg-primary: #1e1e2e;
+    --dt-bg-secondary: #252536;
+    --dt-bg-hover: #2a2a3c;
+    --dt-bg-highlight: #3d3520;
+    --dt-bg-error: #3d2e1c;
+    --dt-bg-progress: #2a2a3c;
+    --dt-text-primary: #e0e0e0;
+    --dt-text-secondary: #a0a0a0;
+    --dt-text-muted: #707070;
+    --dt-text-error: #f0c060;
+    --dt-text-brand: #6db3f2;
+    --dt-text-fail: #555555;
+    --dt-border-primary: #3a3a4a;
+    --dt-border-light: #2a2a3c;
+    --dt-border-error: #5a4a20;
+    --dt-spinner-track: #3a3a4a;
+    --dt-spinner-active: #6db3f2;
+    --dt-shadow: rgba(0,0,0,0.4);
+  }
+}
+
+/* 面板按钮文字颜色 */
+.dual-translate-panel button {
+  color: var(--dt-text-primary);
+}
