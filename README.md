@@ -2,13 +2,16 @@
 
 一个给 Edge / Chrome 浏览器用的翻译扩展（Manifest V3）。浏览英文或日文网页时，自动帮你翻译成简体中文，支持 4 种显示方式，内置 4 个免费翻译接口自动轮换，针对游戏攻略 / MOD 社区做了术语优化。
 
+> **版本变更历史请见 [CHANGELOG.md](./CHANGELOG.md)**，当前版本：**v1.0.5**（含 7 项 hotfix）
+
 ## 有什么用
 
 - 看英文 / 日文网页，自动翻成中文
 - 4 种显示方式（双语对照 / 仅译文 / 悬停翻译 / 对照面板）
-- 内置 4 个免费翻译接口，**配额耗尽自动切换下一个**，不会翻译中断
+- 内置 4 个免费翻译接口（默认启用），**配额耗尽自动切换下一个**，不会翻译中断
+- 另支持 4 个预置供应商（通义千问 / 智谱 GLM 付费版 / 零一万物 / 豆包），加自定义接口共 8+ 个可用
 - 内置 100+ 游戏 / MOD 社区专用术语（如 `tank→坦克`、`aggro→仇恨`、`load order→加载顺序`）
-- 支持自定义翻译接口（通义千问 / 智谱 GLM / 零一万物 / 豆包）
+- 支持自定义翻译接口（baseURL + API Key + model 即可接入）
 
 ## 安装方法
 
@@ -49,7 +52,7 @@
 
 ## 翻译接口
 
-扩展默认配置 4 个免费翻译接口，按以下优先级使用：
+扩展默认启用 4 个翻译接口（百度通用翻译 / 百度大模型翻译 / DeepSeek / 智谱 GLM），按以下优先级使用：
 
 **接口 1**　**百度翻译**（通用文本）　每月 200 万字　每月 1 号重置
 
@@ -61,16 +64,24 @@
 
 如果第一个接口配额耗尽，会自动切到第二个，依此类推。**全部用完会提示「所有翻译服务暂时不可用」**。
 
-### 添加自定义接口
+### 添加更多预置接口
 
-除了上面 4 个，还可以添加：
+除上面 4 个默认启用的接口外，扩展还预置了 4 个可启用的供应商（在「API 管理」里勾选即可）：
 
 - **通义千问**（阿里云百炼）：`https://dashscope.console.aliyun.com`
+- **智谱 GLM**（付费版，与免费版独立）：`https://open.bigmodel.cn`
 - **零一万物**：`https://platform.lingyiwanwu.com`
 - **豆包**（火山方舟）：`https://console.volcengine.com/ark`
-- 任意 OpenAI 兼容 API（自定义 baseURL + model）
 
-去设置页「API 管理」→ 点「+ 添加自定义接口」→ 填 baseURL、API Key、model → 保存 → 在优先级列表里拖到合适位置。
+加上前面 4 个默认启用的，共 **8 个预置供应商** 可在「API 管理」里自由调整优先级。
+
+### 添加自定义接口
+
+任何 OpenAI 兼容 API 都能接入：
+
+- 在「API 管理」点 **+ 添加自定义接口**
+- 填入 baseURL、API Key、model 三个字段
+- 保存后会自动加进 API 优先级列表，可拖拽调整顺序
 
 ## 设置说明
 
@@ -116,6 +127,25 @@
 - 翻译请求只发到你配置的翻译接口，**扩展本身不上传任何数据**
 - 排除列表默认包含 100+ 国内主流站点（百度、淘宝、B 站等），避免在中文页面误触发
 
+### 权限说明（`host_permissions: ["<all_urls>"]`）
+
+扩展声明了 `host_permissions: ["<all_urls>"]`，这是翻译类扩展的行业惯例（Google Translate、沉浸式翻译等同类扩展均采用）。需要该权限的原因：
+
+- **网页内容注入**：翻译功能依赖 content script 在任意网页上扫描段落文本、注入双语对照 / 译文节点。在 Manifest V3 中，content script 的注入受 `host_permissions` 约束，若权限不足，访问大多数网页时翻译脚本不会加载，核心功能将完全失效。
+- **自定义翻译接口**：用户可在「API 管理」中填入**任意 baseURL** 的 OpenAI 兼容接口。这些请求由 Service Worker 发起，必须有对应 host 权限才能跨域访问。由于 baseURL 由用户自由配置、域名不可穷举，无法用预置域名列表覆盖。
+
+**为什么不用 `optional_host_permissions` 动态申请？**
+
+- 对 content script 不可行：`chrome.permissions.request` 必须在用户手势（点击）中调用，而用户访问新网页时没有可用的手势上下文，无法在导航时自动授权，会导致每打开一个新站点都要手动点扩展图标授权，体验不可接受。
+- 仅对自定义 API 部分可行，但需要额外处理 URL 解析、编辑后旧权限回收、测试按钮前置授权等边界情况，且 `<all_urls>` 作为可选权限申请会触发更显著的警告，得不偿失。
+
+**扩展不会做什么（可审计承诺）**：
+
+- 扩展**不会**把页面内容上传到任何第三方服务器——翻译请求只发往你在设置页配置的翻译接口（百度 / DeepSeek / 智谱 / 自定义等），请求内容仅限待翻译的文本片段
+- 扩展**不会**收集浏览历史、Cookie、账号信息或任何身份标识
+- 源码按 MIT 协议开源，CSP 严格限制为 `script-src 'self'; object-src 'self'`，**不允许加载或执行任何远程代码**，杜绝远程脚本注入风险
+- API 密钥存在 `chrome.storage.local`，**不跨设备同步**，不上传到任何服务器
+
 ### 数据存储说明
 
 扩展会把以下数据存在浏览器本地（`chrome.storage.local`），**不会上传到任何服务器**：
@@ -132,7 +162,7 @@
 dual-translate-extension/
 ├── manifest.json                  扩展配置
 ├── background.js                  Service Worker，管理 IPC 和初始化
-├── content.js                     注入网页的翻译脚本（900+ 行）
+├── content.js                     注入网页的翻译脚本（1200+ 行）
 ├── content.css                    翻译 UI 样式
 ├── popup/                         扩展图标弹出面板
 │   ├── popup.html
@@ -146,14 +176,15 @@ dual-translate-extension/
 │   ├── api-manager.js             API 调度、优先级、错误恢复
 │   ├── settings-manager.js        用户配置管理（含密钥隔离）
 │   ├── translation-cache.js       翻译结果缓存（LRU + 3天 TTL）
+│   ├── escape-utils.js            HTML 转义工具（v1.0.5 新增，安全修复）
+│   ├── logger.js                  日志模块（按 logLevel 过滤）
 │   └── api-adapters/
 │       ├── baidu.js               百度通用翻译
 │       ├── baidu-llm.js           百度大模型翻译
 │       └── llm-generic.js         DeepSeek / GLM / 自定义 LLM
 ├── config/
 │   ├── default-glossary.json      默认术语表
-│   ├── llm-prompt.txt             LLM 翻译 prompt 模板
-│   └── api-keys.json              占位文件，密钥在 chrome.storage.local
+│   └── llm-prompt.txt             LLM 翻译 prompt 模板
 ├── welcome/                       安装引导页
 └── icons/                         扩展图标
 ```
