@@ -294,23 +294,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
-const INSTALLED_KEYS_KEY = 'dual_translate_installed_keys';
-
 chrome.runtime.onInstalled.addListener(async (details) => {
   const INSTALLED_KEYS_KEY = 'dual_translate_installed_keys';
   async function migrateApiKeysToStorage() {
     const existing = await chrome.storage.local.get(INSTALLED_KEYS_KEY);
     if (existing[INSTALLED_KEYS_KEY] && Object.keys(existing[INSTALLED_KEYS_KEY]).length > 0) {
       return;
-    }
-    try {
-      const resp = await fetch(chrome.runtime.getURL('config/api-keys.json'));
-      if (!resp.ok) return;
-      const keysData = await resp.json();
-      if (!keysData || typeof keysData !== 'object') return;
-      await chrome.storage.local.set({ [INSTALLED_KEYS_KEY]: keysData });
-    } catch (error) {
-      console.warn('Failed to migrate API keys:', error);
     }
   }
 

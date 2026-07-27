@@ -1,5 +1,6 @@
 let currentMode = 'bilingual';
 let translationEnabled = true;
+let cachedSettings = null;
 let cancelPollTimer = null;
 
 // 防御性兜底: 如果 lib/escape-utils.js 加载失败, popup 仍能渲染
@@ -32,6 +33,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function loadState() {
   const response = await chrome.runtime.sendMessage({ action: 'getSettings' });
+  cachedSettings = response?.settings || null;
   if (response && response.settings) {
     currentMode = response.settings.general.lastMode || response.settings.display.defaultMode || 'bilingual';
     translationEnabled = response.settings.general.translationEnabled !== false;
@@ -117,9 +119,9 @@ function stopCancelButtonPolling() {
 }
 
 async function loadSourceLanguage() {
-  const response = await chrome.runtime.sendMessage({ action: 'getSettings' });
-  if (response && response.settings && response.settings.api) {
-    const sourceLang = response.settings.api.sourceLanguage || 'auto';
+  const settings = cachedSettings;
+  if (settings && settings.api) {
+    const sourceLang = settings.api.sourceLanguage || 'auto';
     const select = document.getElementById('sourceLangSelect');
     if (select) {
       select.value = sourceLang;

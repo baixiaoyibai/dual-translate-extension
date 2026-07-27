@@ -1128,7 +1128,7 @@ function updatePanel(segSubset) {
 }
 
 function positionAt(el,x,y){const r=el.getBoundingClientRect();let px=x,py=y;if(px+r.width>window.innerWidth)px=x-r.width-12;if(py+r.height>window.innerHeight)py=y-r.height-12;el.style.left=Math.max(0,px)+'px';el.style.top=Math.max(0,py)+'px';}
-function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function escapeHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function toggleTranslation() {
   if (isTranslating) return;
   if (segments.length > 0 || translationCache.size > 0) {
