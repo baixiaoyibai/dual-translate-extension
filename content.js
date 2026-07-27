@@ -355,6 +355,8 @@ async function checkAndTranslate(url) {
   if (!shouldTranslateWithSource(lang)) return;
   setTimeout(() => startTranslation(), settings.trigger.translateDelay||500);
 }
+// NOTE: 此函数与 settings-manager.js._hostMatches 逻辑相同，
+// 因 content script 无法 import ESM，只能内联保留副本。修改时需同步两处。
 function hostMatchesPattern(hostname, pattern) {
   try {
     let p = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1240,7 +1242,7 @@ chrome.runtime.onMessage.addListener((m,s,resp)=>{
   })();return true;
 });
 
-(function init(){loadSettings().then(()=>{if(settings&&settings.general.translationEnabled!==false&&settings.trigger.autoTranslate){const url=location.href;if(url.startsWith('http')&&shouldAutoTranslate(new URL(url).hostname)){/* 由 background 触发翻译，content 仅预加载 settings 避免双触发 */}}});})();
+loadSettings();
 
 // SPA 路由变化时清理模块级状态，避免跨页面污染
 window.addEventListener('popstate', () => { try { resetAll(); } catch (err) { dtError('popstate reset error:', err); } });

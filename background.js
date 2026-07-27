@@ -21,7 +21,6 @@ async function init() {
     setupCommands();
     // 定期维护：重置API配额 + 清理缓存
     await settingsManager.resetApiQuotaIfNeeded();
-    try { await translationCache.sweep(); } catch {}
     initialized = true;
   })();
   return initPromise;
@@ -295,21 +294,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 });
 
 chrome.runtime.onInstalled.addListener(async (details) => {
-  const INSTALLED_KEYS_KEY = 'dual_translate_installed_keys';
-  async function migrateApiKeysToStorage() {
-    const existing = await chrome.storage.local.get(INSTALLED_KEYS_KEY);
-    if (existing[INSTALLED_KEYS_KEY] && Object.keys(existing[INSTALLED_KEYS_KEY]).length > 0) {
-      return;
-    }
-  }
-
   if (details.reason === 'install') {
-    await migrateApiKeysToStorage();
     await init();
     await settingsManager.updateSetting('general.hasCompletedWelcome', false);
     chrome.tabs.create({ url: chrome.runtime.getURL('welcome/welcome.html') });
   } else if (details.reason === 'update') {
-    await migrateApiKeysToStorage();
     await init();
   }
 });

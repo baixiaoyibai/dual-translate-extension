@@ -149,17 +149,7 @@ async function loadApiStatus() {
 
 function renderApiStatus(statusMap, configuredCount, availableCount) {
   const container = document.getElementById('apiStatus');
-  const displayNames = {
-    baidu: '百度翻译',
-    deepseek: 'DeepSeek',
-    glm: '智谱GLM(免费)',
-    baidu_llm: '百度大模型翻译',
-    tongyi: '通义千问',
-    zhipu: '智谱GLM',
-    yi: '零一万物',
-    doubao: '豆包',
-    custom: '自定义大模型'
-  };
+  const displayNames = (typeof API_DISPLAY_NAMES !== 'undefined') ? API_DISPLAY_NAMES : {};
   const statusTexts = {
     available: '可用',
     quota_exceeded: '额度不足',

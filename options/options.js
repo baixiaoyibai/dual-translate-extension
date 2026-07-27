@@ -5,18 +5,7 @@ let currentScope = '_global';
 let apiStatus = {};
 let dailyUsage = {};
 
-const API_DISPLAY_NAMES = {
-  baidu: '百度翻译',
-  deepseek: 'DeepSeek',
-  glm: '智谱GLM(免费)',
-  baidu_llm: '百度大模型翻译',
-  tongyi: '通义千问',
-  zhipu: '智谱GLM',
-  yi: '零一万物',
-  doubao: '豆包',
-  custom: '自定义大模型'
-};
-
+const API_DISPLAY_NAMES = (typeof window !== 'undefined' && window.API_DISPLAY_NAMES) ? window.API_DISPLAY_NAMES : {};
 const API_CONFIG_FIELDS = {
   baidu: [
     { key: 'appId', label: 'App ID', type: 'text' },
@@ -50,27 +39,8 @@ const API_CONFIG_FIELDS = {
   ]
 };
 
-const DEFAULT_API_ENDPOINTS = {
-  baidu: 'https://fanyi-api.baidu.com/api/trans/vip/translate',
-  deepseek: 'https://api.deepseek.com',
-  glm: 'https://open.bigmodel.cn/api/paas/v4',
-  baidu_llm: 'https://fanyi-api.baidu.com/ait/api/aiTextTranslate',
-  tongyi: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  zhipu: 'https://open.bigmodel.cn/api/paas/v4',
-  yi: 'https://api.lingyiwanwu.com',
-  doubao: 'https://ark.cn-beijing.volces.com/api/v3',
-  custom: ''
-};
-
-const DEFAULT_API_MODELS = {
-  deepseek: 'deepseek-chat',
-  glm: 'GLM-4-Flash-250414',
-  tongyi: 'qwen-plus',
-  zhipu: 'glm-4-flash',
-  yi: 'yi-34b-chat',
-  doubao: 'doubao-pro-32k',
-  custom: ''
-};
+const DEFAULT_API_ENDPOINTS = (typeof window !== 'undefined' && window.API_ENDPOINTS_DEFAULT) ? window.API_ENDPOINTS_DEFAULT : {};
+const DEFAULT_API_MODELS = (typeof window !== 'undefined' && window.API_MODELS_DEFAULT) ? window.API_MODELS_DEFAULT : {};
 
 document.addEventListener('DOMContentLoaded', async () => {
   await chrome.runtime.sendMessage({ action: 'reloadApis' });
@@ -511,13 +481,23 @@ async function saveGlossary() {
   await chrome.runtime.sendMessage({ action: 'saveGlossary', glossary: glossaryByDomain });
 }
 
-function escapeAttr(str) {
-  return String(str == null ? '' : str)
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+if (typeof window.escapeAttr !== 'function') {
+  window.escapeAttr = function(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  };
+}
+if (typeof window.escapeHtml !== 'function') {
+  window.escapeHtml = function(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  };
 }
 
 function setupApiManagement() {
@@ -528,6 +508,7 @@ function setupApiManagement() {
 }
 
 function getApiDisplayName(apiName) {
+  if (typeof window.getApiDisplayName === 'function') return window.getApiDisplayName(apiName, settings?.api?.customProviders);
   if (API_DISPLAY_NAMES[apiName]) return API_DISPLAY_NAMES[apiName];
   if (apiName.startsWith('custom_')) {
     const provider = (settings.api.customProviders || []).find(p => p.id === apiName.slice(7));
