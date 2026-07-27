@@ -1241,9 +1241,21 @@ chrome.runtime.onMessage.addListener((m,s,resp)=>{
 
 loadSettings();
 
-// SPA 路由变化时清理模块级状态，避免跨页面污染
-window.addEventListener('popstate', () => { try { resetAll(); } catch (err) { dtError('popstate reset error:', err); } });
-window.addEventListener('hashchange', () => { try { resetAll(); } catch (err) { dtError('hashchange reset error:', err); } });
+// SPA 路由变化时清理模块级状态并重新翻译
+function onSpaRouteChange() {
+  try {
+    resetAll();
+    if (settings && settings.general.translationEnabled !== false && settings.trigger.autoTranslate) {
+      isTranslating = false;
+      const url = location.href;
+      if (url.startsWith('http') && shouldAutoTranslate(new URL(url).hostname)) {
+        setTimeout(() => startTranslation(), settings.trigger.translateDelay || 500);
+      }
+    }
+  } catch (err) { dtError('spa route change error:', err); }
+}
+window.addEventListener('popstate', onSpaRouteChange);
+window.addEventListener('hashchange', onSpaRouteChange);
 
 // 监听 display 颜色/字体变化，通过 CSS 变量实时更新所有译文样式
 chrome.storage.onChanged.addListener((changes, area) => {
