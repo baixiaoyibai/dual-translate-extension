@@ -311,7 +311,19 @@ async function loadSettings() {
   if (settings) currentMode = settings.general.lastMode||settings.display.defaultMode||BILINGUAL;
   // v1.0.5 hotfix: 改成 await, 保证首屏翻译能用到术语表
   await loadGlossary();
+  applyTranslationStyles();
   return settings;
+}
+
+// 将译文样式设置到 :root CSS 变量，所有 .dual-translate-translation 自动跟随
+// 修改样式时只需调一次此函数，无需遍历 DOM 逐个更新
+function applyTranslationStyles() {
+  if (!settings || !settings.display) return;
+  const root = document.documentElement;
+  root.style.setProperty('--dt-trans-color', settings.display.translationColor || '#888888');
+  root.style.setProperty('--dt-trans-size', settings.display.translationSize || '85%');
+  root.style.setProperty('--dt-trans-spacing', settings.display.translationSpacing || '4px');
+  root.style.setProperty('--dt-trans-font', settings.display.translationFont || 'inherit');
 }
 async function checkAndTranslate(url) {
   await loadSettings();
@@ -529,7 +541,7 @@ function resumeObserver() {
   observerPaused = false;
 }
 
-async function startTranslation() {
+async function startTranslation(opts = {}) {
   if (isTranslating) return;
   isTranslating = true;
   currentAbortController = new AbortController();
@@ -538,7 +550,9 @@ async function startTranslation() {
     await sendMessage('setIconState', { state: 'translating' });
     cleanupAllInjections();
     translationCache.clear(); // 必须清空页面级缓存，避免跨页面污染
-    showLoading('正在分析页面...', '提取需要翻译的文本段落');
+    if (!opts.silent) {
+      showLoading('正在分析页面...', '提取需要翻译的文本段落');
+    }
     await new Promise(r=>setTimeout(r,30));
     segments = extractSegments();
     if (segments.length===0) {
@@ -794,11 +808,6 @@ function placePendingSpans() {
 }
 
 function fillTranslations() {
-  const color = settings.display.translationColor;
-  const size = settings.display.translationSize;
-  const spacing = settings.display.translationSpacing;
-  const font = settings.display.translationFont;
-
   const translationMode = currentMode;
   const placeholders = [];
   
@@ -811,12 +820,10 @@ function fillTranslations() {
     ph.classList.add('dual-translate-translation');
     if(translation&&translation.length>0){
       ph.textContent = translation;
-      ph.style.cssText = `color:${color};font-size:${size};margin-top:${spacing};display:block;line-height:1.6;opacity:0.85;`;
     }else{
       ph.textContent = '【该段翻译失败】';
-      ph.style.cssText = `color:var(--dt-text-fail);font-size:${size};margin-top:${spacing};display:block;line-height:1.6;opacity:0.6;font-style:italic;`;
+      ph.classList.add('dual-translate-failed');
     }
-    if (font) ph.style.fontFamily = font;
     placeholders.push({ segId, ph });
   });
   
@@ -1121,7 +1128,7 @@ function switchMode(nm) {
   // 不动 resetAll 函数体, 避免影响 popstate / hashchange 等其他调用点
   isTranslating = false;
   if(settings&&settings.general.translationEnabled!==false){
-    startTranslation();
+    startTranslation({ silent: true });
   }
 }
 function resetAll() {
@@ -1170,6 +1177,7 @@ chrome.runtime.onMessage.addListener((m,s,resp)=>{
     switch(m.action){
       case'checkAndTranslate':await checkAndTranslate(m.url);resp({success:true});break;
       case'toggleTranslate':toggleTranslation();resp({success:true});break;
+      case'startTranslation':startTranslation();resp({success:true});break;
       case'switchMode':switchMode(m.mode);resp({success:true});break;
       case'getStatus':resp({mode:currentMode,translating:isTranslating,segmentCount:segments.length});break;
       case'showSelectionTranslation':showSelectionTranslation(m.original,m.translation);resp({success:true});break;
@@ -1196,18 +1204,18 @@ chrome.runtime.onMessage.addListener((m,s,resp)=>{
 window.addEventListener('popstate', () => { try { resetAll(); } catch (err) { dtError('popstate reset error:', err); } });
 window.addEventListener('hashchange', () => { try { resetAll(); } catch (err) { dtError('hashchange reset error:', err); } });
 
-// 监听 display 颜色/字体变化，实时更新已渲染的译文样式
+// 监听 display 颜色/字体变化，通过 CSS 变量实时更新所有译文样式
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'sync' || !settings) return;
   const sc = changes.dual_translate_settings;
   if (!sc) return;
+  const newS = sc.newValue;
+  if (!newS) return;
   const oldD = sc.oldValue && sc.oldValue.display;
-  const newD = sc.newValue && sc.newValue.display;
+  const newD = newS.display;
   if (!newD || JSON.stringify(oldD) === JSON.stringify(newD)) return;
-  const newColor = newD.translationColor, newFont = newD.translationFont, newSize = newD.translationSize;
-  document.querySelectorAll('.dual-translate-translation').forEach(el => {
-    if (newColor) el.style.color = newColor;
-    if (newFont) el.style.fontFamily = newFont;
-    if (newSize) el.style.fontSize = newSize + 'px';
-  });
+  // 更新内存中的 settings
+  settings = newS;
+  // 通过 CSS 变量一次性更新所有译文样式，无需遍历 DOM
+  applyTranslationStyles();
 });

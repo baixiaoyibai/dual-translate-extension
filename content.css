@@ -4,30 +4,41 @@
   --dt-bg-secondary: #f8f8f8;
   --dt-bg-hover: #f5f5f5;
   --dt-bg-highlight: #fff3cd;
-  --dt-bg-error: #fff3cd;
+  --dt-bg-error: #fde8e8;
   --dt-bg-progress: #f0f0f0;
   --dt-text-primary: #333333;
   --dt-text-secondary: #888888;
   --dt-text-muted: #999999;
-  --dt-text-error: #856404;
+  --dt-text-error: #c62828;
   --dt-text-brand: #1a73e8;
   --dt-text-fail: #bbbbbb;
   --dt-border-primary: #dddddd;
   --dt-border-light: #f0f0f0;
-  --dt-border-error: #ffeaa7;
+  --dt-border-error: #f5c2c2;
   --dt-spinner-track: #e0e0e0;
   --dt-spinner-active: #1a73e8;
   --dt-shadow: rgba(0,0,0,0.12);
+  /* 译文样式变量（由 content.js applyTranslationStyles 动态设置） */
+  --dt-trans-color: #888888;
+  --dt-trans-size: 85%;
+  --dt-trans-spacing: 4px;
+  --dt-trans-font: inherit;
 }
 
 .dual-translate-translation {
-  color: var(--dt-text-secondary);
-  font-size: 85%;
-  margin-top: 4px;
+  color: var(--dt-trans-color);
+  font-size: var(--dt-trans-size);
+  margin-top: var(--dt-trans-spacing);
   display: block;
   line-height: 1.6;
   opacity: 0.85;
-  font-family: inherit;
+  font-family: var(--dt-trans-font);
+}
+
+.dual-translate-translation.dual-translate-failed {
+  color: var(--dt-text-fail);
+  opacity: 0.6;
+  font-style: italic;
 }
 
 .dual-translate-translation-inline {
@@ -177,17 +188,17 @@
     --dt-bg-secondary: #252536;
     --dt-bg-hover: #2a2a3c;
     --dt-bg-highlight: #3d3520;
-    --dt-bg-error: #3d2e1c;
+    --dt-bg-error: #3d1e1e;
     --dt-bg-progress: #2a2a3c;
     --dt-text-primary: #e0e0e0;
     --dt-text-secondary: #a0a0a0;
     --dt-text-muted: #707070;
-    --dt-text-error: #f0c060;
+    --dt-text-error: #ef9a9a;
     --dt-text-brand: #6db3f2;
     --dt-text-fail: #555555;
     --dt-border-primary: #3a3a4a;
     --dt-border-light: #2a2a3c;
-    --dt-border-error: #5a4a20;
+    --dt-border-error: #5a2e2e;
     --dt-spinner-track: #3a3a4a;
     --dt-spinner-active: #6db3f2;
     --dt-shadow: rgba(0,0,0,0.4);
