@@ -250,7 +250,7 @@ function bindToggle(elementId, path, value) {
     let current = settings;
     for (let i = 0; i < keys.length - 1; i++) current = current[keys[i]];
     current[keys[keys.length - 1]] = el.checked;
-    if (path === 'trigger.contextMenu' || path === 'trigger.autoTranslate') {
+    if (path === 'trigger.contextMenu' || path === 'trigger.autoTranslate' || path === 'trigger.translationCache') {
       chrome.runtime.sendMessage({ action: 'reloadApis' });
     }
     showSavedTip();
@@ -721,7 +721,7 @@ function renderApiCards() {
       btn.textContent = '测试中...';
       btn.disabled = true;
       let config = settings.api.apiKeys?.[apiName] || {};
-      
+
       // 处理自定义供应商的测试配置
       if (apiName.startsWith('custom_')) {
         const provider = (settings.api.customProviders || []).find(p => p.id === apiName.slice(7));
@@ -734,13 +734,23 @@ function renderApiCards() {
           };
         }
       }
-      
+
       const res = await chrome.runtime.sendMessage({ action: 'testApi', apiName, apiConfig: config });
       btn.disabled = false;
       if (res && res.success) {
         btn.textContent = '✓ 成功';
         btn.style.background = '#4CAF50';
         btn.style.color = '#fff';
+        // v1.0.5 hotfix: 测试成功时刷新本地 apiStatus 缓存并重渲染, 让状态 badge 立即反映新状态
+        // 否则 background 已写 status='available' (api-manager.js testApi), 但 options 页面内存里还是旧 error
+        try {
+          const fresh = await chrome.runtime.sendMessage({ action: 'getApiStatus' });
+          if (fresh && fresh.status) {
+            apiStatus = fresh.status;
+            renderApiCards();
+            renderApiUsage();
+          }
+        } catch {}
         btn._testRestoreTimer = setTimeout(() => { btn.textContent = '测试'; btn.style.background = ''; btn.style.color = ''; btn._testRestoreTimer = null; }, 2000);
       } else {
         btn.textContent = '✗ 失败';
@@ -908,6 +918,15 @@ function renderCustomProviders() {
         btn.textContent = '✓ 成功';
         btn.style.background = '#4CAF50';
         btn.style.color = '#fff';
+        // v1.0.5 hotfix: 自定义供应商测试成功时也刷新 status + 重渲染
+        try {
+          const fresh = await chrome.runtime.sendMessage({ action: 'getApiStatus' });
+          if (fresh && fresh.status) {
+            apiStatus = fresh.status;
+            renderApiCards();
+            renderApiUsage();
+          }
+        } catch {}
         btn._testRestoreTimer = setTimeout(() => { btn.textContent = '测试'; btn.style.background = ''; btn.style.color = ''; btn._testRestoreTimer = null; }, 2000);
       } else {
         btn.textContent = '✗ 失败';
@@ -1051,7 +1070,7 @@ async function loadLlmPrompt() {
 }
 
 // 添加自定义供应商
-document.addEventListener('DOMContentLoaded', () => {
+(() => {
   document.getElementById('addCustomProviderBtn')?.addEventListener('click', () => {
     const providers = settings.api.customProviders || [];
     const newProvider = {
@@ -1082,4 +1101,4 @@ document.addEventListener('DOMContentLoaded', () => {
       showSavedTip();
     });
   });
-});
+})();

@@ -306,7 +306,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
       if (!keysData || typeof keysData !== 'object') return;
       await chrome.storage.local.set({ [INSTALLED_KEYS_KEY]: keysData });
     } catch (error) {
-      console.log('Failed to migrate API keys:', error);
+      console.warn('Failed to migrate API keys:', error);
     }
   }
 

@@ -309,8 +309,8 @@ async function loadSettings() {
   const resp = await sendMessage('getSettings');
   settings = resp.settings;
   if (settings) currentMode = settings.general.lastMode||settings.display.defaultMode||BILINGUAL;
-  // v1.0.2: 并行加载术语表（独立失败，glossary 缺不影响翻译）
-  loadGlossary();
+  // v1.0.5 hotfix: 改成 await, 保证首屏翻译能用到术语表
+  await loadGlossary();
   return settings;
 }
 async function checkAndTranslate(url) {
@@ -1098,23 +1098,31 @@ function toggleTranslation() {
 }
 function switchMode(nm) {
   if(nm===currentMode)return;
-  currentMode=nm;if(settings){settings.general.lastMode=nm;settings.display.defaultMode=nm;}
+  currentMode=nm;
+  if(settings){settings.general.lastMode=nm;settings.display.defaultMode=nm;}
   sendMessage('updateSettings',{path:'general.lastMode',value:nm});
   sendMessage('updateSettings',{path:'display.defaultMode',value:nm});
-  if(segments.length>0&&translationCache.size>0){
-    cleanupAllInjections();
-    segments.forEach(seg => {
-      seg._originalHidden = false;
-      seg._hiddenSpan = null;
-      seg._hiddenSpans = null;
-    });
-    placePendingSpans();
-    fillTranslations();
-    if(currentMode===HOVER)updateHover(segments);
-    if(currentMode===PANEL)updatePanel(segments);
+  // 切模式统一走 resetAll + startTranslation 全流程
+  // 原因：in-place 重渲染（旧的 cleanupAllInjections+placePendingSpans+fillTranslations
+  //   +hideOriginalText 路径）会留下 detached seg.node，导致 TRANSLATION_ONLY 模式下
+  //   hideOriginalText 的 replaceChild 静默失败，原文不被隐藏，视觉上还是双语。
+  // 由 startTranslation 重新提取 segments 后，fillTranslations 内的 hideOriginalText
+  // (line 823-829) 才能在 fresh DOM 上正确工作。
+  if(isTranslating){
+    // 正在翻译中：先 abort 当前批次，新的 startTranslation 会自然走完
+    if(currentAbortController){
+      currentAbortController.abort();
+      currentAbortController=null;
+    }
   }
-  else if(settings&&settings.general.translationEnabled!==false){resetAll();startTranslation();}
-  else{resetAll();}
+  resetAll();
+  // v1.0.5 hotfix: resetAll 本身不清 isTranslating, 但这里必须清掉才能让
+  // startTranslation 内部 line 533 的 guard 放行。仅在 switchMode 路径清,
+  // 不动 resetAll 函数体, 避免影响 popstate / hashchange 等其他调用点
+  isTranslating = false;
+  if(settings&&settings.general.translationEnabled!==false){
+    startTranslation();
+  }
 }
 function resetAll() {
   if (currentAbortController) {
