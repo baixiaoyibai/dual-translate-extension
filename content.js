@@ -69,13 +69,11 @@ function applyGlossary(text) {
 let errorBannerElement = null;
 let hoverClickRegistered = false;
 let mutationObserver = null;
-let retranslateTimer = null;
 let observerPaused = false;
 let translationCompletedOnce = false;
 const textCache = new Map();
 const TEXT_CACHE_MAX_SIZE = 5000;
 let lastRetranslateTime = 0;
-let retranslateCount = 0;
 
 // v1.0.6 perf: detectPageLanguage 结果缓存，避免同一次翻译流程内 3 次重复遍历 DOM
 // 在 resetAll 中清除，确保 SPA 路由变化后重新检测
@@ -1176,7 +1174,6 @@ function resetAll() {
     currentAbortController = null;
   }
   if (mutationObserver) { mutationObserver.disconnect(); mutationObserver = null; }
-  if (retranslateTimer) { clearTimeout(retranslateTimer); retranslateTimer = null; }
   // v1.0.3: 清理懒加载 observer（§3.4）
   if (typeof teardownLazyObserver === 'function') teardownLazyObserver();
   observerPaused = false;

@@ -1,11 +1,6 @@
 import { settingsManager } from './lib/settings-manager.js';
 import { apiManager } from './lib/api-manager.js';
 import { translationCache } from './lib/translation-cache.js';
-import { createLogger } from './lib/logger.js';
-
-// v1.0.2: 日志 logger，按 settings.general.logLevel 过滤（§3.6 / §10.2 修复）
-// 动态读取 level（用户改了设置立即生效，无需重启 SW）
-const log = createLogger(() => settingsManager.settings?.general?.logLevel ?? 2);
 
 let initialized = false;
 let initPromise = null;
@@ -258,7 +253,6 @@ async function handleTranslateTexts(message) {
 
 async function updateIcon(tabId, state) {
   if (!tabId) return;
-  let iconPath = {};
   let title = '双语翻译助手';
 
   switch (state) {
@@ -267,9 +261,6 @@ async function updateIcon(tabId, state) {
       break;
     case 'translated':
       title = '翻译完成';
-      break;
-    case 'unavailable':
-      title = '翻译不可用';
       break;
     case 'idle':
     default:
