@@ -9,6 +9,11 @@ let isTranslating = false;
 let currentAbortController = null;
 let translationCache = new Map();
 let segments = [];
+// v1.0.6 perf: segId → seg 的查找表，替代 fillTranslations 中的 O(n) find
+let segmentMap = new Map();
+// v1.0.6 perf: hover/panel 增量渲染追踪，避免每批 O(n²) 重建
+let hoverRegisteredSegIds = new Set();
+let panelRenderedSegIds = new Set();
 let hoverCleanupHandlers = [];
 let globalCleanupHandlers = [];
 let loadingElement = null;
@@ -29,34 +34,35 @@ function dtInfo()  { if (dtLogLevel() >= 3) console.info('[dual-translate]',  ..
 function dtDebug() { if (dtLogLevel() >= 4) console.debug('[dual-translate]', ...arguments); }
 
 // v1.0.2: 术语表匹配缓存（§3.3 / §10.2 修复）
-// 用闭包存 glossaryEntries，loadGlossary 后填充；applyGlossary 在每段翻译前查
+// v1.0.6 perf: 预编译正则，避免每段文本重复 new RegExp（140 条 × 200 段 = 28000 次 → 140 次）
 let glossaryEntries = [];
+let glossaryCompiled = [];
 // v1.0.4: 域名专属术语表（§3.3）— content script 用 hostname 查合并后的 entries
 function loadGlossary() {
   const domain = location.hostname || '';
   return sendMessage('getGlossaryForDomain', { domain })
-    .then(r => { glossaryEntries = (r && r.glossary) || []; })
-    .catch(() => { glossaryEntries = []; });
+    .then(r => {
+      glossaryEntries = (r && r.glossary) || [];
+      // 预编译：escape 特殊字符后构建 RegExp，运行时直接 replace
+      glossaryCompiled = glossaryEntries
+        .map(e => {
+          if (!e || !e.source || !e.target) return null;
+          const escaped = e.source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const matchType = e.matchType || 'exact';
+          const pattern = matchType === 'fuzzy'
+            ? escaped
+            : '\\b' + escaped + '\\b';
+          return { re: new RegExp(pattern, 'gi'), target: e.target };
+        })
+        .filter(Boolean);
+    })
+    .catch(() => { glossaryEntries = []; glossaryCompiled = []; });
 }
 function applyGlossary(text) {
-  if (!glossaryEntries.length || !text) return text;
+  if (!glossaryCompiled.length || !text) return text;
   let out = text;
-  for (const entry of glossaryEntries) {
-    if (!entry || !entry.source || !entry.target) continue;
-    const src = entry.source;
-    const tgt = entry.target;
-    const matchType = entry.matchType || 'exact';
-    if (matchType === 'fuzzy') {
-      // 模糊：大小写不敏感 + 包含即替换（escape 简单 regex 字符）
-      const escaped = src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const re = new RegExp(escaped, 'gi');
-      out = out.replace(re, tgt);
-    } else {
-      // 精确：大小写不敏感 + 全词匹配
-      const escaped = src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const re = new RegExp('\\b' + escaped + '\\b', 'gi');
-      out = out.replace(re, tgt);
-    }
+  for (const { re, target } of glossaryCompiled) {
+    out = out.replace(re, target);
   }
   return out;
 }
@@ -70,6 +76,10 @@ const textCache = new Map();
 const TEXT_CACHE_MAX_SIZE = 5000;
 let lastRetranslateTime = 0;
 let retranslateCount = 0;
+
+// v1.0.6 perf: detectPageLanguage 结果缓存，避免同一次翻译流程内 3 次重复遍历 DOM
+// 在 resetAll 中清除，确保 SPA 路由变化后重新检测
+let cachedPageLang = null;
 
 const METRIC_LABELS = new Set([
   'downloads','download','dls','dl',
@@ -374,15 +384,18 @@ function detectPageLanguage(forceLanguage) {
     return forceLanguage;
   }
 
+  // v1.0.6 perf: 复用缓存，避免同一次翻译流程内重复遍历 DOM
+  if (cachedPageLang !== null) return cachedPageLang;
+
   const hl = document.documentElement.lang||'';
-  if (hl.startsWith('zh')) return 'zh';
-  if (hl.startsWith('ja')) return 'ja';
-  if (hl.startsWith('en')) return 'en';
+  if (hl.startsWith('zh')) { cachedPageLang='zh'; return 'zh'; }
+  if (hl.startsWith('ja')) { cachedPageLang='ja'; return 'ja'; }
+  if (hl.startsWith('en')) { cachedPageLang='en'; return 'en'; }
 
   const title = (document.title||'').toLowerCase();
-  if (/[\u4E00-\u9FFF]{3,}/.test(title)) return 'zh';
+  if (/[\u4E00-\u9FFF]{3,}/.test(title)) { cachedPageLang='zh'; return 'zh'; }
 
-  const body = document.body; if(!body)return'unknown';
+  const body = document.body; if(!body){cachedPageLang='unknown';return'unknown';}
   const walker = document.createTreeWalker(body,NodeFilter.SHOW_TEXT,{acceptNode:n=>{
     const p=n.parentElement;if(!p)return NodeFilter.FILTER_SKIP;
     if(['script','style','noscript','svg','code','pre'].includes(p.tagName.toLowerCase()))return NodeFilter.FILTER_SKIP;
@@ -397,13 +410,18 @@ function detectPageLanguage(forceLanguage) {
     else if(/[\u4E00-\u9FFF]/.test(ch)){cjk++;total++;}
     else if(/[\u3040-\u309F\u30A0-\u30FF]/.test(ch)){ja++;cjk++;total++;}
   }
-  if(total===0)return'unknown';
-  const nonJaCjk = cjk - ja;
-  if(nonJaCjk/total>0.15)return'zh';
-  if(ja/total>0.12)return'ja';
-  if(en/total>0.5)return'en';
-  if(ja>0)return'ja';
-  return'en';
+  let result;
+  if(total===0)result='unknown';
+  else {
+    const nonJaCjk = cjk - ja;
+    if(nonJaCjk/total>0.15)result='zh';
+    else if(ja/total>0.12)result='ja';
+    else if(en/total>0.5)result='en';
+    else if(ja>0)result='ja';
+    else result='en';
+  }
+  cachedPageLang=result;
+  return result;
 }
 function isValidLangForTranslation(lang) {
   if(!settings.rules.onlyEnJa)return true;
@@ -562,6 +580,8 @@ async function startTranslation(opts = {}) {
       translationCompletedOnce = false;
       return;
     }
+    // v1.0.6 perf: 构建 segId → seg 查找表，供 fillTranslations O(1) 查找
+    segmentMap = new Map(segments.map(s => [s.id, s]));
 
     let chineseSegmentCount = 0;
     for (const seg of segments) {
@@ -681,7 +701,8 @@ function extractSegments() {
     if(shouldSkipText(text))continue;
     const parent=node.parentElement;
     if(parent){
-      const isStat=parent.closest&&(parent.closest('[class*="stat"]')||parent.closest('[class*="stats"]')||parent.closest('[class*="download"]')||parent.closest('[class*="endorse"]')||parent.closest('[class*="file-size"]')||parent.closest('[class*="filesize"]')||parent.closest('[class*="metric"]')||parent.closest('[class*="count"]')||parent.closest('[class*="meta"]')||parent.closest('[class*="number"]')||parent.closest('[class*="badge"]'));
+      // v1.0.6 perf: 合并 11 次 closest 为 1 次，减少选择器解析开销
+      const isStat=parent.closest&&parent.closest('[class*="stat"],[class*="stats"],[class*="download"],[class*="endorse"],[class*="file-size"],[class*="filesize"],[class*="metric"],[class*="count"],[class*="meta"],[class*="number"],[class*="badge"]');
       if(isStat)continue;
     }
     let bp=parent;
@@ -829,7 +850,8 @@ function fillTranslations() {
   
   if (translationMode === TRANSLATION_ONLY) {
     placeholders.forEach(({ segId }) => {
-      const seg = segments.find(s => s.id === segId);
+      // v1.0.6 perf: O(1) 查表替代 O(n) find
+      const seg = segmentMap.get(segId);
       if (seg) {
         hideOriginalText(seg);
       }
@@ -867,9 +889,11 @@ function isSegInViewport(seg) {
 async function translateSegmentsLazy(segs, signal) {
   if (segs.length === 0) return;
   teardownLazyObserver();
-  const initialSegs = segs.filter(isSegInViewport);
+  // v1.0.6 perf: 用 Set 替代 includes，O(1) 查找替代 O(n)
+  const initialSegSet = new Set(segs.filter(isSegInViewport));
+  const initialSegs = [...initialSegSet];
   for (const seg of segs) {
-    if (!initialSegs.includes(seg)) lazyPendingSegs.set(seg.id, seg);
+    if (!initialSegSet.has(seg)) lazyPendingSegs.set(seg.id, seg);
   }
   dtInfo('lazy translate: in-viewport =', initialSegs.length, '/ total =', segs.length);
   if (!('IntersectionObserver' in window)) {
@@ -1006,8 +1030,9 @@ async function translateSegments(segs, signal) {
     }
 
     if(currentMode===BILINGUAL||currentMode===TRANSLATION_ONLY){fillTranslations();}
-    if(currentMode===HOVER){updateHover(segs.slice(0,batchEnd));}
-    if(currentMode===PANEL){updatePanel(segs.slice(0,batchEnd));}
+    // v1.0.6 perf: 只传当前批次，updateHover/updatePanel 内部用 Set 去重做增量追加
+    if(currentMode===HOVER){updateHover(batch);}
+    if(currentMode===PANEL){updatePanel(batch);}
   }
 
   // 仅在未取消时执行最终填充
@@ -1024,12 +1049,13 @@ async function translateSegments(segs, signal) {
 }
 
 function updateHover(segSubset) {
-  hoverCleanupHandlers.forEach(fn=>{try{fn()}catch{}});
-  hoverCleanupHandlers=[];
+  // v1.0.6 perf: 增量注册——用 Set 去重，不再每批清理全部 handlers 重建
   const hoverDelay=settings.display.hoverDelay||200;
   for(const seg of segSubset){
+    if(hoverRegisteredSegIds.has(seg.id))continue;
     const tr=translationCache.get(seg.id);if(!tr)continue;
     const target=seg.blockParent||seg.node.parentElement;if(!target)continue;
+    hoverRegisteredSegIds.add(seg.id);
     let ht;
     const eh=(e)=>{
       clearTimeout(ht);
@@ -1062,32 +1088,43 @@ function showHover(e,tr,sid){
 }
 
 function updatePanel(segSubset) {
-  if(panelInstance&&panelInstance.parentNode)panelInstance.remove();
-  panelInstance=null;document.body.style.marginRight='';document.body.style.marginBottom='';
+  // v1.0.6 perf: 增量追加——首次创建 panel 骨架，后续只追加新行，避免每批 O(n²) 重建
   const color=settings.display.translationColor,pos=settings.display.panelPosition||'right',w=settings.display.panelWidth||400;
-  const panel=document.createElement('div');panel.className='dual-translate-panel';
-  panel.style.cssText=`position:fixed;${pos==='right'?`right:0;top:0;bottom:0;width:${w}px;`:'left:0;right:0;bottom:0;height:300px;'}background:var(--dt-bg-primary);border-left:1px solid var(--dt-border-primary);z-index:2147483646;display:flex;flex-direction:column;box-shadow:-2px 0 8px var(--dt-shadow);`;
-  const hd=document.createElement('div');hd.style.cssText=`display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--dt-bg-secondary);border-bottom:1px solid var(--dt-border-light);color:var(--dt-text-primary);font-size:14px;flex-shrink:0;`;
-  hd.innerHTML='<span><strong>原文 / 译文</strong> 对照</span><div><button class="panel-toggle-btn" style="background:none;border:none;cursor:pointer;font-size:16px;padding:2px 6px;">◀</button><button class="panel-close-btn" style="background:none;border:none;cursor:pointer;font-size:18px;padding:2px 6px;">✕</button></div>';
-  const ct=document.createElement('div');ct.style.cssText='flex:1;overflow-y:auto;padding:14px;';
+
+  // 首次创建 panel 骨架
+  if(!panelInstance||!panelInstance.parentNode){
+    if(panelInstance&&panelInstance.parentNode)panelInstance.remove();
+    panelInstance=null;document.body.style.marginRight='';document.body.style.marginBottom='';
+    const panel=document.createElement('div');panel.className='dual-translate-panel';
+    panel.style.cssText=`position:fixed;${pos==='right'?`right:0;top:0;bottom:0;width:${w}px;`:'left:0;right:0;bottom:0;height:300px;'}background:var(--dt-bg-primary);border-left:1px solid var(--dt-border-primary);z-index:2147483646;display:flex;flex-direction:column;box-shadow:-2px 0 8px var(--dt-shadow);`;
+    const hd=document.createElement('div');hd.style.cssText=`display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--dt-bg-secondary);border-bottom:1px solid var(--dt-border-light);color:var(--dt-text-primary);font-size:14px;flex-shrink:0;`;
+    hd.innerHTML='<span><strong>原文 / 译文</strong> 对照</span><div><button class="panel-toggle-btn" style="background:none;border:none;cursor:pointer;font-size:16px;padding:2px 6px;">◀</button><button class="panel-close-btn" style="background:none;border:none;cursor:pointer;font-size:18px;padding:2px 6px;">✕</button></div>';
+    const ct=document.createElement('div');ct.style.cssText='flex:1;overflow-y:auto;padding:14px;';
+    ct.className='dual-translate-panel-content';
+    let collapsed=false;
+    hd.querySelector('.panel-toggle-btn').addEventListener('click',()=>{collapsed=!collapsed;panel.style.transform=collapsed?(pos==='right'?'translateX(calc(100% - 30px))':'translateY(calc(100% - 30px))'):'translate(0)';hd.querySelector('.panel-toggle-btn').textContent=collapsed?'▶':'◀';});
+    hd.querySelector('.panel-close-btn').addEventListener('click',()=>{panel.remove();panelInstance=null;document.body.style.marginRight='';document.body.style.marginBottom='';});
+    let isDragging=false,sX,sY,sW,sH;
+    const mdh=e=>{if(e.target.tagName==='BUTTON')return;isDragging=true;sX=e.clientX;sY=e.clientY;const r=panel.getBoundingClientRect();sW=r.width;sH=r.height;document.body.style.userSelect='none';};
+    const mmh=e=>{if(!isDragging)return;if(pos==='right')panel.style.width=Math.max(200,Math.min(800,sW-(e.clientX-sX)))+'px';else panel.style.height=Math.max(150,Math.min(600,sH-(e.clientY-sY)))+'px';};
+    const muh=()=>{isDragging=false;document.body.style.userSelect='';};
+    hd.addEventListener('mousedown',mdh);document.addEventListener('mousemove',mmh);document.addEventListener('mouseup',muh);
+    globalCleanupHandlers.push(()=>{hd.removeEventListener('mousedown',mdh);document.removeEventListener('mousemove',mmh);document.removeEventListener('mouseup',muh);});
+    panel.appendChild(hd);panel.appendChild(ct);document.body.appendChild(panel);panelInstance=panel;
+    if(pos==='right')document.body.style.marginRight=w+'px';else document.body.style.marginBottom='300px';
+  }
+
+  // 追加新行（跳过已渲染的）
+  const ct=panelInstance.querySelector('.dual-translate-panel-content');
   for(const seg of segSubset){
+    if(panelRenderedSegIds.has(seg.id))continue;
     const tr=translationCache.get(seg.id);if(!tr)continue;
+    panelRenderedSegIds.add(seg.id);
     const row=document.createElement('div');row.style.cssText=`display:flex;gap:14px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--dt-border-light);cursor:pointer;`;
     row.innerHTML=`<div style="flex:1;font-size:13px;color:var(--dt-text-primary);min-width:0;line-height:1.6">${escapeHtml(seg.text)}</div><div style="flex:1;font-size:13px;color:${color};min-width:0;line-height:1.6">${escapeHtml(tr)}</div>`;
     row.addEventListener('click',()=>{if(seg.node&&seg.node.parentElement){seg.node.parentElement.scrollIntoView({behavior:'smooth',block:'center'});seg.node.parentElement.style.transition='background 0.3s';seg.node.parentElement.style.background='var(--dt-bg-highlight)';setTimeout(()=>{seg.node.parentElement.style.background=''},2000);}});
     ct.appendChild(row);
   }
-  let collapsed=false;
-  hd.querySelector('.panel-toggle-btn').addEventListener('click',()=>{collapsed=!collapsed;panel.style.transform=collapsed?(pos==='right'?'translateX(calc(100% - 30px))':'translateY(calc(100% - 30px))'):'translate(0)';hd.querySelector('.panel-toggle-btn').textContent=collapsed?'▶':'◀';});
-  hd.querySelector('.panel-close-btn').addEventListener('click',()=>{panel.remove();panelInstance=null;document.body.style.marginRight='';document.body.style.marginBottom='';});
-  let isDragging=false,sX,sY,sW,sH;
-  const mdh=e=>{if(e.target.tagName==='BUTTON')return;isDragging=true;sX=e.clientX;sY=e.clientY;const r=panel.getBoundingClientRect();sW=r.width;sH=r.height;document.body.style.userSelect='none';};
-  const mmh=e=>{if(!isDragging)return;if(pos==='right')panel.style.width=Math.max(200,Math.min(800,sW-(e.clientX-sX)))+'px';else panel.style.height=Math.max(150,Math.min(600,sH-(e.clientY-sY)))+'px';};
-  const muh=()=>{isDragging=false;document.body.style.userSelect='';};
-  hd.addEventListener('mousedown',mdh);document.addEventListener('mousemove',mmh);document.addEventListener('mouseup',muh);
-  globalCleanupHandlers.push(()=>{hd.removeEventListener('mousedown',mdh);document.removeEventListener('mousemove',mmh);document.removeEventListener('mouseup',muh);});
-  panel.appendChild(hd);panel.appendChild(ct);document.body.appendChild(panel);panelInstance=panel;
-  if(pos==='right')document.body.style.marginRight=w+'px';else document.body.style.marginBottom='300px';
 }
 
 function positionAt(el,x,y){const r=el.getBoundingClientRect();let px=x,py=y;if(px+r.width>window.innerWidth)px=x-r.width-12;if(py+r.height>window.innerHeight)py=y-r.height-12;el.style.left=Math.max(0,px)+'px';el.style.top=Math.max(0,py)+'px';}
@@ -1156,6 +1193,11 @@ function resetAll() {
   } catch (e) { dtError('resetAll alt restore error:', e); }
   segments=[];
   translationCache.clear();
+  segmentMap.clear();
+  // v1.0.6 perf: 清除增量渲染追踪和语言检测缓存
+  hoverRegisteredSegIds.clear();
+  panelRenderedSegIds.clear();
+  cachedPageLang = null;
   hoverCleanupHandlers=[];
   globalCleanupHandlers=[];
   panelInstance=null;

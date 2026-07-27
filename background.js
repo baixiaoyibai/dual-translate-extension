@@ -207,7 +207,11 @@ async function handleMessage(message, sender) {
 
 async function handleTranslateTexts(message) {
   try {
-    await apiManager.reload();
+    // v1.0.6 perf: 不再每批 reload——reload 会读 storage + fetch prompt + 重建全部 translator
+    // 仅在 init() 和 updateSettings/reloadApis 时 reload，翻译批次直接复用已构建的实例
+    if (!apiManager.translators || apiManager.translators.size === 0) {
+      await apiManager.reload();
+    }
     const sourceLang = message.sourceLang || 'auto';
     const texts = message.texts || [];
     const cacheEnabled = settingsManager.settings.trigger.translationCache !== false;
