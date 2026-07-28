@@ -81,7 +81,8 @@
 - **B3 [P1-4] 导入不走 `_ensureApiDefaults`**
   - 原 `case 'importAllSettings'` 直接 `saveSettings(message.data.settings)`，但 `saveSettings` 不做字段兜底
   - 导入旧版/缺字段的 JSON 后，`api.apiEndpoints` / `apiModels` / `customProviders` / `enabledApis` 全是 undefined，`api-manager.js:91` 会 fallback 到空字符串导致全部 API 不可用
-  - 修：`lib/settings-manager.js` 新增公开方法 `applyImportedSettings(importedSettings)` = `_deepMerge(DEFAULT, imported)` + `_ensureApiDefaults()` + `saveSettings`。`background.js` 改用新方法
+  - 修（v1.0.6 初版）：`lib/settings-manager.js` 新增公开方法 `applyImportedSettings(importedSettings)` = `_deepMerge(DEFAULT, imported)` + `_ensureApiDefaults()` + `saveSettings`
+  - **v1.0.6 简化**：上述用 `.call({ settings: merged })` 临时绑 `this` 是反模式（脆弱，依赖 `_ensureApiDefaults` 只用 `this.settings`），改为**复用现有 `loadSettings()`** —— 先把 import 数据写入 sync，再 `loadSettings()` 走 `_deepMerge` + `_ensureApiDefaults` 标准流程，最后补调 `_loadApiKeysFromLocal()` 恢复 local 端密钥。**0 风险、6 行代码、无 `.call` 黑魔法**
 - **B12 [P1-10] 新增的"仅翻译选中文本"菜单项与原菜单完全等价**
   - 两个菜单项都调 `showSelectionTranslation` 弹同一个 floating div，"不修改页面"的承诺本来就是原菜单的行为
   - 修：删除 `translate-selection-only` 菜单项及 `onClicked` 中的 `else if` 分支（11 行代码回滚）
@@ -90,7 +91,8 @@
 
 - **B7/B8 [P1-8] 快捷键被 Chrome 拒绝时无提示**
   - 用户在 select 选 `Ctrl+T` 等被系统保留的组合，`chrome.commands.update` 抛异常被 catch 静默吞掉，UI 还显示"✓ 已保存"，但实际未生效
-  - 修：`background.js` `case 'updateSettings'` 的快捷键分支改为 `return { success: true|false, error? }`；`options/options.js` 收到 `success: false` 时回滚 select.value + 回滚 storage + alert
+  - 修（v1.0.6 初版）：`background.js` `case 'updateSettings'` 内 `commands.update` 失败时回传 `{ success: false, error }`；`options/options.js` 收到失败时**回滚 select.value + 回滚 storage + alert**
+  - **v1.0.6 简化**：将 `commands.update` 调用**提前到 `settingsManager.updateSetting` 之前** —— 失败时**根本不写 storage**，options 端不再需要回滚 storage（也无需提前赋值 `settings.general.toggleTranslateShortcut`），只需回滚 select.value。**storage 不会留下"被 Chrome 拒绝的"快捷键**，handler 从 14 行简化为 9 行
 - **B11 [P1-9] 预置 LLM 端点未校验**
   - 原 `isValidEndpointUrl` 只在 `custom_` 段和 `custom-provider-field` 生效；预置 API（deepseek/glm/tongyi 等）的 endpoint input 走主分支未校验
   - 修：在主分支 `if (field === 'endpoint')` 入口加 `isValidEndpointUrl` 校验，失败 alert + 回滚 input
@@ -103,7 +105,25 @@
 - **B5 [P1-7] `loadDailyUsage` 函数位置错乱**
   - 定义在 `popup.js:151` 但被 `DOMContentLoaded:27` 调用，靠 hoisting 勉强工作
   - 修：移到文件末尾，调用点不变
-- **review 整体收益**：`background.js` 净 -9 行（删除冗余菜单项），`lib/settings-manager.js` +13 行（公开方法），`options/options.js` +24 行（校验 + 回滚），`popup/popup.js` 0 净变化
+
+#### v1.0.6 hotfix 第二轮 — 简化过度设计
+
+> 审计 hotfix 自身，发现 3 处过度设计：
+> 1. B3 的 `.call({ settings: merged })` 反模式（脆弱、依赖未声明的内部契约）
+> 2. B7/B8 的 14 行 handler 含 4 个状态变量（newVal/oldVal/内存同步/storage 回滚），实际只需"失败回滚 UI"
+> 3. CSS 死代码 `.dual-translate-panel-close-all` + 重复的 `color` 规则
+
+- **B3 简化**：见上
+- **B7/B8 简化**：见上
+- **CSS 清理**：删除 `.dual-translate-panel button` 重复 `color` 规则（被 panel-toggle/close 内部 color 覆盖）+ 删除 `.dual-translate-panel-close-all` 死代码占位
+- **review 整体收益**：v1.0.6 hotfix 第二轮净 **-5 行**（-18 / +13），同时**消除了 1 个反模式 + 1 处死代码**
+
+#### v1.0.6 总体净改动（v1.0.5 → v1.0.6 hotfix2）
+
+- 13 文件，+379/-12（其中 CHANGELOG 独占 94 行）
+- 真实代码 +285 行，**整体价值密度合理**
+- 删除冗余菜单项 1 个 + 死代码 1 处
+- 新增公开方法 0 个（B3 简化为复用 `loadSettings`）
 
 ---
 

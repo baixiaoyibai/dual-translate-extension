@@ -190,16 +190,13 @@ function setupDisplaySettings() {
     const cur = settings.general?.toggleTranslateShortcut || 'Alt+T';
     toggleTranslateShortcutEl.value = cur;
     toggleTranslateShortcutEl.addEventListener('change', async () => {
-      const newVal = toggleTranslateShortcutEl.value;
       const oldVal = settings.general?.toggleTranslateShortcut || 'Alt+T';
-      settings.general.toggleTranslateShortcut = newVal;
-      const res = await chrome.runtime.sendMessage({ action: 'updateSettings', path: 'general.toggleTranslateShortcut', value: newVal });
+      const res = await chrome.runtime.sendMessage({ action: 'updateSettings', path: 'general.toggleTranslateShortcut', value: toggleTranslateShortcutEl.value });
       if (res && res.success === false) {
         alert('快捷键设置失败：' + (res.error || '未知错误'));
-        settings.general.toggleTranslateShortcut = oldVal;
         toggleTranslateShortcutEl.value = oldVal;
-        try { await chrome.runtime.sendMessage({ action: 'updateSettings', path: 'general.toggleTranslateShortcut', value: oldVal }); } catch {}
       } else {
+        settings.general.toggleTranslateShortcut = toggleTranslateShortcutEl.value;
         showSavedTip();
       }
     });

@@ -205,11 +205,6 @@
   }
 }
 
-/* 面板按钮文字颜色 */
-.dual-translate-panel button {
-  color: var(--dt-text-primary);
-}
-
 .dual-translate-panel button.panel-toggle-btn,
 .dual-translate-panel button.panel-close-btn {
   background: transparent;
@@ -231,7 +226,4 @@
 .dual-translate-panel button.panel-close-btn:focus-visible {
   outline: 2px solid var(--dt-spinner-active);
   outline-offset: 2px;
-}
-.dual-translate-panel-close-all {
-  /* 已关闭面板后, 在页面右下角加一个"重开面板"小按钮 (可选) - 略, 跳过 */
 }

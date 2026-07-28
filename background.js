@@ -90,6 +90,14 @@ async function handleMessage(message, sender) {
       return { settings: settingsManager.settings };
 
     case 'updateSettings':
+      if (message.path === 'general.toggleTranslateShortcut' && typeof message.value === 'string') {
+        try {
+          await chrome.commands.update({ name: 'toggle-translate', shortcut: message.value });
+        } catch (e) {
+          console.warn('[dual-translate] apply shortcut failed:', e.message);
+          return { success: false, error: '该快捷键被浏览器或系统保留，请换一个（例如 Alt+Y）' };
+        }
+      }
       await settingsManager.updateSetting(message.path, message.value);
 
       // 如果更新的是 api.sourceLanguage，通知活跃 tab 重新翻译
@@ -105,16 +113,6 @@ async function handleMessage(message, sender) {
               // content script 未加载，忽略
             }
           }
-        }
-      }
-
-      if (message.path === 'general.toggleTranslateShortcut' && typeof message.value === 'string') {
-        try {
-          await chrome.commands.update({ name: 'toggle-translate', shortcut: message.value });
-          return { success: true };
-        } catch (e) {
-          console.warn('[dual-translate] apply shortcut failed:', e.message);
-          return { success: false, error: '该快捷键被浏览器或系统保留，请换一个（例如 Alt+Y）' };
         }
       }
 
