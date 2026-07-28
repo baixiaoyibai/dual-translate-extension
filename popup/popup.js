@@ -339,12 +339,10 @@ async function loadDailyUsage() {
     container.innerHTML = items.map(i => {
       const pct = Math.min(100, Math.round((i.count / max) * 100));
       return `
-        <div class="api-usage-item" style="display:flex;align-items:center;gap:6px;padding:3px 0;">
-          <span style="flex:1;font-size:12px;">${escapeAttr(i.displayName)}</span>
-          <div style="flex:2;height:4px;background:#eee;border-radius:2px;overflow:hidden;">
-            <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#1a73e8,#4fc3f7);"></div>
-          </div>
-          <span style="font-size:11px;color:#888;min-width:50px;text-align:right;">${i.count.toLocaleString()}</span>
+        <div class="api-usage-item">
+          <span class="name">${escapeAttr(i.displayName)}</span>
+          <div class="bar"><div class="bar-fill" style="width:${pct}%"></div></div>
+          <span class="count">${i.count.toLocaleString()}</span>
         </div>
       `;
     }).join('');

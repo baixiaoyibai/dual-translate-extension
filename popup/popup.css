@@ -204,3 +204,30 @@ body {
   overflow-y: auto;
   font-size: 12px;
 }
+.api-usage-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+}
+.api-usage-item .name {
+  flex: 1;
+  font-size: 12px;
+}
+.api-usage-item .bar {
+  flex: 2;
+  height: 4px;
+  background: #eee;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.api-usage-item .bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1a73e8, #4fc3f7);
+}
+.api-usage-item .count {
+  font-size: 11px;
+  color: #888;
+  min-width: 50px;
+  text-align: right;
+}

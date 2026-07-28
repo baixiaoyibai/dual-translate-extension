@@ -125,6 +125,14 @@
 - 删除冗余菜单项 1 个 + 死代码 1 处
 - 新增公开方法 0 个（B3 简化为复用 `loadSettings`）
 
+#### v1.0.6 hotfix 第四轮 — `loadDailyUsage` 样式抽 CSS
+
+- **#4 样式与逻辑分离** — `popup.js` 中 `loadDailyUsage` 渲染的 item 行所有样式（display/flex/font-size/gradient/width）都 inline 在 HTML template 字符串中
+  - 修：抽到 `popup.css` 新增 `.api-usage-item` + `.name` + `.bar` + `.bar-fill` + `.count` 5 个 class
+  - 风险评估：🟡 中（template 字符串与 class 名硬编码对应，但 popup 自身代码）
+  - 收益：与项目其他位置风格一致（`renderApiStatus` / `renderApiUsage` 都在 CSS class 风格）；未来加新字段不用改 JS
+  - 净 +25 行 CSS / -4 行 JS
+
 #### v1.0.6 hotfix 第三轮 — 低风险 5 项清理
 
 > 审计 hotfix2 剩余的过度设计点，挑出 5 项低风险改动一并提交。
