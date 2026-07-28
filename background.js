@@ -298,6 +298,7 @@ async function handleTranslateTexts(message) {
       return { index: i, original: text, translation: '' };
     });
 
+    try { await translationCache.flush(); } catch {}
     return { translations };
   } catch (error) {
     return { error: error.message, translations: [] };

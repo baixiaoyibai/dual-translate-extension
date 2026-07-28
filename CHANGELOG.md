@@ -134,6 +134,19 @@
   - 收益：未来加新 endpoint input 直接调，未来改 alert 文案只改 1 处
   - 净 +11 行函数 / -16 行重复
 
+#### v1.0.6 hotfix 第十三轮 - 发布前全面审查修复
+
+> 3 子代理并发审查（导入引用一致性 / content.js 交互完整性 / API 链路完整性），主代理修复 8 项问题。
+
+- **严重修复 `api-manager.js` translate() 成功后 statusCache 不更新** - `saveApiStatus` 返回值被 Promise.all 吞掉，导致 `consecutiveErrors` 永不重置，API 会被错误禁用。改为串行调用并赋值 `this.statusCache`
+- **严重修复 `content.js` cleanupAllInjections 未清增量追踪状态** - HOVER/PANEL 模式在 MutationObserver 触发的重翻译后完全失效。cleanupAllInjections 现在同步清除 `hoverDelegationRegistered`/`hoverRegisteredSegIds`/`hoverTranslations`/`panelRenderedSegIds` + DOM 上的 `data-dt-hover-id`
+- **严重修复 `content.js` switchMode 竞态** - 旧翻译的 AbortError catch 无条件调用 `resetAll()`，破坏 switchMode 已启动的新翻译。改为仅当 `currentAbortController === myAbortController` 时才 resetAll。同时 `startTranslation` 中 `signal` 改用局部变量 `myAbortController.signal` 避免被置 null 后 TypeError
+- **中等修复 `content.js` 非 AbortError 异常无用户提示** - 添加 `showErrorBanner(e.message)` 显示错误信息
+- **中等修复 `content.js` updateHover 中 seg.node.parentElement 缺 null 检查** - 添加 `seg.node &&` 守卫
+- **中等修复 `content.js` panel 点击 setTimeout 回调未检查 null** - 缓存 `parentElement` 引用并在回调内重新检查
+- **中等修复 `api-manager.js` reload() 缺少 resetApiQuotaIfNeeded** - 跨午夜后 reload 不重置过期配额。添加 `await settingsManager.resetApiQuotaIfNeeded()`
+- **中等修复 `background.js` translateTexts 返回前未 flush 缓存** - 防抖写入的脏数据可能在 SW 休眠前未落盘。handleTranslateTexts 末尾添加 `translationCache.flush()`
+
 #### v1.0.6 hotfix 第十二轮 - 深度性能优化批
 
 > 3 子代理并发审核（content.js / lib / background+popup+options），3 子代理并发实施，主代理审查修复 + 提交。

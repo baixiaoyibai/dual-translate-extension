@@ -481,6 +481,12 @@ function cleanupAllInjections() {
   globalCleanupHandlers.forEach(fn=>{try{fn()}catch{}});
   globalCleanupHandlers=[];
   hoverClickRegistered=false;
+  // v1.0.7 fix: 同步清除增量渲染追踪状态，避免重翻译时 HOVER/PANEL 模式失效
+  hoverDelegationRegistered=false;
+  hoverRegisteredSegIds.clear();
+  hoverTranslations.clear();
+  panelRenderedSegIds.clear();
+  document.querySelectorAll('[data-dt-hover-id]').forEach(el=>{el.removeAttribute('data-dt-hover-id');});
   document.querySelectorAll('.dual-translate-hover,.dual-translate-panel,.dual-translate-translation,.dual-translate-placeholder,.dual-translate-spinner').forEach(el=>el.remove());
   document.body.style.marginRight='';
   document.body.style.marginBottom='';
@@ -603,10 +609,10 @@ async function startTranslation(opts = {}) {
       && typeof IntersectionObserver !== 'undefined';
     if (enableLazy) {
       placePendingSpans();
-      await translateSegmentsLazy(segments, currentAbortController.signal);
+      await translateSegmentsLazy(segments, myAbortController.signal);
     } else {
       placePendingSpans();
-      await translateSegments(segments, currentAbortController.signal);
+      await translateSegments(segments, myAbortController.signal);
     }
     hideLoading();
     // v1.0.2: 翻译页面 title 和 img alt（§3.2 / §10.2 修复，独立于正文翻译）
@@ -618,9 +624,14 @@ async function startTranslation(opts = {}) {
   } catch(e) {
     hideLoading();
     if (e.name === 'AbortError') {
-      resetAll();
+      // v1.0.7 fix: 仅当当前仍是自己的 controller 时才 resetAll，
+      // 避免 switchMode abort 旧翻译后，旧 catch 的 resetAll 破坏新翻译
+      if (currentAbortController === myAbortController) {
+        resetAll();
+      }
     } else {
       dtError('startTranslation error:', e);
+      showErrorBanner(e.message || '翻译过程中发生未知错误');
       try { await sendMessage('setIconState',{state:'idle'}); } catch {}
     }
     translationCompletedOnce = false;
@@ -1091,7 +1102,7 @@ function updateHover(segSubset) {
   for(const seg of segSubset){
     if(hoverRegisteredSegIds.has(seg.id))continue;
     const tr=translationCache.get(seg.id);if(!tr)continue;
-    const target=seg.blockParent||seg.node.parentElement;if(!target)continue;
+    const target=seg.blockParent||(seg.node&&seg.node.parentElement);if(!target)continue;
     hoverRegisteredSegIds.add(seg.id);
     // 存储 seg.id -> translation 映射，并标记 DOM 元素
     hoverTranslations.set(seg.id,tr);
@@ -1151,7 +1162,7 @@ function updatePanel(segSubset) {
     panelRenderedSegIds.add(seg.id);
     const row=document.createElement('div');row.style.cssText=`display:flex;gap:14px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--dt-border-light);cursor:pointer;`;
     row.innerHTML=`<div style="flex:1;font-size:13px;color:var(--dt-text-primary);min-width:0;line-height:1.6">${escapeContent(seg.text)}</div><div style="flex:1;font-size:13px;color:${color};min-width:0;line-height:1.6">${escapeContent(tr)}</div>`;
-    row.addEventListener('click',()=>{if(seg.node&&seg.node.parentElement){seg.node.parentElement.scrollIntoView({behavior:'smooth',block:'center'});seg.node.parentElement.style.transition='background 0.3s';seg.node.parentElement.style.background='var(--dt-bg-highlight)';setTimeout(()=>{seg.node.parentElement.style.background=''},2000);}});
+    row.addEventListener('click',()=>{if(seg.node&&seg.node.parentElement){seg.node.parentElement.scrollIntoView({behavior:'smooth',block:'center'});seg.node.parentElement.style.transition='background 0.3s';seg.node.parentElement.style.background='var(--dt-bg-highlight)';const pe=seg.node.parentElement;setTimeout(()=>{if(pe)pe.style.background=''},2000);}});
     ct.appendChild(row);
   }
 }
