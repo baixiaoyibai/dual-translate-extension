@@ -43,7 +43,7 @@ const DEFAULT_API_ENDPOINTS = (typeof window !== 'undefined' && window.API_ENDPO
 const DEFAULT_API_MODELS = (typeof window !== 'undefined' && window.API_MODELS_DEFAULT) ? window.API_MODELS_DEFAULT : {};
 
 document.addEventListener('DOMContentLoaded', async () => {
-  await chrome.runtime.sendMessage({ action: 'reloadApis' });
+  chrome.runtime.sendMessage({ action: 'reloadApis' });
   await loadAllData();
   setupTabSwitching();
   setupDisplaySettings();
@@ -60,20 +60,22 @@ function showSavedTip() {
 }
 
 async function loadAllData() {
-  const res = await chrome.runtime.sendMessage({ action: 'getSettings' });
+  const [res, glossaryRes, apiRes, usageRes] = await Promise.all([
+    chrome.runtime.sendMessage({ action: 'getSettings' }),
+    chrome.runtime.sendMessage({ action: 'getGlossary' }),
+    chrome.runtime.sendMessage({ action: 'getApiStatus' }),
+    chrome.runtime.sendMessage({ action: 'getDailyUsage' })
+  ]);
   if (res && res.settings) {
     settings = res.settings;
   }
-  const glossaryRes = await chrome.runtime.sendMessage({ action: 'getGlossary' });
   if (glossaryRes && glossaryRes.glossary) {
     glossaryByDomain = glossaryRes.glossary;
     if (!glossaryByDomain._global) glossaryByDomain._global = [];
   }
-  const apiRes = await chrome.runtime.sendMessage({ action: 'getApiStatus' });
   if (apiRes && apiRes.status) {
     apiStatus = apiRes.status;
   }
-  const usageRes = await chrome.runtime.sendMessage({ action: 'getDailyUsage' });
   if (usageRes) {
     dailyUsage = usageRes;
   }
@@ -237,7 +239,7 @@ function bindToggle(elementId, path, value) {
     let current = settings;
     for (let i = 0; i < keys.length - 1; i++) current = current[keys[i]];
     current[keys[keys.length - 1]] = el.checked;
-    if (path === 'trigger.contextMenu' || path === 'trigger.autoTranslate' || path === 'trigger.translationCache') {
+    if (path === 'trigger.contextMenu') {
       chrome.runtime.sendMessage({ action: 'reloadApis' });
     }
     showSavedTip();

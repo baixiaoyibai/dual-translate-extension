@@ -10,7 +10,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function loadState() {
-  const response = await chrome.runtime.sendMessage({ action: 'getSettings' });
+  const [response, [tab]] = await Promise.all([
+    chrome.runtime.sendMessage({ action: 'getSettings' }),
+    chrome.tabs.query({ active: true, currentWindow: true })
+  ]);
   cachedSettings = response?.settings || null;
   if (response && response.settings) {
     currentMode = response.settings.general.lastMode || response.settings.display.defaultMode || 'bilingual';
@@ -19,7 +22,6 @@ async function loadState() {
     updateModeButtons();
   }
 
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab) {
     try {
       const statusRes = await chrome.tabs.sendMessage(tab.id, { action: 'getStatus' });

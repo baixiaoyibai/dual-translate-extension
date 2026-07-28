@@ -134,6 +134,36 @@
   - 收益：未来加新 endpoint input 直接调，未来改 alert 文案只改 1 处
   - 净 +11 行函数 / -16 行重复
 
+#### v1.0.6 hotfix 第十二轮 - 深度性能优化批
+
+> 3 子代理并发审核（content.js / lib / background+popup+options），3 子代理并发实施，主代理审查修复 + 提交。
+
+**content.js（6 项）**
+- **`fillTranslations(batchSegs)` 消除全文档扫描** - 原每批次 `querySelectorAll('.dual-translate-placeholder')` 全文档扫描 O(n²)，改为传入当前批次 segs，用 `seg.blockParent.querySelector` 局部查找 O(n)
+- **`extractSegments()` closest 优化** - L689 注入元素检查从 `closest(6 个类选择器)` 改为 `className.includes('dual-translate-')`（cleanupAllInjections 已清除注入元素）；L703 stat 检查仅对 NexusMods 域名执行
+- **`skipTags`/`blockTags` 提升为模块常量** - 消除每次调用的 Set 分配；用大写 `tagName` 比对省去 `toLowerCase()`（含 `detectPageLanguage` 同步处理）
+- **`containsUrl()` 4 正则合并为 1** - 第 4 个 TLD 枚举正则被第 3 个 `[a-zA-Z]{2,}` 覆盖，删除
+- **`isGarbledText()` 双循环合并** - 两个 `for` 循环合并为单次遍历，同时计算 `an` 和 `nl`
+- **HOVER 模式事件委托** - 每段独立 `mouseenter`/`mouseleave` 改为 document 级 `mouseover`/`mouseout` 委托，用 `dataset.dtHoverId` + `hoverTranslations` Map 定位
+
+**lib/（8 项）**
+- **`translation-cache.js` 防抖写入** - `lookup()`/`store()` 中全量 `storage.set` 改为 5s 防抖 `_markDirty()`，新增 `flush()` 方法；`background.js` 每次消息处理前 flush 确保 SW 休眠前落盘
+- **`api-manager.js` 超时 AbortController** - `Promise.race` + `setTimeout` 改为 `AbortController`，超时后 `controller.abort()` 中止 fetch；3 个 adapter 接受 `signal` 参数传入 `fetch`
+- **`settings-manager.js` `_hostMatches` 正则缓存** - 150+ 条 excludeList 每次页面加载编译正则，改为 `_hostPatternCache` Map 缓存编译结果，`saveSettings`/`updateSetting` 中失效
+- **`api-manager.js` `init()` 并行化** - 3 个串行 await 改为 `Promise.all`（与 `reload()` 一致）
+- **`settings-manager.js` `saveApiStatus` 避免重复读** - 接受可选 `existingAllStatus` 参数，`_handleApiError` 传入 `this.statusCache` 省去 storage 读
+- **`settings-manager.js` `saveSettings` 去重拷贝** - 第二次 `JSON.parse(JSON.stringify())` 改用 `structuredClone`（如可用）
+- **`api-manager.js` `retryInterval` 生效** - 硬编码 `1000ms` 改为 `settings.advanced.retryInterval`
+- **`api-manager.js` `systemPrompt` 提取** - `_buildTranslators` 中 3 处重复拼接提取为 `fullPrompt` 变量
+
+**background.js + popup.js + options.js（6 项）**
+- **`options.js` `loadAllData()` 并行化** - 4 个串行 `sendMessage` 改为 `Promise.all`
+- **`options.js` `reloadApis` 不阻塞** - `DOMContentLoaded` 中改为 fire-and-forget
+- **`options.js` `bindToggle` 精简** - `trigger.autoTranslate`/`trigger.translationCache` 移除不必要的 `reloadApis`
+- **`background.js` `getApiStatus` 用内存缓存** - 移除 `settingsManager.getApiStatus()` storage 读，直接用 `apiManager.statusCache`
+- **`popup.js` `loadState` 内部并行** - `getSettings` 与 `chrome.tabs.query` 改为 `Promise.all`
+- **`background.js` `updateIcon` 并行** - 3 个串行 `chrome.action.set*` 改为 `Promise.all`
+
 #### v1.0.6 hotfix 第十一轮 - 性能优化批
 
 > 3 子代理并发审核性能瓶颈（content.js / lib / background+popup），主代理验证后委托 2 子代理实施。仅热路径优化，零行为变更。

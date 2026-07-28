@@ -16,6 +16,9 @@ let hoverRegisteredSegIds = new Set();
 let panelRenderedSegIds = new Set();
 let hoverCleanupHandlers = [];
 let globalCleanupHandlers = [];
+// v1.0.7 perf: HOVER 模式事件委托，替代每段独立 mouseenter/mouseleave
+let hoverDelegationRegistered = false;
+let hoverTranslations = new Map();
 let loadingElement = null;
 let panelInstance = null;
 
@@ -76,6 +79,15 @@ let lastRetranslateTime = 0;
 // v1.0.6 perf: detectPageLanguage 结果缓存，避免同一次翻译流程内 3 次重复遍历 DOM
 // 在 resetAll 中清除，确保 SPA 路由变化后重新检测
 let cachedPageLang = null;
+
+// v1.0.7 perf: skipTags/blockTags 提升为模块常量，避免 extractSegments 每次创建 Set
+// tagName 在 HTML 中始终大写（SVG 中也是大写），用大写比对省去 toLowerCase
+const SKIP_TAGS = new Set(['SCRIPT','STYLE','NOSCRIPT','SVG','TEXTAREA','INPUT','SELECT','OPTION']);
+const BLOCK_TAGS = new Set(['P','LI','H1','H2','H3','H4','H5','H6','TD','TH','BLOCKQUOTE','FIGCAPTION','DT','DD','PRE','CODE','SUMMARY','A','LABEL','LEGEND','CAPTION']);
+const LANG_SKIP_TAGS = new Set(['SCRIPT','STYLE','NOSCRIPT','SVG','CODE','PRE']);
+
+// v1.0.7 perf: containsUrl 正则合并，4 个正则 -> 1 个
+const URL_RE = /https?:\/\/[^\s]{4,}|(?:^|\s)www\.[a-zA-Z0-9-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}\/[^\s]{2,}/i;
 
 const METRIC_LABELS = new Set([
   'downloads','download','dls','dl',
@@ -168,23 +180,19 @@ function isNexusModsDomain() {
   try { return location.hostname.includes('nexusmods.com'); } catch { return false; }
 }
 function containsUrl(text) {
-  return /https?:\/\/[^\s]{4,}/.test(text) || /(?:^|\s)www\.[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/i.test(text) || /[a-zA-Z0-9-]+\.[a-zA-Z]{2,}\/[^\s]{2,}/.test(text) || /[a-zA-Z0-9-]+\.(?:com|org|net|io|co|dev|gov|edu|cc|me|info|biz|xyz|uk|cn|jp|kr|de|fr|ru|it|es|br|ca|au|in|nl|se|no|fi|tw|hk|sg)\/[^\s]{2,}/i.test(text);
+  return URL_RE.test(text);
 }
 function isGarbledText(text) {
   const t=text.trim(); if(t.length<3) return false;
-  let an=0;
+  let an=0,nl=0;
   for(let i=0;i<t.length;i++){
     const c=t.charCodeAt(i);
     if((c>=48&&c<=57)||(c>=65&&c<=90)||(c>=97&&c<=122)||(c>=0x4E00&&c<=0x9FFF)||(c>=0x3040&&c<=0x30FF))an++;
+    else if(!((c>=0&&c<=0x7F)||(c>=0x4E00&&c<=0x9FFF)||(c>=0x3040&&c<=0x30FF)))nl++;
   }
   if(an/t.length<0.35&&t.length>6) return true;
   if(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/.test(t)) return true;
   if(/(.)\1{4,}/.test(t)) return true;
-  let nl=0;
-  for(let i=0;i<t.length;i++){
-    const c=t.charCodeAt(i);
-    if(!((c>=0&&c<=0x7F)||(c>=0x4E00&&c<=0x9FFF)||(c>=0x3040&&c<=0x30FF)))nl++;
-  }
   if(nl/t.length>0.3&&t.length>8) return true;
   return false;
 }
@@ -401,7 +409,7 @@ function detectPageLanguage(forceLanguage) {
   const body = document.body; if(!body){cachedPageLang='unknown';return'unknown';}
   const walker = document.createTreeWalker(body,NodeFilter.SHOW_TEXT,{acceptNode:n=>{
     const p=n.parentElement;if(!p)return NodeFilter.FILTER_SKIP;
-    if(['script','style','noscript','svg','code','pre'].includes(p.tagName.toLowerCase()))return NodeFilter.FILTER_SKIP;
+    if(LANG_SKIP_TAGS.has(p.tagName))return NodeFilter.FILTER_SKIP;
     if(n.textContent.trim().length<5)return NodeFilter.FILTER_SKIP;
     return NodeFilter.FILTER_ACCEPT;
   }});
@@ -647,8 +655,6 @@ function extractSegments() {
   const mTL=settings.rules.minTextLength||3;
   const tCB=settings.rules.translateCodeBlocks||false;
   const processedNodes=new Set();
-  const skipTags=new Set(['script','style','noscript','svg','textarea','input','select','option']);
-  const blockTags=new Set(['p','li','h1','h2','h3','h4','h5','h6','td','th','blockquote','figcaption','dt','dd','pre','code','summary','a','label','legend','caption']);
 
   if(isNexusModsDomain()){
     const tc=document.querySelectorAll('[class*="mod-tile"],[class*="modtile"],.mod-tile,[class*="tile"],.collection-item,[class*="collection-item"]');
@@ -656,7 +662,7 @@ function extractSegments() {
       c.querySelectorAll('[class*="stat"],[class*="stats"],[class*="download"],[class*="endorse"],[class*="file-size"],[class*="filesize"],[class*="meta"],[class*="metric"],[class*="count"],[class*="number"],[class*="badge"]').forEach(se=>{
         const w=document.createTreeWalker(se,NodeFilter.SHOW_TEXT,{acceptNode:n=>{
           const p2=n.parentElement;if(!p2)return NodeFilter.FILTER_SKIP;
-          if(skipTags.has(p2.tagName.toLowerCase()))return NodeFilter.FILTER_SKIP;
+          if(SKIP_TAGS.has(p2.tagName))return NodeFilter.FILTER_SKIP;
           return NodeFilter.FILTER_ACCEPT;
         }});let sn;while((sn=w.nextNode()))processedNodes.add(sn);
       });
@@ -668,7 +674,7 @@ function extractSegments() {
           const dtn=[];const w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT,{acceptNode:n=>{
             if(processedNodes.has(n))return NodeFilter.FILTER_SKIP;
             const p2=n.parentElement;if(!p2)return NodeFilter.FILTER_SKIP;
-            const t2=p2.tagName.toLowerCase();if(skipTags.has(t2))return NodeFilter.FILTER_SKIP;
+            if(SKIP_TAGS.has(p2.tagName))return NodeFilter.FILTER_SKIP;
             if(p2.closest&&p2.closest('[class*="stat"],[class*="endorse"],[class*="download"],[class*="meta"],[class*="metric"],[class*="count"],[class*="number"],[class*="badge"]'))return NodeFilter.FILTER_SKIP;
             return NodeFilter.FILTER_ACCEPT;
           }});let cn;while((cn=w.nextNode()))dtn.push(cn);
@@ -684,9 +690,9 @@ function extractSegments() {
 
   const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,{acceptNode:n=>{
     const p=n.parentElement;if(!p)return NodeFilter.FILTER_SKIP;
-    const t=p.tagName.toLowerCase();if(skipTags.has(t))return NodeFilter.FILTER_SKIP;
-    if(!tCB&&(t==='code'||t==='pre'))return NodeFilter.FILTER_SKIP;
-    if(p.closest&&p.closest('.dual-translate-translation,.dual-translate-panel,.dual-translate-hover,.dual-translate-loading-overlay,.dual-translate-placeholder,.dual-translate-spinner'))return NodeFilter.FILTER_SKIP;
+    if(SKIP_TAGS.has(p.tagName))return NodeFilter.FILTER_SKIP;
+    if(!tCB&&(p.tagName==='CODE'||p.tagName==='PRE'))return NodeFilter.FILTER_SKIP;
+    if(p.className&&typeof p.className==='string'&&p.className.includes('dual-translate-'))return NodeFilter.FILTER_SKIP;
     return NodeFilter.FILTER_ACCEPT;
   }});
 
@@ -695,17 +701,19 @@ function extractSegments() {
     if(processedNodes.has(node))continue;
     const text=node.textContent.trim();
     if(text.length<mTL)continue;
-    if(/^[\d\s.,!?;:'"()\-–—+×÷=%&@#$^*_~`\[\]{}<>/\\|]+$/.test(text))continue;
+    if(/^[\d\s.,!?;:'"()\-–+×÷=%&@#$^*_~`\[\]{}<>/\\|]+$/.test(text))continue;
     if(cachedSkip(text))continue;
     const parent=node.parentElement;
     if(parent){
-      // v1.0.6 perf: 合并 11 次 closest 为 1 次，减少选择器解析开销
-      const isStat=parent.closest&&parent.closest('[class*="stat"],[class*="stats"],[class*="download"],[class*="endorse"],[class*="file-size"],[class*="filesize"],[class*="metric"],[class*="count"],[class*="meta"],[class*="number"],[class*="badge"]');
-      if(isStat)continue;
+      // v1.0.7 perf: stat 检查仅对 NexusMods 有意义，包裹在域名条件内
+      if(isNexusModsDomain()){
+        const isStat=parent.closest&&parent.closest('[class*="stat"],[class*="stats"],[class*="download"],[class*="endorse"],[class*="file-size"],[class*="filesize"],[class*="metric"],[class*="count"],[class*="meta"],[class*="number"],[class*="badge"]');
+        if(isStat)continue;
+      }
     }
     let bp=parent;
-    while(bp&&!blockTags.has(bp.tagName.toLowerCase())&&bp!==document.body)bp=bp.parentElement;
-    if(bp&&blockTags.has(bp.tagName.toLowerCase())&&!looksLikeConcatenatedText(text)){
+    while(bp&&!BLOCK_TAGS.has(bp.tagName)&&bp!==document.body)bp=bp.parentElement;
+    if(bp&&BLOCK_TAGS.has(bp.tagName)&&!looksLikeConcatenatedText(text)){
       const at=bp.textContent.trim();
       if(at.length>=mTL&&at!==text&&!cachedSkip(at)&&!looksLikeConcatenatedText(at)){
         const lines=at.split(/[\n\r]+/).filter(l=>l.trim().length>0);
@@ -713,15 +721,15 @@ function extractSegments() {
           const metricLines=lines.filter(l=>cachedSkip(l.trim()));
           if(metricLines.length/lines.length>0.5)continue;
         }
-        const iw=document.createTreeWalker(bp,NodeFilter.SHOW_TEXT,{acceptNode:n=>{const p2=n.parentElement;if(!p2)return NodeFilter.FILTER_SKIP;if(skipTags.has(p2.tagName.toLowerCase()))return NodeFilter.FILTER_SKIP;return NodeFilter.FILTER_ACCEPT;}});
+        const iw=document.createTreeWalker(bp,NodeFilter.SHOW_TEXT,{acceptNode:n=>{const p2=n.parentElement;if(!p2)return NodeFilter.FILTER_SKIP;if(SKIP_TAGS.has(p2.tagName))return NodeFilter.FILTER_SKIP;return NodeFilter.FILTER_ACCEPT;}});
         const bn=[];let bn2;while((bn2=iw.nextNode()))bn.push(bn2);
         const ap=bn.every(n=>processedNodes.has(n)||n.textContent.trim().length<mTL);
-        let hbc=false;for(const ch of bp.children){if(blockTags.has(ch.tagName.toLowerCase())){hbc=true;break;}}
+        let hbc=false;for(const ch of bp.children){if(BLOCK_TAGS.has(ch.tagName)){hbc=true;break;}}
         if(!ap&&!hbc){bn.forEach(n=>processedNodes.add(n));result.push({id:'seg_'+result.length,text:at,node:node,blockParent:bp});continue;}
       }
     }
     processedNodes.add(node);
-    result.push({id:'seg_'+result.length,text:text,node:node,blockParent:bp&&blockTags.has(bp.tagName.toLowerCase())?bp:null});
+    result.push({id:'seg_'+result.length,text:text,node:node,blockParent:bp&&BLOCK_TAGS.has(bp.tagName)?bp:null});
   }
   return result;
 }
@@ -826,13 +834,21 @@ function placePendingSpans() {
   }
 }
 
-function fillTranslations() {
+function fillTranslations(batchSegs) {
   const translationMode = currentMode;
   const placeholders = [];
   
-  document.querySelectorAll('.dual-translate-placeholder').forEach(ph => {
-    const segId = ph.dataset.dtSeg;
-    if(!translationCache.has(segId))return;
+  // v1.0.7 perf: 接受当前批次 segments 数组，避免每批全文档 querySelectorAll
+  // null/undefined 时回退到全文档扫描（兼容非批次场景）
+  const segsToFill = batchSegs || segments;
+  for (const seg of segsToFill) {
+    const segId = seg.id;
+    if(!translationCache.has(segId))continue;
+    // 在 seg.blockParent 或 seg.node.parentElement 上查找 placeholder
+    const root = seg.blockParent || (seg.node && seg.node.parentElement);
+    if(!root)continue;
+    const ph = root.querySelector('[data-dt-seg="'+segId+'"]');
+    if(!ph || !ph.classList.contains('dual-translate-placeholder'))continue;
     const translation = translationCache.get(segId);
 
     ph.classList.remove('dual-translate-placeholder');
@@ -844,7 +860,7 @@ function fillTranslations() {
       ph.classList.add('dual-translate-failed');
     }
     placeholders.push({ segId, ph });
-  });
+  }
   
   if (translationMode === TRANSLATION_ONLY) {
     placeholders.forEach(({ segId }) => {
@@ -1015,7 +1031,7 @@ async function translateSegments(segs, signal) {
       }
     }
 
-    if(currentMode===BILINGUAL||currentMode===TRANSLATION_ONLY){fillTranslations();}
+    if(currentMode===BILINGUAL||currentMode===TRANSLATION_ONLY){fillTranslations(batch);}
     // v1.0.6 perf: 只传当前批次，updateHover/updatePanel 内部用 Set 去重做增量追加
     if(currentMode===HOVER){updateHover(batch);}
     if(currentMode===PANEL){updatePanel(batch);}
@@ -1026,7 +1042,7 @@ async function translateSegments(segs, signal) {
     for(let i=0;i<segs.length;i++){
       if(!translationCache.has(segs[i].id))translationCache.set(segs[i].id,'');
     }
-    if(currentMode===BILINGUAL||currentMode===TRANSLATION_ONLY){fillTranslations();}
+    if(currentMode===BILINGUAL||currentMode===TRANSLATION_ONLY){fillTranslations(segs);}
     if(currentMode===HOVER){updateHover(segs);}
     if(currentMode===PANEL){updatePanel(segs);}
   } else {
@@ -1035,25 +1051,51 @@ async function translateSegments(segs, signal) {
 }
 
 function updateHover(segSubset) {
-  // v1.0.6 perf: 增量注册——用 Set 去重，不再每批清理全部 handlers 重建
+  // v1.0.7 perf: 事件委托模式--在 document 上注册单组 mouseover/mouseout 监听器
+  // 用 dataset 存储 seg.id -> translation 映射，不再每段绑独立 listener
   const hoverDelay=settings.display.hoverDelay||200;
+
+  // 首次调用时注册 document 级委托监听器
+  if(!hoverDelegationRegistered){
+    hoverDelegationRegistered=true;
+    let ht=null;
+    const onOver=(e)=>{
+      const target=e.target.closest('[data-dt-hover-id]');
+      if(!target)return;
+      clearTimeout(ht);
+      ht=setTimeout(()=>{
+        const sid=target.dataset.dtHoverId;
+        const tr=hoverTranslations.get(sid);
+        if(!tr)return;
+        const ex=document.querySelector('.dual-translate-hover:not(.pinned)');
+        if(ex)ex.remove();
+        showHover(e,tr,sid);
+      },hoverDelay);
+    };
+    const onOut=(e)=>{
+      const target=e.target.closest('[data-dt-hover-id]');
+      if(!target)return;
+      // 检查是否移出 target（mouseout 会在子元素间触发，需判断 relatedTarget）
+      const rt=e.relatedTarget;
+      if(rt&&target.contains(rt))return;
+      clearTimeout(ht);
+    };
+    document.addEventListener('mouseover',onOver);
+    document.addEventListener('mouseout',onOut);
+    hoverCleanupHandlers.push(()=>{
+      document.removeEventListener('mouseover',onOver);
+      document.removeEventListener('mouseout',onOut);
+    });
+  }
+
   for(const seg of segSubset){
     if(hoverRegisteredSegIds.has(seg.id))continue;
     const tr=translationCache.get(seg.id);if(!tr)continue;
     const target=seg.blockParent||seg.node.parentElement;if(!target)continue;
     hoverRegisteredSegIds.add(seg.id);
-    let ht;
-    const eh=(e)=>{
-      clearTimeout(ht);
-      ht=setTimeout(()=>{
-        const ex=document.querySelector('.dual-translate-hover:not(.pinned)');
-        if(ex)ex.remove();
-        showHover(e,tr,seg.id);
-      },hoverDelay);
-    };
-    const lh=()=>clearTimeout(ht);
-    target.addEventListener('mouseenter',eh);target.addEventListener('mouseleave',lh);
-    hoverCleanupHandlers.push(()=>{target.removeEventListener('mouseenter',eh);target.removeEventListener('mouseleave',lh);});
+    // 存储 seg.id -> translation 映射，并标记 DOM 元素
+    hoverTranslations.set(seg.id,tr);
+    target.dataset.dtHoverId=seg.id;
   }
   if(!hoverClickRegistered){
     const ch=e=>{
@@ -1187,6 +1229,11 @@ function resetAll() {
   hoverCleanupHandlers=[];
   globalCleanupHandlers=[];
   panelInstance=null;
+  // v1.0.7 perf: 重置 hover 事件委托状态
+  hoverDelegationRegistered=false;
+  hoverTranslations.clear();
+  // 清理 DOM 上的 data-dt-hover-id 属性
+  document.querySelectorAll('[data-dt-hover-id]').forEach(el=>{el.removeAttribute('data-dt-hover-id');});
 }
 function showSelectionTranslation(original,translation){
   document.querySelectorAll('.dual-translate-hover:not(.pinned)').forEach(h=>h.remove());

@@ -89,6 +89,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function handleMessage(message, sender) {
   await init();
+  // v1.0.7 perf: flush 防抖缓存写入，确保 SW 休眠前脏数据已落盘
+  try { await translationCache.flush(); } catch {}
 
   switch (message.action) {
     case 'translateTexts':
@@ -131,7 +133,6 @@ async function handleMessage(message, sender) {
       return { success: true };
 
     case 'getApiStatus':
-      apiManager.statusCache = await settingsManager.getApiStatus();
       const summary = apiManager.getApiStatusSummary();
       // 附加 displayName
       for (const [name, info] of Object.entries(summary)) {
@@ -321,9 +322,11 @@ async function updateIcon(tabId, state) {
   }
 
   try {
-    await chrome.action.setTitle({ tabId, title });
-    await chrome.action.setBadgeText({ tabId, text: state === 'translating' ? '...' : (state === 'translated' ? '✓' : '') });
-    await chrome.action.setBadgeBackgroundColor({ tabId, color: state === 'translating' ? '#2196F3' : '#4CAF50' });
+    await Promise.all([
+      chrome.action.setTitle({ tabId, title }),
+      chrome.action.setBadgeText({ tabId, text: state === 'translating' ? '...' : (state === 'translated' ? '✓' : '') }),
+      chrome.action.setBadgeBackgroundColor({ tabId, color: state === 'translating' ? '#2196F3' : '#4CAF50' })
+    ]);
   } catch {}
 }
 
