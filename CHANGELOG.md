@@ -125,6 +125,31 @@
 - 删除冗余菜单项 1 个 + 死代码 1 处
 - 新增公开方法 0 个（B3 简化为复用 `loadSettings`）
 
+#### v1.0.6 hotfix 第三轮 — 低风险 5 项清理
+
+> 审计 hotfix2 剩余的过度设计点，挑出 5 项低风险改动一并提交。
+
+- **#1 死代码 — `popup.js` `escapeHtml` 兜底函数**
+  - 8 行函数（line 18-25 旧）只定义不调用，`lib/escape-utils.js` 已通过 IIFE 注入 `window.escapeHtml`
+  - 风险评估：🟢 极低（`escapeAttr` 兜底保留即可覆盖所有使用场景）
+  - 修：删 8 行
+- **#2 性能 — `popup.js` 轮询频率 500ms → 1000ms**
+  - 旧 500ms 偏密，CPU/唤醒开销偏大；翻译完成通常 2-5 秒，1000ms 足够
+  - 风险评估：🟢 低（最坏情况：用户晚 0.5 秒看到取消按钮消失，可接受）
+  - 修：1 行
+- **#3 逻辑重复 — `loadDailyUsage` 3 个空状态判断合并为 1 个**
+  - 旧 line 325 `_date !== today` 和 line 336 `items.length === 0` 显示**相同提示**但分两个 return
+  - 修：把 `_date` 检查与 `for` 循环合并（`if (usage._date === today) { ... fill items }`），`items.length === 0` 自动覆盖两种情况
+  - 风险评估：🟢 低（语义不变）
+  - 修：5 行变 3 行
+- **#5 UX 缺陷 — 快捷键下拉框删 `Ctrl+T` / `Ctrl+Shift+T`**
+  - 这两个组合被 Chrome 系统保留，**永远**会被 `commands.update` 拒绝
+  - 放在下拉框里只会让用户点了再被 alert 弹回，**纯误导**
+  - 风险评估：🟢 低（Chrome 未来若开放这些组合需手动加回，但目前不开放）
+  - 修：2 行 option
+- **#8 撤回** — CSS selector 合并初判错误：3 个 rule 各自属性不同（base/hover/focus-visible），无法合并 selector
+- **总收益**：5 项改动净 -10 行 / +3 行，**零风险**
+
 ---
 
 ## v1.0.5 — 2026-07-25

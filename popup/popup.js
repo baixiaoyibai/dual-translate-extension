@@ -15,14 +15,6 @@ if (typeof window.escapeAttr !== 'function') {
       .replace(/>/g, '&gt;');
   };
 }
-if (typeof window.escapeHtml !== 'function') {
-  window.escapeHtml = function(str) {
-    return String(str == null ? '' : str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  };
-}
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadState();
@@ -109,7 +101,7 @@ function startCancelButtonPolling(tabId) {
       updateCancelButton(false);
       stopCancelButtonPolling();
     }
-  }, 500);
+  }, 1000);
 }
 
 function stopCancelButtonPolling() {
@@ -330,16 +322,14 @@ async function loadDailyUsage() {
       return;
     }
     const today = new Date().toDateString();
-    if (usage._date !== today) {
-      container.innerHTML = '<div class="status-loading">今日尚未使用</div>';
-      return;
-    }
     const displayNames = (typeof API_DISPLAY_NAMES !== 'undefined') ? API_DISPLAY_NAMES : {};
     const items = [];
-    for (const [name, count] of Object.entries(usage)) {
-      if (name === '_date' || typeof count !== 'number') continue;
-      const displayName = displayNames[name] || name;
-      items.push({ name, displayName, count });
+    if (usage._date === today) {
+      for (const [name, count] of Object.entries(usage)) {
+        if (name === '_date' || typeof count !== 'number') continue;
+        const displayName = displayNames[name] || name;
+        items.push({ name, displayName, count });
+      }
     }
     if (items.length === 0) {
       container.innerHTML = '<div class="status-loading">今日尚未使用</div>';
