@@ -2,7 +2,7 @@
 
 一个给 Edge / Chrome 浏览器用的翻译扩展（Manifest V3）。浏览英文或日文网页时，自动帮你翻译成简体中文，支持 4 种显示方式，内置 4 个免费翻译接口自动轮换，针对游戏攻略 / MOD 社区做了术语优化。
 
-> **版本变更历史请见 [CHANGELOG.md](./CHANGELOG.md)**，当前版本：**v1.0.5**（含 7 项 hotfix）
+> **版本变更历史请见 [CHANGELOG.md](./CHANGELOG.md)**，当前版本：**v1.0.6**（含 10 轮 hotfix）
 
 ## 有什么用
 
@@ -164,10 +164,10 @@
 
 ```
 dual-translate-extension/
-├── manifest.json                  扩展配置
-├── background.js                  Service Worker，管理 IPC 和初始化
-├── content.js                     注入网页的翻译脚本（1200+ 行）
-├── content.css                    翻译 UI 样式
+├── manifest.json                  扩展配置（MV3）
+├── background.js                  Service Worker，消息路由 + 翻译调度
+├── content.js                     注入网页的翻译脚本（1163 行）
+├── content.css                    翻译 UI 样式（183 行）
 ├── popup/                         扩展图标弹出面板
 │   ├── popup.html
 │   ├── popup.css
@@ -178,19 +178,22 @@ dual-translate-extension/
 │   └── options.js
 ├── lib/
 │   ├── api-manager.js             API 调度、优先级、错误恢复
+│   ├── api-metadata.js            API 元数据（供 options/popup UI 用）
 │   ├── settings-manager.js        用户配置管理（含密钥隔离）
-│   ├── translation-cache.js       翻译结果缓存（LRU + 3天 TTL）
-│   ├── escape-utils.js            HTML 转义工具（v1.0.5 新增，安全修复）
-│   ├── logger.js                  日志模块（按 logLevel 过滤）
+│   ├── translation-cache.js       翻译结果缓存（LRU + 3 天 TTL）
+│   ├── escape-utils.js            HTML 转义工具
 │   └── api-adapters/
 │       ├── baidu.js               百度通用翻译
 │       ├── baidu-llm.js           百度大模型翻译
 │       └── llm-generic.js         DeepSeek / GLM / 自定义 LLM
 ├── config/
-│   ├── default-glossary.json      默认术语表
+│   ├── default-glossary.json      默认术语表（100+ 条）
 │   └── llm-prompt.txt             LLM 翻译 prompt 模板
 ├── welcome/                       安装引导页
-└── icons/                         扩展图标
+├── icons/                         扩展图标
+├── docs/archive/                  历史代码审查报告（归档）
+├── CHANGELOG.md                   完整变更日志
+└── package.json                   npm check 脚本
 ```
 
 ## 开发说明
@@ -198,8 +201,24 @@ dual-translate-extension/
 - **架构**：MV3 Service Worker + ES Module
 - **存储**：`chrome.storage.sync` 存用户配置（不含密钥），`chrome.storage.local` 存 API 密钥、翻译缓存、API 状态
 - **缓存策略**：翻译结果持久化到 `chrome.storage.local`，3 天 TTL 自动过期，最多 10000 条 LRU 淘汰；服务重启后缓存仍在
-- **错误恢复**：API 配额耗尽时标记 `quota_exceeded`，冷却期内不重试
+- **错误恢复**：API 配额耗尽时标记 `quota_exceeded`，密钥错误时标记 `auth_error`，冷却期内不重试
 - **国际化**：当前全中文硬编码（如果计划开源给国际用户，需要抽到 `_locales/`）
+- **代码质量**：经 10 轮 hotfix 迭代，累计修复 5 项严重 bug + 8 项高风险问题 + 清理 202 行死代码/冗余。全项目通过 `npm run check` 语法检查
+
+### 代码审查状态
+
+v1.0.6 期间做了 3 次全项目代码审查（4 子代理并发审核），已修复的问题包括：
+
+- **严重**：`switchMode` 竞态导致并发翻译、custom providers 永远不构建、`escapeHtml` 实体不全
+- **高风险**：取消翻译成功后弹误报 alert、百度 API `error_code` 类型不匹配、面板关闭清空全部监听器、月度配额跨年失效、`auth_error` 不阻止重试、abort 后仍注入翻译
+- **安全**：XSS 转义强化、快捷键回滚、API 错误 UI 提示完善
+- **清理**：删除 `lib/logger.js`（死代码）、`escapeHtml`（零调用）、`INSTALLED_KEYS_KEY`（从未写入的 storage key）、大量死 CSS 规则和冗余变量
+
+历史审查报告归档在 `docs/archive/`。剩余已知风险（留待后续版本）：
+
+- `getSettings` 返回 API 密钥给 content script（需 sender 校验重构）
+- `translation-cache` 并发 `_load()` 丢数据（需 promise 缓存重构）
+- `options.css` 中 `.custom-provider-*` class 缺少 CSS 规则（UI bug）
 
 ## 注意事项
 
