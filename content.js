@@ -240,8 +240,6 @@ function hideOriginalText(seg) {
         hiddenSpans.push(span);
       }
       
-      seg._hiddenSpans = hiddenSpans;
-      seg.blockParent.setAttribute('data-dt-original-hidden', 'true');
     } else {
       // Single node mode: hide the original text node
       const parent = seg.node.parentElement;
@@ -252,7 +250,6 @@ function hideOriginalText(seg) {
       span.dataset.original = seg.node.textContent;
       span.style.display = 'none';
       seg.node.parentNode.replaceChild(span, seg.node);
-      seg._hiddenSpan = span;
     }
     
     seg._originalHidden = true;
@@ -455,16 +452,9 @@ function cleanupAllInjections() {
     el.parentNode.replaceChild(textNode, el);
   });
   
-  // Clean up block parent attributes
-  document.querySelectorAll('[data-dt-original-hidden]').forEach(el => {
-    el.removeAttribute('data-dt-original-hidden');
-  });
-  
   // Reset segment hidden flags
   segments.forEach(seg => {
     seg._originalHidden = false;
-    seg._hiddenSpan = null;
-    seg._hiddenSpans = null;
   });
   
   hideLoading();
@@ -523,11 +513,8 @@ function setupMutationObserver() {
           const now = Date.now();
           // 防止频繁重新翻译
           if (now - lastRetranslateTime > 2000) {
-            addedSinceLastCheck = 0;
             lastRetranslateTime = now;
             startTranslation();
-          } else {
-            addedSinceLastCheck = 0;
           }
         }
         addedSinceLastCheck = 0;
@@ -689,7 +676,6 @@ function extractSegments() {
     if(processedNodes.has(node))continue;
     const text=node.textContent.trim();
     if(text.length<mTL)continue;
-    if(/^\s*$/.test(text))continue;
     if(/^[\d\s.,!?;:'"()\-–—+×÷=%&@#$^*_~`\[\]{}<>/\\|]+$/.test(text))continue;
     if(shouldSkipText(text))continue;
     const parent=node.parentElement;
@@ -930,9 +916,7 @@ async function translateSegments(segs, signal) {
   
   // 读取源语言设置
   const sourceLanguage = settings.api.sourceLanguage || 'auto';
-  const detectedLang = detectPageLanguage(sourceLanguage);
-  
-  const sourceLang = detectedLang;
+  const sourceLang = detectPageLanguage(sourceLanguage);
   const total=segs.length;
 
   // 先从 textCache 填充 translationCache（规范化键，键含 sourceLang 维度）
@@ -1159,7 +1143,7 @@ function resetAll() {
   }
   if (mutationObserver) { mutationObserver.disconnect(); mutationObserver = null; }
   // v1.0.3: 清理懒加载 observer（§3.4）
-  if (typeof teardownLazyObserver === 'function') teardownLazyObserver();
+  teardownLazyObserver();
   observerPaused = false;
   translationCompletedOnce = false;
   cleanupAllInjections();

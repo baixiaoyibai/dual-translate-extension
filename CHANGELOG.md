@@ -134,6 +134,25 @@
   - 收益：未来加新 endpoint input 直接调，未来改 alert 文案只改 1 处
   - 净 +11 行函数 / -16 行重复
 
+#### v1.0.6 hotfix 第十轮 - 残余死代码清理
+
+> hotfix9 后再次全量审核（3 子代理），主代理验证后委托 2 子代理实施。仅 🟢 安全项，零行为变更。
+
+- **`content.js` 删 `seg._hiddenSpan`/`_hiddenSpans` 死写入** - 4 处赋值后从不读取
+- **`content.js` 删 `data-dt-original-hidden` 属性** - 设置+清理但从不查询
+- **`content.js` 简化 `detectedLang` 冗余别名** - `const sourceLang = detectedLang` 合并为直接赋值
+- **`content.js` 简化 `addedSinceLastCheck` 三重 reset** - if/else 内的 2 处冗余，保留无条件 reset
+- **`content.js` 删 `if(/^\s*$/.test(text))` 死检查** - trim+length≥3 后不可能为 true
+- **`content.js` 简化 `typeof teardownLazyObserver` 永真守卫** - hoisted 函数声明永为 function
+- **`lib/escape-utils.js` 删 `escapeHtml` 函数+导出** - 全项目零调用
+- **`lib/settings-manager.js` 删 `INSTALLED_KEYS_KEY`+`_loadApiKeysFromFile`** - 读的 key 从未写入，12 行死代码
+- **`lib/api-adapters/baidu.js` 删 no-op `to` 变量** - `targetLang === 'zh' ? 'zh' : targetLang` 恒等于 `targetLang`
+- **`lib/api-adapters/baidu.js` 删 `this.displayName`** - api-manager 从不读取 baidu 类的 displayName
+- **`lib/api-adapters/baidu-llm.js` 同上两项** - no-op `to` + 死 `displayName`
+- **`options/options.js` 删 `escapeAttr` fallback 死代码** - escape-utils.js 先加载，守卫永为 false
+- **`popup/popup.js` 删 `escapeAttr` fallback 死代码** - 同上
+- 净 -64 行 / +0 行
+
 #### v1.0.6 hotfix 第九轮 - 冗余清理 + 代码优化
 
 > 3 子代理并发审核冗余/优化点，主代理验证后委托 3 子代理实施。仅 🟢 安全项，零行为变更。

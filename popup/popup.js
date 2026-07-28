@@ -3,19 +3,6 @@ let translationEnabled = true;
 let cachedSettings = null;
 let cancelPollTimer = null;
 
-// 防御性兜底: 如果 lib/escape-utils.js 加载失败, popup 仍能渲染
-// 5 实体转义 (& " ' < >) 与 escape-utils.js 保持一致
-if (typeof window.escapeAttr !== 'function') {
-  window.escapeAttr = function(str) {
-    return String(str == null ? '' : str)
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  };
-}
-
 document.addEventListener('DOMContentLoaded', async () => {
   await loadState();
   await loadApiStatus();

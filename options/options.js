@@ -497,16 +497,6 @@ async function saveGlossary() {
   await chrome.runtime.sendMessage({ action: 'saveGlossary', glossary: glossaryByDomain });
 }
 
-if (typeof window.escapeAttr !== 'function') {
-  window.escapeAttr = function(str) {
-    return String(str == null ? '' : str)
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  };
-}
 const API_STATUS_LABELS = { available: '可用', quota_exceeded: '额度不足', error: '异常', auth_error: '密钥错误' };
 function getStatusLabel(status) { return API_STATUS_LABELS[status] || '未配置'; }
 
