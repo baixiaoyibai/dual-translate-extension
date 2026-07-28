@@ -675,11 +675,7 @@ function renderApiCards() {
         if (!provider) return;
 
         if (field === 'name' || field === 'apiKey' || field === 'endpoint' || field === 'model') {
-          if (field === 'endpoint' && input.value && !isValidEndpointUrl(input.value)) {
-            alert('Endpoint 格式无效，应以 http:// 或 https:// 开头，例如 https://api.openai.com');
-            input.value = provider.endpoint;
-            return;
-          }
+          if (field === 'endpoint' && !validateEndpointInput(input, provider.endpoint)) return;
           provider[field] = input.value;
         } else if (field === 'enabled') {
           provider.enabled = input.checked;
@@ -697,11 +693,8 @@ function renderApiCards() {
       
       // 处理常规API
       if (field === 'endpoint') {
-        if (input.value && !isValidEndpointUrl(input.value)) {
-          alert('Endpoint 格式无效，应以 http:// 或 https:// 开头，例如 https://api.openai.com');
-          input.value = settings.api.apiEndpoints?.[apiName] || '';
-          return;
-        }
+        const current = settings.api.apiEndpoints?.[apiName];
+        if (!validateEndpointInput(input, current)) return;
         if (!settings.api.apiEndpoints) settings.api.apiEndpoints = {};
         settings.api.apiEndpoints[apiName] = input.value;
       } else if (field === 'model') {
@@ -875,13 +868,7 @@ function renderCustomProviders() {
       const field = input.dataset.field;
       const provider = (settings.api.customProviders || []).find(p => p.id === providerId);
       if (!provider) return;
-
-      if (field === 'endpoint' && input.value && !isValidEndpointUrl(input.value)) {
-        alert('Endpoint 格式无效，应以 http:// 或 https:// 开头，例如 https://api.openai.com');
-        input.value = provider.endpoint;
-        return;
-      }
-
+      if (field === 'endpoint' && !validateEndpointInput(input, provider.endpoint)) return;
       provider[field] = input.value;
       saveAllSettings(settings).then(() => {
         chrome.runtime.sendMessage({ action: 'reloadApis' });
@@ -1177,4 +1164,13 @@ function isValidEndpointUrl(url) {
   } catch {
     return false;
   }
+}
+
+function validateEndpointInput(input, currentValue) {
+  if (input.value && !isValidEndpointUrl(input.value)) {
+    alert('Endpoint 格式无效，应以 http:// 或 https:// 开头，例如 https://api.openai.com');
+    input.value = currentValue || '';
+    return false;
+  }
+  return true;
 }

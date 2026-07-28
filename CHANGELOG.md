@@ -125,6 +125,15 @@
 - 删除冗余菜单项 1 个 + 死代码 1 处
 - 新增公开方法 0 个（B3 简化为复用 `loadSettings`）
 
+#### v1.0.6 hotfix 第五轮 — endpoint 校验抽函数
+
+- **#6 重复消除** — `isValidEndpointUrl` + alert + rollback input 模式在 3 处重复（line 678 custom_ 段 / line 700 主分支 / line 879 custom-provider-field）
+  - 修：抽 `validateEndpointInput(input, currentValue)` 公开函数（line 1169），返回 boolean
+  - 3 处调用统一为 `if (field === 'endpoint' && !validateEndpointInput(input, currentValue)) return;`
+  - 风险评估：🟡 中（抽错会同时影响 3 个 endpoint input，但每个调用方上下文清晰）
+  - 收益：未来加新 endpoint input 直接调，未来改 alert 文案只改 1 处
+  - 净 +11 行函数 / -16 行重复
+
 #### v1.0.6 hotfix 第四轮 — `loadDailyUsage` 样式抽 CSS
 
 - **#4 样式与逻辑分离** — `popup.js` 中 `loadDailyUsage` 渲染的 item 行所有样式（display/flex/font-size/gradient/width）都 inline 在 HTML template 字符串中
