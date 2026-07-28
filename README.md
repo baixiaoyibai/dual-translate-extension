@@ -2,7 +2,7 @@
 
 一个给 Edge / Chrome 浏览器用的翻译扩展（Manifest V3）。浏览英文或日文网页时，自动帮你翻译成简体中文，支持 4 种显示方式，内置 4 个免费翻译接口自动轮换，针对游戏攻略 / MOD 社区做了术语优化。
 
-> **版本变更历史请见 [CHANGELOG.md](./CHANGELOG.md)**，当前版本：**v1.0.6**（含 10 轮 hotfix）
+> **版本变更历史请见 [CHANGELOG.md](./CHANGELOG.md)**，当前版本：**v1.0.6**（含 13 轮 hotfix）
 
 ## 有什么用
 
@@ -166,8 +166,8 @@
 dual-translate-extension/
 ├── manifest.json                  扩展配置（MV3）
 ├── background.js                  Service Worker，消息路由 + 翻译调度
-├── content.js                     注入网页的翻译脚本（1163 行）
-├── content.css                    翻译 UI 样式（183 行）
+├── content.js                     注入网页的翻译脚本（1319 行）
+├── content.css                    翻译 UI 样式（202 行）
 ├── popup/                         扩展图标弹出面板
 │   ├── popup.html
 │   ├── popup.css
@@ -177,10 +177,10 @@ dual-translate-extension/
 │   ├── options.css
 │   └── options.js
 ├── lib/
-│   ├── api-manager.js             API 调度、优先级、错误恢复
+│   ├── api-manager.js             API 调度、优先级、超时重试、错误恢复
 │   ├── api-metadata.js            API 元数据（供 options/popup UI 用）
-│   ├── settings-manager.js        用户配置管理（含密钥隔离）
-│   ├── translation-cache.js       翻译结果缓存（LRU + 3 天 TTL）
+│   ├── settings-manager.js        用户配置管理（含密钥隔离、域名排除缓存）
+│   ├── translation-cache.js       翻译结果缓存（LRU + 3 天 TTL + 防抖写入）
 │   ├── escape-utils.js            HTML 转义工具
 │   └── api-adapters/
 │       ├── baidu.js               百度通用翻译
@@ -200,25 +200,27 @@ dual-translate-extension/
 
 - **架构**：MV3 Service Worker + ES Module
 - **存储**：`chrome.storage.sync` 存用户配置（不含密钥），`chrome.storage.local` 存 API 密钥、翻译缓存、API 状态
-- **缓存策略**：翻译结果持久化到 `chrome.storage.local`，3 天 TTL 自动过期，最多 10000 条 LRU 淘汰；服务重启后缓存仍在
-- **错误恢复**：API 配额耗尽时标记 `quota_exceeded`，密钥错误时标记 `auth_error`，冷却期内不重试
+- **缓存策略**：翻译结果持久化到 `chrome.storage.local`，3 天 TTL 自动过期，最多 10000 条 LRU 淘汰；防抖写入（5 秒合并）；服务重启后缓存仍在
+- **错误恢复**：API 配额耗尽时标记 `quota_exceeded`，密钥错误时标记 `auth_error`，冷却期内不重试；超时后 AbortController 中止 fetch 节省 API 额度
 - **国际化**：当前全中文硬编码（如果计划开源给国际用户，需要抽到 `_locales/`）
-- **代码质量**：经 10 轮 hotfix 迭代，累计修复 5 项严重 bug + 8 项高风险问题 + 清理 202 行死代码/冗余。全项目通过 `npm run check` 语法检查
+- **代码质量**：经 13 轮 hotfix 迭代，含性能优化 20 项（charCodeAt 热路径、事件委托、防抖写入、Promise.all 并行化等），累计修复 8 项严重 bug + 13 项中等风险问题 + 清理 202 行死代码/冗余。全项目通过 `npm run check` 语法检查
 
 ### 代码审查状态
 
-v1.0.6 期间做了 3 次全项目代码审查（4 子代理并发审核），已修复的问题包括：
+v1.0.6 期间做了 5 次全项目代码审查（子代理并发审核），已修复的问题包括：
 
-- **严重**：`switchMode` 竞态导致并发翻译、custom providers 永远不构建、`escapeHtml` 实体不全
-- **高风险**：取消翻译成功后弹误报 alert、百度 API `error_code` 类型不匹配、面板关闭清空全部监听器、月度配额跨年失效、`auth_error` 不阻止重试、abort 后仍注入翻译
-- **安全**：XSS 转义强化、快捷键回滚、API 错误 UI 提示完善
+- **严重**：`switchMode` 竞态导致并发翻译、custom providers 永远不构建、`escapeHtml` 实体不全、`translate()` 成功后 statusCache 不更新导致 consecutiveErrors 永不重置、`cleanupAllInjections` 未清增量追踪状态导致 HOVER/PANEL 重翻译失效、`switchMode` abort 旧翻译后旧 catch 破坏新翻译
+- **高风险**：取消翻译成功后弹误报 alert、百度 API `error_code` 类型不匹配、面板关闭清空全部监听器、月度配额跨年失效、`auth_error` 不阻止重试、abort 后仍注入翻译、`reload()` 缺少 resetApiQuotaIfNeeded、防抖缓存 SW 休眠前未 flush
+- **安全**：XSS 转义强化、快捷键回滚、API 错误 UI 提示完善、非 AbortError 异常添加用户提示
+- **性能**：charCodeAt 热路径替换 regex、fillTranslations 消除 O(n²) 全文档扫描、AbortController 中止超时 fetch、事件委托替代逐段监听器、storage 批量读/防抖写入/正则预编译缓存、Promise.all 并行化（init/reload/popup/options/loadState/loadAllData/updateIcon）
 - **清理**：删除 `lib/logger.js`（死代码）、`escapeHtml`（零调用）、`INSTALLED_KEYS_KEY`（从未写入的 storage key）、大量死 CSS 规则和冗余变量
 
 历史审查报告归档在 `docs/archive/`。剩余已知风险（留待后续版本）：
 
 - `getSettings` 返回 API 密钥给 content script（需 sender 校验重构）
 - `translation-cache` 并发 `_load()` 丢数据（需 promise 缓存重构）
-- `options.css` 中 `.custom-provider-*` class 缺少 CSS 规则（UI bug）
+- `testApi` 无超时保护（用户可关闭弹窗，影响可控）
+- 多 tab 并发翻译时 `statusCache` 可能互相覆盖（需加锁或改为 storage 单 key 写）
 
 ## 注意事项
 
