@@ -37,33 +37,11 @@ function setupContextMenu() {
       title: '翻译选中文字',
       contexts: ['selection']
     });
-    chrome.contextMenus.create({
-      id: 'translate-selection-only',
-      title: '仅翻译选中文本（不修改页面）',
-      contexts: ['selection']
-    });
   });
 }
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === 'translate-selection' && info.selectionText) {
-    try {
-      await apiManager.reload();
-      const results = await apiManager.translate([info.selectionText], 'auto', 'zh');
-      const translation = results[0]?.translation || '翻译失败';
-      chrome.tabs.sendMessage(tab.id, {
-        action: 'showSelectionTranslation',
-        original: info.selectionText,
-        translation: translation
-      });
-    } catch (error) {
-      chrome.tabs.sendMessage(tab.id, {
-        action: 'showSelectionTranslation',
-        original: info.selectionText,
-        translation: '翻译失败: ' + error.message
-      });
-    }
-  } else if (info.menuItemId === 'translate-selection-only' && info.selectionText) {
     try {
       await apiManager.reload();
       const results = await apiManager.translate([info.selectionText], 'auto', 'zh');
@@ -133,8 +111,10 @@ async function handleMessage(message, sender) {
       if (message.path === 'general.toggleTranslateShortcut' && typeof message.value === 'string') {
         try {
           await chrome.commands.update({ name: 'toggle-translate', shortcut: message.value });
+          return { success: true };
         } catch (e) {
           console.warn('[dual-translate] apply shortcut failed:', e.message);
+          return { success: false, error: '该快捷键被浏览器或系统保留，请换一个（例如 Alt+Y）' };
         }
       }
 
@@ -248,7 +228,7 @@ async function handleMessage(message, sender) {
     }
 
     case 'importAllSettings':
-      await settingsManager.saveSettings(message.data.settings);
+      await settingsManager.applyImportedSettings(message.data.settings);
       if (message.data.glossary) await settingsManager.saveGlossary(message.data.glossary);
       if (typeof message.data.customPrompt === 'string') {
         if (message.data.customPrompt) {

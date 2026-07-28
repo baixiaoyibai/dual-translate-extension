@@ -1098,7 +1098,7 @@ function updatePanel(segSubset) {
     const panel=document.createElement('div');panel.className='dual-translate-panel';
     panel.style.cssText=`position:fixed;${pos==='right'?`right:0;top:0;bottom:0;width:${w}px;`:'left:0;right:0;bottom:0;height:300px;'}background:var(--dt-bg-primary);border-left:1px solid var(--dt-border-primary);z-index:2147483646;display:flex;flex-direction:column;box-shadow:-2px 0 8px var(--dt-shadow);`;
     const hd=document.createElement('div');hd.style.cssText=`display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--dt-bg-secondary);border-bottom:1px solid var(--dt-border-light);color:var(--dt-text-primary);font-size:14px;flex-shrink:0;`;
-    hd.innerHTML='<span><strong>原文 / 译文</strong> 对照</span><div><button class="panel-toggle-btn" style="background:none;border:none;cursor:pointer;font-size:16px;padding:2px 6px;">◀</button><button class="panel-close-btn" style="background:none;border:none;cursor:pointer;font-size:18px;padding:2px 6px;">✕</button></div>';
+    hd.innerHTML='<span><strong>原文 / 译文</strong> 对照</span><div><button class="panel-toggle-btn">◀</button><button class="panel-close-btn">✕</button></div>';
     const ct=document.createElement('div');ct.style.cssText='flex:1;overflow-y:auto;padding:14px;';
     ct.className='dual-translate-panel-content';
     let collapsed=false;

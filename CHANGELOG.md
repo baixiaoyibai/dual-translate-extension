@@ -69,6 +69,42 @@
 - 新增 `.agent-collision-rules.md`（3 子代理并发协作说明，未提交）
 - `npm run check`（12 个 `node --check`）全部通过
 
+### Fixed — v1.0.6 hotfix（审计后修复 8 项真 bug）
+
+> 主代理在合并后立即审计上一批 10 项 P0/P1 改动，发现 8 项真 bug（3 严重 + 3 中等 + 2 次要），本批逐一修复。`manifest.json` 版本号未变更。
+
+#### 严重（3 项）
+
+- **B1 [P0-1] 对照面板按钮 CSS 修复实际不生效**
+  - 原修复仅加 CSS 规则，但 `content.js:1101` 的 inline `style="background:none;..."` specificity `(1,0,0,0)` 远高于外部 CSS 的 `(0,0,2,0)`，inline 永远胜出
+  - 修：从 `content.js:1101` 移除两个按钮的 inline `style` 属性，CSS 现在正确生效
+- **B3 [P1-4] 导入不走 `_ensureApiDefaults`**
+  - 原 `case 'importAllSettings'` 直接 `saveSettings(message.data.settings)`，但 `saveSettings` 不做字段兜底
+  - 导入旧版/缺字段的 JSON 后，`api.apiEndpoints` / `apiModels` / `customProviders` / `enabledApis` 全是 undefined，`api-manager.js:91` 会 fallback 到空字符串导致全部 API 不可用
+  - 修：`lib/settings-manager.js` 新增公开方法 `applyImportedSettings(importedSettings)` = `_deepMerge(DEFAULT, imported)` + `_ensureApiDefaults()` + `saveSettings`。`background.js` 改用新方法
+- **B12 [P1-10] 新增的"仅翻译选中文本"菜单项与原菜单完全等价**
+  - 两个菜单项都调 `showSelectionTranslation` 弹同一个 floating div，"不修改页面"的承诺本来就是原菜单的行为
+  - 修：删除 `translate-selection-only` 菜单项及 `onClicked` 中的 `else if` 分支（11 行代码回滚）
+
+#### 中等（3 项）
+
+- **B7/B8 [P1-8] 快捷键被 Chrome 拒绝时无提示**
+  - 用户在 select 选 `Ctrl+T` 等被系统保留的组合，`chrome.commands.update` 抛异常被 catch 静默吞掉，UI 还显示"✓ 已保存"，但实际未生效
+  - 修：`background.js` `case 'updateSettings'` 的快捷键分支改为 `return { success: true|false, error? }`；`options/options.js` 收到 `success: false` 时回滚 select.value + 回滚 storage + alert
+- **B11 [P1-9] 预置 LLM 端点未校验**
+  - 原 `isValidEndpointUrl` 只在 `custom_` 段和 `custom-provider-field` 生效；预置 API（deepseek/glm/tongyi 等）的 endpoint input 走主分支未校验
+  - 修：在主分支 `if (field === 'endpoint')` 入口加 `isValidEndpointUrl` 校验，失败 alert + 回滚 input
+- **B14/B15 [P1-4] 导入无 magic 字段校验 + 无文件大小限制**
+  - 任何 JSON 只要含 `version` + `settings` 字段就被接受并写进 sync（可能污染其他扩展的配置）；500MB 恶意 JSON 会让 `file.text()` 吃光内存
+  - 修：options 端先 `file.size > 5MB` 拒绝，再校验 `s.api.apiPriority` 必须是 array + `s.display` 和 `s.general` 必须存在，失败 alert 拒绝
+
+#### 次要（2 项）
+
+- **B5 [P1-7] `loadDailyUsage` 函数位置错乱**
+  - 定义在 `popup.js:151` 但被 `DOMContentLoaded:27` 调用，靠 hoisting 勉强工作
+  - 修：移到文件末尾，调用点不变
+- **review 整体收益**：`background.js` 净 -9 行（删除冗余菜单项），`lib/settings-manager.js` +13 行（公开方法），`options/options.js` +24 行（校验 + 回滚），`popup/popup.js` 0 净变化
+
 ---
 
 ## v1.0.5 — 2026-07-25

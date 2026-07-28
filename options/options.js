@@ -189,10 +189,19 @@ function setupDisplaySettings() {
   if (toggleTranslateShortcutEl) {
     const cur = settings.general?.toggleTranslateShortcut || 'Alt+T';
     toggleTranslateShortcutEl.value = cur;
-    toggleTranslateShortcutEl.addEventListener('change', () => {
-      settings.general.toggleTranslateShortcut = toggleTranslateShortcutEl.value;
-      saveSetting('general.toggleTranslateShortcut', toggleTranslateShortcutEl.value);
-      showSavedTip();
+    toggleTranslateShortcutEl.addEventListener('change', async () => {
+      const newVal = toggleTranslateShortcutEl.value;
+      const oldVal = settings.general?.toggleTranslateShortcut || 'Alt+T';
+      settings.general.toggleTranslateShortcut = newVal;
+      const res = await chrome.runtime.sendMessage({ action: 'updateSettings', path: 'general.toggleTranslateShortcut', value: newVal });
+      if (res && res.success === false) {
+        alert('快捷键设置失败：' + (res.error || '未知错误'));
+        settings.general.toggleTranslateShortcut = oldVal;
+        toggleTranslateShortcutEl.value = oldVal;
+        try { await chrome.runtime.sendMessage({ action: 'updateSettings', path: 'general.toggleTranslateShortcut', value: oldVal }); } catch {}
+      } else {
+        showSavedTip();
+      }
     });
   }
 }
@@ -691,6 +700,11 @@ function renderApiCards() {
       
       // 处理常规API
       if (field === 'endpoint') {
+        if (input.value && !isValidEndpointUrl(input.value)) {
+          alert('Endpoint 格式无效，应以 http:// 或 https:// 开头，例如 https://api.openai.com');
+          input.value = settings.api.apiEndpoints?.[apiName] || '';
+          return;
+        }
         if (!settings.api.apiEndpoints) settings.api.apiEndpoints = {};
         settings.api.apiEndpoints[apiName] = input.value;
       } else if (field === 'model') {
@@ -1072,6 +1086,11 @@ function setupAdvancedSettings() {
   document.getElementById('importAllSettingsFile')?.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert('文件超过 5MB 限制，拒绝导入（防止恶意大文件）');
+      e.target.value = '';
+      return;
+    }
     if (!confirm(`确定导入「${file.name}」？当前所有设置（不含 API 密钥）将被覆盖。`)) {
       e.target.value = '';
       return;
@@ -1081,6 +1100,9 @@ function setupAdvancedSettings() {
       const data = JSON.parse(text);
       if (!data || typeof data !== 'object' || !data.settings) throw new Error('文件格式无效（缺少 settings 字段）');
       if (!data.version) throw new Error('文件格式无效（缺少 version 字段）');
+      const s = data.settings;
+      if (!s.api || !Array.isArray(s.api.apiPriority)) throw new Error('文件不是双语翻译助手的设置（缺少 api.apiPriority）');
+      if (!s.display || !s.general) throw new Error('文件不是双语翻译助手的设置（缺少 display/general）');
       await chrome.runtime.sendMessage({ action: 'importAllSettings', data });
       showSavedTip();
       alert('导入成功！API 密钥需要重新在「API 管理」中填写。');
