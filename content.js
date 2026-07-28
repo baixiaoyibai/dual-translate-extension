@@ -562,7 +562,8 @@ function resumeObserver() {
 async function startTranslation(opts = {}) {
   if (isTranslating) return;
   isTranslating = true;
-  currentAbortController = new AbortController();
+  const myAbortController = new AbortController();
+  currentAbortController = myAbortController;
   pauseObserver();
   try {
     await sendMessage('setIconState', { state: 'translating' });
@@ -625,8 +626,10 @@ async function startTranslation(opts = {}) {
     }
     translationCompletedOnce = false;
   } finally {
-    isTranslating = false;
-    currentAbortController = null;
+    if (currentAbortController === myAbortController) {
+      isTranslating = false;
+      currentAbortController = null;
+    }
     resumeObserver();
   }
 }
@@ -991,6 +994,7 @@ async function translateSegments(segs, signal) {
 
     if(uncached.length>0){
       const resp=await sendMessage('translateTexts',{texts:uncached,sourceLang:sourceLang});
+      if(signal?.aborted){aborted=true;break;}
       if(resp&&!resp.error&&resp.translations){
         const cMap=new Map();
         for(const r of resp.translations){
@@ -1103,13 +1107,14 @@ function updatePanel(segSubset) {
     ct.className='dual-translate-panel-content';
     let collapsed=false;
     hd.querySelector('.panel-toggle-btn').addEventListener('click',()=>{collapsed=!collapsed;panel.style.transform=collapsed?(pos==='right'?'translateX(calc(100% - 30px))':'translateY(calc(100% - 30px))'):'translate(0)';hd.querySelector('.panel-toggle-btn').textContent=collapsed?'▶':'◀';});
-    hd.querySelector('.panel-close-btn').addEventListener('click',()=>{panel.remove();panelInstance=null;document.body.style.marginRight='';document.body.style.marginBottom='';globalCleanupHandlers.forEach(fn=>{try{fn()}catch{}});globalCleanupHandlers=[];});
+    hd.querySelector('.panel-close-btn').addEventListener('click',()=>{panel.remove();panelInstance=null;document.body.style.marginRight='';document.body.style.marginBottom='';if(panelCleanup){try{panelCleanup()}catch{}const idx=globalCleanupHandlers.indexOf(panelCleanup);if(idx>=0)globalCleanupHandlers.splice(idx,1);panelCleanup=null;}});
     let isDragging=false,sX,sY,sW,sH;
     const mdh=e=>{if(e.target.tagName==='BUTTON')return;isDragging=true;sX=e.clientX;sY=e.clientY;const r=panel.getBoundingClientRect();sW=r.width;sH=r.height;document.body.style.userSelect='none';};
     const mmh=e=>{if(!isDragging)return;if(pos==='right')panel.style.width=Math.max(200,Math.min(800,sW-(e.clientX-sX)))+'px';else panel.style.height=Math.max(150,Math.min(600,sH-(e.clientY-sY)))+'px';};
     const muh=()=>{isDragging=false;document.body.style.userSelect='';};
     hd.addEventListener('mousedown',mdh);document.addEventListener('mousemove',mmh);document.addEventListener('mouseup',muh);
-    globalCleanupHandlers.push(()=>{hd.removeEventListener('mousedown',mdh);document.removeEventListener('mousemove',mmh);document.removeEventListener('mouseup',muh);});
+    let panelCleanup=()=>{hd.removeEventListener('mousedown',mdh);document.removeEventListener('mousemove',mmh);document.removeEventListener('mouseup',muh);};
+    globalCleanupHandlers.push(panelCleanup);
     panel.appendChild(hd);panel.appendChild(ct);document.body.appendChild(panel);panelInstance=panel;
     if(pos==='right')document.body.style.marginRight=w+'px';else document.body.style.marginBottom='300px';
   }

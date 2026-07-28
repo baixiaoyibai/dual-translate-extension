@@ -134,6 +134,59 @@
   - 收益：未来加新 endpoint input 直接调，未来改 alert 文案只改 1 处
   - 净 +11 行函数 / -16 行重复
 
+#### v1.0.6 hotfix 第八轮 - 严重/高风险修复批（2C + 6H）
+
+> 全项目代码审查（4 子代理并发审核全部源文件），识别 5 项 🔴 + 8 项 🟠。本轮修其中 2 项 🔴 + 6 项 🟠。
+
+- **C4 🔴 `switchMode` 竞态 - `finally` 覆盖新翻译的 `isTranslating`** - `content.js:562-631`
+  - **现象**：用户切模式时 `switchMode` abort 旧翻译、设 `isTranslating=false`、启动新翻译（`isTranslating=true`）。但旧翻译的 `finally` 块随后执行 `isTranslating=false`，**覆盖新翻译的状态**。第三次调用通过 guard 并发执行，DOM 注入重复/错乱。
+  - **修**：`startTranslation` 入口捕获 `myAbortController`，`finally` 块仅在 `currentAbortController === myAbortController` 时才清理 `isTranslating`。`switchMode` 启动新翻译时已替换 `currentAbortController`，旧 `finally` 不再覆盖。
+  - 净 +3 行
+
+- **C5 🔴 custom providers 永远不构建** - `lib/api-manager.js:68-70`
+  - **现象**：`_buildTranslators` 循环 `if (!apiKeys[apiName]) continue` 在 `custom_*` 分支之前执行。custom provider 的密钥存在 `customProviders[].apiKey` 而非 `apiKeys`，所以 `apiKeys['custom_xxx']` 为 undefined，`continue` 先触发。多供应商功能完全失效。
+  - **修**：`if (!apiKeys[apiName] && !apiName.startsWith('custom_')) continue` -- custom_ 开头的跳过 apiKeys 检查。
+  - 净 +0 行（改 1 行）
+
+- **H1 🟠 取消翻译成功后仍弹"取消超时"alert** - `popup/popup.js:290-299`
+  - **现象**：`sendMessage` 成功时不设 `recovered=true`、不清 `timeoutId`。5 秒后 timeout 回调发现 `recovered` 仍为 false，弹出"取消超时"误报。
+  - **修**：成功路径补 `recovered=true; clearTimeout(timeoutId)` + 恢复按钮 UI。
+  - 净 +5 行
+
+- **H2 🟠 `baidu-llm.js` `error_code` 类型不匹配误报** - `lib/api-adapters/baidu-llm.js:49`
+  - **现象**：`data.error_code !== '52000'` 用严格不等。API 返回数字 `52000`（成功）时 `52000 !== '52000'` 为 true（类型不同），成功响应被误判为错误。`baidu.js` 正确用了 `String()`。
+  - **修**：`String(data.error_code) !== '52000'`。
+  - 净 +0 行（改 1 行）
+
+- **H3 🟠 面板关闭清空全部 `globalCleanupHandlers`** - `content.js:1109`
+  - **现象**：panel-close-btn 的 click handler 调 `globalCleanupHandlers.forEach(fn=>fn()); globalCleanupHandlers=[]`，清掉**全部**全局清理函数，包括 hover 模式的 click handler。关闭面板后 hover 点击 pin 功能失效。
+  - **修**：面板只清理自己的 handler（`panelCleanup`），从数组中 `splice` 移除，不动其他 handler。
+  - 净 +2 行
+
+- **H4 🟠 月度配额重置跨年失效** - `lib/settings-manager.js:512`
+  - **现象**：`currentMonth = String(now.getMonth() + 1)` 只有月数字（"1".."12"），不含年份。第二年 1 月 `RESET_MONTH_KEY` 仍为 "1"（去年写入），`!== currentMonth` 为 false，月度重置被跳过。`baidu`/`baidu_llm` 的 `quota_exceeded` 状态永久卡住。
+  - **修**：`now.getFullYear() + '-' + (now.getMonth() + 1)`。
+  - 净 +0 行（改 1 行）
+
+- **H6 🟠 `auth_error` 不阻止重试** - `lib/api-manager.js:145-151`
+  - **现象**：`_isApiUsable` 检查 `quota_exceeded` 和 `error + consecutiveErrors >= 3`，但**不检查 `auth_error`**。密钥错误的 API 每次翻译都被重试，浪费时间直到超时才 fallback。
+  - **修**：追加 `if (status.status === 'auth_error') return false`。
+  - 净 +1 行
+
+- **H8 🟠 abort 后仍调 `fillTranslations`** - `content.js:996`
+  - **现象**：`await sendMessage('translateTexts')` 期间 signal 被 abort，但响应返回后不检查 abort 状态，直接调 `fillTranslations()` 注入翻译到 DOM。用户取消后看到内容闪现。
+  - **修**：`await` 后立即 `if(signal?.aborted){aborted=true;break;}`。
+  - 净 +1 行
+
+- **未修的剩余风险**（留待下一版本）
+  - C1 🔴 `getSettings` 返回 API 密钥给 content script
+  - C2 🔴 消息无 sender 校验
+  - C3 🔴 options.js `data-api` 未转义（XSS）
+  - H5 🟠 `translatePageMeta` fire-and-forget 竞态
+  - H7 🟠 translation-cache 并发 `_load()` 丢数据
+  - M 系列 12 项中等问题
+- 净 +12 行 / -3 行（CHANGELOG 不计）
+
 #### v1.0.6 hotfix 第七轮 - 剩余风险评估修复（R3 / R4）
 
 > hotfix 第六轮遗留 R3 R4 两项 🟠 风险，本轮收尾。

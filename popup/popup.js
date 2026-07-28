@@ -289,6 +289,11 @@ function setupEventListeners() {
     }, 5000);
     try {
       await chrome.runtime.sendMessage({ action: 'cancelTranslation' });
+      recovered = true;
+      clearTimeout(timeoutId);
+      btn.disabled = false;
+      btn.classList.remove('cancelling');
+      cancelText.textContent = originalText;
     } catch (e) {
       recovered = true;
       clearTimeout(timeoutId);
