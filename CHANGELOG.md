@@ -151,7 +151,7 @@
 - **`lib/settings-manager.js` `resetApiQuotaIfNeeded()` 批量读取** - 3 次 `chrome.storage.local.get` 合并为 1 次
 - **`background.js` `getApiStatus` handler** - 仅刷新状态缓存而非完整 `reload()`（省 2 次存储读 + `_buildTranslators`）
 - **`background.js` context-menu 惰性 reload** - 仅在 translators 为空时才 `reload()`
-- **`popup/popup.js` 初始化并行化** - 4 个串行 `await` 改为 `Promise.all`
+- **`popup/popup.js` 初始化并行化** - `loadApiStatus`/`loadDailyUsage`/`loadCacheInfo` 3 个无依赖函数改为 `Promise.all`（`loadState` 因 `loadSourceLanguage` 依赖 `cachedSettings` 仍保持串行）
 
 #### v1.0.6 hotfix 第十轮 - 残余死代码清理
 
