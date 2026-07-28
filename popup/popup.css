@@ -148,6 +148,7 @@ body {
 .api-status-dot.available { background: #4CAF50; }
 .api-status-dot.quota_exceeded { background: #f44336; }
 .api-status-dot.error { background: #ff9800; }
+.api-status-dot.auth_error { background: #f44336; }
 .api-status-dot.unconfigured { background: #ccc; }
 
 .api-status-name {

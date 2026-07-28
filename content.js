@@ -1018,7 +1018,7 @@ async function translateSegments(segs, signal) {
         }
       }else{
         const errMsg=(resp&&resp.error)?resp.error:'翻译失败';
-        if(errMsg.includes('所有翻译服务')||errMsg.includes('NO_API')||errMsg.includes('暂时不可用')){
+        if(errMsg.includes('所有翻译服务')||errMsg.includes('NO_API')||errMsg.includes('暂时不可用')||errMsg.includes('AUTH_ERROR')||errMsg.includes('QUOTA_EXCEEDED')){
           showErrorBanner(errMsg);
           for(let k=0;k<segs.length;k++){if(!translationCache.has(segs[k].id))translationCache.set(segs[k].id,'');}
           break;

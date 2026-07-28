@@ -154,11 +154,14 @@ function renderApiStatus(statusMap, configuredCount, availableCount) {
   for (const [name, info] of Object.entries(statusMap)) {
     const status = info.status || 'unconfigured';
     const displayName = info.displayName || displayNames[name] || name;
+    const statusLabel = statusTexts[status] || '未知';
+    const reason = (info.reason && info.reason !== 'daily_reset' && info.reason !== 'monthly_reset') ? info.reason : '';
+    const text = reason ? `${statusLabel} (${escapeAttr(reason)})` : statusLabel;
     html += `
       <div class="api-status-item">
         <span class="api-status-dot ${status}"></span>
         <span class="api-status-name">${escapeAttr(displayName)}</span>
-        <span class="api-status-text">${statusTexts[status] || '未知'}</span>
+        <span class="api-status-text">${text}</span>
       </div>
     `;
   }

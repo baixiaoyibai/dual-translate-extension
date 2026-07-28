@@ -134,6 +134,28 @@
   - 收益：未来加新 endpoint input 直接调，未来改 alert 文案只改 1 处
   - 净 +11 行函数 / -16 行重复
 
+#### v1.0.6 hotfix 第七轮 - 剩余风险评估修复（R3 / R4）
+
+> hotfix 第六轮遗留 R3 R4 两项 🟠 风险，本轮收尾。
+
+- **R3 🟠 API 错误无 UI 提示** - `content.js` + `popup.js`
+  - **现象**：
+    1. `content.js:1019-1025` 翻译失败时只在 `errMsg` 匹配 `所有翻译服务 / NO_API / 暂时不可用` 时才 `showErrorBanner`，而 `AUTH_ERROR`（密钥错误）和 `QUOTA_EXCEEDED`（额度耗尽）这两种最常见的用户可操作错误**被静默吞掉**，用户只看到翻译空白不知何故。
+    2. `popup.js:146-161` API 状态渲染只显示泛化文本（`异常` / `额度不足`），**不显示 `reason` 字段**（已在 `getApiStatusSummary` 返回但未渲染），用户在 popup 里看到"异常"但不知道具体原因。
+  - **修**：
+    1. `content.js` `showErrorBanner` 条件追加 `AUTH_ERROR` 和 `QUOTA_EXCEEDED` 两个匹配，使密钥错误和额度耗尽也能弹出 banner 提示用户。
+    2. `popup.js` `renderApiStatus` 在 `status` 为 `error` / `quota_exceeded` / `auth_error` 时，追加 `(reason)` 到状态文本（过滤 `daily_reset` / `monthly_reset` 等系统内部 reason）。
+    3. `popup.css` 补 `.api-status-dot.auth_error` 样式（与 `quota_exceeded` 同为红色，之前缺失导致 auth_error 状态无颜色点）。
+  - 净 +2 行 content.js / +2 行 popup.js / +1 行 popup.css
+
+- **R4 🟠 "将在 N 分钟后重试"误导** - `lib/api-manager.js:182`
+  - **现象**：所有 API 耗尽时 throw `所有翻译服务暂时不可用，将在 ${retryMinutes} 分钟后重试`，但**根本没有自动重试机制**（MV3 Service Worker 30 秒后休眠，无定时器存活）。用户以为等 5 分钟就会自动好，实际不会。
+  - **修**：改为 `所有翻译服务暂时不可用，请稍后手动重试`。
+  - 净 -2 行（删 `retryMinutes` 变量 + 简化消息）
+
+- **风险评估表状态**：R1-R6 全部修复完毕，无遗留风险。
+- 净 +3 行 / -2 行（CHANGELOG 不计）
+
 #### v1.0.6 hotfix 第六轮 — 风险评估后续修复（R1 / R2 / R6）
 
 > v1.0.6 hotfix1-5 完成后做了一次全项目代码审查，识别出 5 项风险，本轮修其中 2 项 🔴 + 1 项 🟠。
