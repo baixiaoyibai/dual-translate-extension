@@ -41,23 +41,8 @@
   font-style: italic;
 }
 
-.dual-translate-translation-inline {
-  color: var(--dt-text-secondary);
-  font-size: 85%;
-  opacity: 0.85;
-  font-family: inherit;
-}
-
-.dual-translate-replaced {
-  cursor: default;
-}
-
 .dual-translate-translation:hover {
   opacity: 1;
-}
-
-.dual-translate-hover {
-  transition: opacity 0.15s ease;
 }
 
 .dual-translate-hover.pinned {
@@ -66,18 +51,6 @@
 
 .dual-translate-panel {
   transition: transform 0.3s ease;
-}
-
-.dual-translate-panel-row {
-  transition: background 0.15s ease;
-}
-
-.dual-translate-panel-row:hover {
-  background: var(--dt-bg-hover);
-}
-
-.dual-translate-panel-row.highlight {
-  background: var(--dt-bg-highlight) !important;
 }
 
 .dual-translate-loading-overlay {

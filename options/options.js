@@ -357,7 +357,6 @@ function setupGlossaryManagement() {
     textarea.value = '';
     textarea.placeholder = '在此粘贴 JSON 格式的术语表...';
     document.getElementById('confirmImportBtn').textContent = '确认导入';
-    document.getElementById('confirmImportBtn').dataset.action = 'import';
   });
 
   document.getElementById('confirmImportBtn').addEventListener('click', () => {
@@ -508,14 +507,8 @@ if (typeof window.escapeAttr !== 'function') {
       .replace(/>/g, '&gt;');
   };
 }
-if (typeof window.escapeHtml !== 'function') {
-  window.escapeHtml = function(str) {
-    return String(str == null ? '' : str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  };
-}
+const API_STATUS_LABELS = { available: '可用', quota_exceeded: '额度不足', error: '异常', auth_error: '密钥错误' };
+function getStatusLabel(status) { return API_STATUS_LABELS[status] || '未配置'; }
 
 function setupApiManagement() {
   renderApiCards();
@@ -563,7 +556,7 @@ function renderApiCards() {
               </label>
               ${escapeAttr(provider.name)}
             </span>
-            <span class="api-card-status ${statusClass}">${status?.status === 'available' ? '可用' : status?.status === 'quota_exceeded' ? '额度不足' : status?.status === 'error' ? '异常' : status?.status === 'auth_error' ? '密钥错误' : '未配置'}</span>
+            <span class="api-card-status ${statusClass}">${getStatusLabel(status?.status)}</span>
             <button class="btn btn-sm api-test-btn" data-api="${apiName}">测试</button>
           </div>
           <div class="api-card-body">
@@ -628,11 +621,7 @@ function renderApiCards() {
       `;
     }
 
-    const statusText = status?.status === 'available' ? '可用'
-      : status?.status === 'quota_exceeded' ? '额度不足'
-      : status?.status === 'error' ? '异常'
-      : status?.status === 'auth_error' ? '密钥错误'
-      : '未配置';
+    const statusText = getStatusLabel(status?.status);
 
     return `
       <div class="api-card">
@@ -818,11 +807,7 @@ function renderCustomProviders() {
     const apiName = `custom_${provider.id}`;
     const status = apiStatus[apiName];
     const statusClass = status?.status || 'unconfigured';
-    const statusText = status?.status === 'available' ? '可用'
-      : status?.status === 'quota_exceeded' ? '额度不足'
-      : status?.status === 'error' ? '异常'
-      : status?.status === 'auth_error' ? '密钥错误'
-      : '未配置';
+    const statusText = getStatusLabel(status?.status);
     
     return `
       <div class="custom-provider-card">

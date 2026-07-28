@@ -6,7 +6,7 @@
   "scripts": {
     "lint": "echo \"[TODO] ESLint 待配置（阶段二）\" && exit 0",
     "test": "echo \"[TODO] 测试待添加（阶段二）\" && exit 0",
-    "check": "node --check background.js && node --check content.js && node --check lib/api-manager.js && node --check lib/settings-manager.js && node --check lib/translation-cache.js && node --check lib/logger.js && node --check lib/escape-utils.js && node --check lib/api-adapters/baidu.js && node --check lib/api-adapters/baidu-llm.js && node --check lib/api-adapters/llm-generic.js && node --check popup/popup.js && node --check options/options.js"
+    "check": "node --check background.js && node --check content.js && node --check lib/api-manager.js && node --check lib/settings-manager.js && node --check lib/translation-cache.js && node --check lib/escape-utils.js && node --check lib/api-adapters/baidu.js && node --check lib/api-adapters/baidu-llm.js && node --check lib/api-adapters/llm-generic.js && node --check popup/popup.js && node --check options/options.js"
   },
   "keywords": [
     "edge-extension",

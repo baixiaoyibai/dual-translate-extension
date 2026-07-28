@@ -35,16 +35,14 @@ function dtDebug() { if (dtLogLevel() >= 4) console.debug('[dual-translate]', ..
 
 // v1.0.2: 术语表匹配缓存（§3.3 / §10.2 修复）
 // v1.0.6 perf: 预编译正则，避免每段文本重复 new RegExp（140 条 × 200 段 = 28000 次 → 140 次）
-let glossaryEntries = [];
 let glossaryCompiled = [];
 // v1.0.4: 域名专属术语表（§3.3）— content script 用 hostname 查合并后的 entries
 function loadGlossary() {
   const domain = location.hostname || '';
   return sendMessage('getGlossaryForDomain', { domain })
     .then(r => {
-      glossaryEntries = (r && r.glossary) || [];
       // 预编译：escape 特殊字符后构建 RegExp，运行时直接 replace
-      glossaryCompiled = glossaryEntries
+      glossaryCompiled = ((r && r.glossary) || [])
         .map(e => {
           if (!e || !e.source || !e.target) return null;
           const escaped = e.source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -56,7 +54,7 @@ function loadGlossary() {
         })
         .filter(Boolean);
     })
-    .catch(() => { glossaryEntries = []; glossaryCompiled = []; });
+    .catch(() => { glossaryCompiled = []; });
 }
 function applyGlossary(text) {
   if (!glossaryCompiled.length || !text) return text;
@@ -476,11 +474,7 @@ function cleanupAllInjections() {
   globalCleanupHandlers.forEach(fn=>{try{fn()}catch{}});
   globalCleanupHandlers=[];
   hoverClickRegistered=false;
-  document.querySelectorAll('.dual-translate-tooltip,.dual-translate-hover,.dual-translate-panel,.dual-translate-translation,.dual-translate-placeholder,.dual-translate-spinner').forEach(el=>el.remove());
-  document.querySelectorAll('.dual-translate-replaced').forEach(el=>{
-    const orig=el.dataset.original;
-    if(orig&&el.parentNode)el.parentNode.replaceChild(document.createTextNode(orig),el);
-  });
+  document.querySelectorAll('.dual-translate-hover,.dual-translate-panel,.dual-translate-translation,.dual-translate-placeholder,.dual-translate-spinner').forEach(el=>el.remove());
   document.body.style.marginRight='';
   document.body.style.marginBottom='';
   document.body.style.userSelect='';
@@ -509,15 +503,11 @@ function setupMutationObserver() {
               node.classList.contains('dual-translate-hover') ||
               node.classList.contains('dual-translate-panel') ||
               node.classList.contains('dual-translate-loading-overlay') ||
-              node.classList.contains('dual-translate-tooltip') ||
               node.classList.contains('dual-translate-error-banner')
             )) {
               continue;
             }
-            // 检查是否是替换后的元素
-            if (node.classList && node.classList.contains('dual-translate-replaced')) {
-              continue;
-            }
+
           }
           batchAdded++;
         }
@@ -690,7 +680,7 @@ function extractSegments() {
     const p=n.parentElement;if(!p)return NodeFilter.FILTER_SKIP;
     const t=p.tagName.toLowerCase();if(skipTags.has(t))return NodeFilter.FILTER_SKIP;
     if(!tCB&&(t==='code'||t==='pre'))return NodeFilter.FILTER_SKIP;
-    if(p.closest&&p.closest('.dual-translate-translation,.dual-translate-panel,.dual-translate-hover,.dual-translate-replaced,.dual-translate-tooltip,.dual-translate-loading-overlay,.dual-translate-placeholder,.dual-translate-spinner'))return NodeFilter.FILTER_SKIP;
+    if(p.closest&&p.closest('.dual-translate-translation,.dual-translate-panel,.dual-translate-hover,.dual-translate-loading-overlay,.dual-translate-placeholder,.dual-translate-spinner'))return NodeFilter.FILTER_SKIP;
     return NodeFilter.FILTER_ACCEPT;
   }});
 
@@ -867,7 +857,6 @@ function normText(s){return String(s==null?'':s).trim().replace(/\s+/g,' ');}
 // v1.0.3: 懒加载翻译（§3.4 性能优化）—— 复用 translateSegments 子流程
 let lazyTranslateObserver = null;
 const lazyPendingSegs = new Map();
-const lazyObservedSegs = new Map();
 
 function teardownLazyObserver() {
   if (lazyTranslateObserver) {
@@ -875,7 +864,6 @@ function teardownLazyObserver() {
     lazyTranslateObserver = null;
   }
   lazyPendingSegs.clear();
-  lazyObservedSegs.clear();
 }
 
 function isSegInViewport(seg) {
@@ -914,7 +902,6 @@ async function translateSegmentsLazy(segs, signal) {
       const seg = lazyPendingSegs.get(segId);
       if (!seg) continue;
       lazyPendingSegs.delete(segId);
-      lazyObservedSegs.delete(segId);
       try { lazyTranslateObserver.unobserve(span); } catch (_) {}
       visibleSegs.push(seg);
     }
@@ -929,7 +916,6 @@ async function translateSegmentsLazy(segs, signal) {
     const segId = span.getAttribute('data-dt-seg');
     if (!segId) return;
     if (lazyPendingSegs.has(segId)) {
-      lazyObservedSegs.set(segId, span);
       try { lazyTranslateObserver.observe(span); } catch (e) { dtWarn('lazy observe:', e); }
     }
   });
@@ -946,14 +932,7 @@ async function translateSegments(segs, signal) {
   const sourceLanguage = settings.api.sourceLanguage || 'auto';
   const detectedLang = detectPageLanguage(sourceLanguage);
   
-  // 处理 'all' 源语言的情况
-  let sourceLang = detectedLang;
-  if (sourceLanguage === 'all') {
-    // 对于 'all' 模式，使用实际检测的语言作为源语言
-    sourceLang = detectedLang;
-  }
-  
-  const isJa=sourceLang==='ja';
+  const sourceLang = detectedLang;
   const total=segs.length;
 
   // 先从 textCache 填充 translationCache（规范化键，键含 sourceLang 维度）
@@ -999,11 +978,11 @@ async function translateSegments(segs, signal) {
         const cMap=new Map();
         for(const r of resp.translations){
           if(r&&typeof r.translation==='string'){
-            cMap.set((r.original||'').trim().replace(/\s+/g,' '),r.translation);
+            cMap.set(normText(r.original||''),r.translation);
           }
         }
         for(let j=0;j<uncached.length;j++){
-          const nt=uncached[j].trim().replace(/\s+/g,' ');
+          const nt=normText(uncached[j]);
           const mt=cMap.get(nt);
           let translation = '';
           if(mt!==undefined&&mt!==null&&mt.length>0){

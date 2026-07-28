@@ -275,15 +275,14 @@ function setupEventListeners() {
     const btn = document.getElementById('cancelBtn');
     const cancelText = btn.querySelector('.cancel-text');
     const originalText = cancelText.textContent;
+    const restoreCancelBtn = () => { btn.disabled = false; btn.classList.remove('cancelling'); cancelText.textContent = originalText; };
     btn.disabled = true;
     btn.classList.add('cancelling');
     cancelText.textContent = '正在取消...';
     let recovered = false;
     const timeoutId = setTimeout(() => {
       if (!recovered) {
-        btn.disabled = false;
-        btn.classList.remove('cancelling');
-        cancelText.textContent = originalText;
+        restoreCancelBtn();
         alert('取消超时，请刷新页面重试');
       }
     }, 5000);
@@ -291,15 +290,11 @@ function setupEventListeners() {
       await chrome.runtime.sendMessage({ action: 'cancelTranslation' });
       recovered = true;
       clearTimeout(timeoutId);
-      btn.disabled = false;
-      btn.classList.remove('cancelling');
-      cancelText.textContent = originalText;
+      restoreCancelBtn();
     } catch (e) {
       recovered = true;
       clearTimeout(timeoutId);
-      btn.disabled = false;
-      btn.classList.remove('cancelling');
-      cancelText.textContent = originalText;
+      restoreCancelBtn();
       alert('当前页面无法取消，请刷新页面');
     }
   });

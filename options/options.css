@@ -684,18 +684,6 @@ input:checked + .toggle-slider:before {
   transform: translateY(0);
 }
 
-.empty-state {
-  text-align: center;
-  padding: 40px 20px;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.empty-state-icon {
-  font-size: 36px;
-  margin-bottom: 8px;
-}
-
 .api-usage-container {
   display: flex;
   flex-direction: column;

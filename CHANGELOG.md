@@ -134,6 +134,37 @@
   - 收益：未来加新 endpoint input 直接调，未来改 alert 文案只改 1 处
   - 净 +11 行函数 / -16 行重复
 
+#### v1.0.6 hotfix 第九轮 - 冗余清理 + 代码优化
+
+> 3 子代理并发审核冗余/优化点，主代理验证后委托 3 子代理实施。仅 🟢 安全项，零行为变更。
+
+**死代码删除**
+
+- **`lib/logger.js` 整文件删除** - `createLogger` 从未被 import，35 行死代码
+- **`content.js` 删 `isJa` 变量** - 赋值后从未读取（1 行）
+- **`content.js` 删 `glossaryEntries` 变量** - 3 处赋值从未读取，运行时只用 `glossaryCompiled`（3 行）
+- **`content.js` 删 `case 'all'` 空分支** - if 体内赋值与外部相同，纯 no-op（5 行）
+- **`content.js` 删 `lazyObservedSegs` Map** - 只 set/delete/clear，值从未读取（4 行）
+- **`content.js` 删 `dual-translate-replaced` 清理块** - 该 class 从未创建（4 行）
+- **`content.js` 删 `.dual-translate-tooltip` 引用** - 该 class 从未创建（3 处选择器）
+- **`content.css` 删 4 组死规则** - `.dual-translate-replaced`、`.dual-translate-translation-inline`、`.dual-translate-panel-row`（3 规则）、`.dual-translate-hover` 的死 `transition`（22 行）
+- **`options/options.js` 删 `escapeHtml` fallback** - 定义后从未调用（8 行）
+- **`options/options.js` 删 `dataset.action` 赋值** - 写入但从未读取（1 行）
+- **`options/options.css` 删 `.empty-state` + `.empty-state-icon`** - 从未引用（12 行）
+- **`popup/popup.html` 删 `.cancel-icon` class** - 无 CSS/JS 引用（1 行）
+
+**重复代码消除**
+
+- **`options/options.js` 状态文本映射抽函数** - 3 处重复的 `available ? '可用' : ...` 三元链 -> `getStatusLabel(status)` 公开函数（~18 行 -> 2 行）
+- **`popup/popup.js` 取消按钮 restore 序列抽函数** - 3 处重复的 3 行 -> `restoreCancelBtn()` 闭包（~6 行 -> 3 行）
+- **`content.js` 内联 normText 替换为函数调用** - 2 处 `.trim().replace(/\s+/g,' ')` -> `normText()`（2 行，一致性提升）
+- **`lib/api-manager.js` `allExhausted` 简化** - 删冗余 `ordered.every()` 扫描，`lastError` 为 null 即等价（2 行 + 1 次 O(n) 扫描）
+- **`lib/api-manager.js` 删 no-op `.catch(e => { throw e; })`** - 重新抛出相同错误，纯空操作（1 行）
+- **`lib/settings-manager.js` 删冗余 `_loadApiKeysFromLocal()` 调用** - `loadSettings()` 已调用过（1 行 + 1 次 storage 读取）
+- **`package.json` 删 `lib/logger.js` 引用** - 对应文件已删
+
+- 净 -117 行 / +21 行（净减 138 行，CHANGELOG 不计）
+
 #### v1.0.6 hotfix 第八轮 - 严重/高风险修复批（2C + 6H）
 
 > 全项目代码审查（4 子代理并发审核全部源文件），识别 5 项 🔴 + 8 项 🟠。本轮修其中 2 项 🔴 + 6 项 🟠。
