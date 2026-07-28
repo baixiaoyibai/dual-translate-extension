@@ -49,7 +49,9 @@ function setupContextMenu() {
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === 'translate-selection' && info.selectionText) {
     try {
-      await apiManager.reload();
+      if (!apiManager.translators || apiManager.translators.size === 0) {
+        await apiManager.reload();
+      }
       const results = await apiManager.translate([info.selectionText], 'auto', 'zh');
       const translation = results[0]?.translation || '翻译失败';
       chrome.tabs.sendMessage(tab.id, {
@@ -129,7 +131,7 @@ async function handleMessage(message, sender) {
       return { success: true };
 
     case 'getApiStatus':
-      await apiManager.reload();
+      apiManager.statusCache = await settingsManager.getApiStatus();
       const summary = apiManager.getApiStatusSummary();
       // 附加 displayName
       for (const [name, info] of Object.entries(summary)) {

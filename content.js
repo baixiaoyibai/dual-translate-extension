@@ -172,11 +172,19 @@ function containsUrl(text) {
 }
 function isGarbledText(text) {
   const t=text.trim(); if(t.length<3) return false;
-  const an=(t.match(/[a-zA-Z0-9\u4E00-\u9FFF\u30A0-\u30FF\u3040-\u309F]/g)||[]).length;
+  let an=0;
+  for(let i=0;i<t.length;i++){
+    const c=t.charCodeAt(i);
+    if((c>=48&&c<=57)||(c>=65&&c<=90)||(c>=97&&c<=122)||(c>=0x4E00&&c<=0x9FFF)||(c>=0x3040&&c<=0x30FF))an++;
+  }
   if(an/t.length<0.35&&t.length>6) return true;
   if(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/.test(t)) return true;
-  if((t.match(/(.)\1{4,}/g)||[]).length>0) return true;
-  const nl=(t.match(/[^\x00-\x7F\u4E00-\u9FFF\u30A0-\u30FF\u3040-\u309F]/g)||[]).length;
+  if(/(.)\1{4,}/.test(t)) return true;
+  let nl=0;
+  for(let i=0;i<t.length;i++){
+    const c=t.charCodeAt(i);
+    if(!((c>=0&&c<=0x7F)||(c>=0x4E00&&c<=0x9FFF)||(c>=0x3040&&c<=0x30FF)))nl++;
+  }
   if(nl/t.length>0.3&&t.length>8) return true;
   return false;
 }
@@ -400,10 +408,11 @@ function detectPageLanguage(forceLanguage) {
   let sample='',node;
   while((node=walker.nextNode())&&sample.length<4000)sample+=node.textContent.trim()+' ';
   let cjk=0,ja=0,en=0,total=0;
-  for(const ch of sample){
-    if(/[a-zA-Z]/.test(ch)){en++;total++;}
-    else if(/[\u4E00-\u9FFF]/.test(ch)){cjk++;total++;}
-    else if(/[\u3040-\u309F\u30A0-\u30FF]/.test(ch)){ja++;cjk++;total++;}
+  for(let i=0;i<sample.length;i++){
+    const c=sample.charCodeAt(i);
+    if((c>=65&&c<=90)||(c>=97&&c<=122)){en++;total++;}
+    else if(c>=0x4E00&&c<=0x9FFF){cjk++;total++;}
+    else if((c>=0x3040&&c<=0x309F)||(c>=0x30A0&&c<=0x30FF)){ja++;cjk++;total++;}
   }
   let result;
   if(total===0)result='unknown';
@@ -563,7 +572,12 @@ async function startTranslation(opts = {}) {
 
     let chineseSegmentCount = 0;
     for (const seg of segments) {
-      const chineseChars = (seg.text.match(/[\u4E00-\u9FFF]/g) || []).length;
+      let chineseChars = 0;
+      const t = seg.text;
+      for (let i = 0; i < t.length; i++) {
+        const c = t.charCodeAt(i);
+        if (c >= 0x4E00 && c <= 0x9FFF) chineseChars++;
+      }
       if (chineseChars / Math.max(seg.text.length, 1) > 0.3) chineseSegmentCount++;
     }
     if (chineseSegmentCount / segments.length > 0.25) {
@@ -615,15 +629,20 @@ function looksLikeConcatenatedText(text) {
   const len=text.length;if(len<40)return false;
   let bc=0;
   for(let i=0;i<len-1;i++){
+    const ca=text.charCodeAt(i),cb=text.charCodeAt(i+1);
+    const aWord=((ca>=48&&ca<=57)||(ca>=65&&ca<=90)||(ca>=97&&ca<=122)||(ca>=0x4E00&&ca<=0x9FFF)||(ca>=0x3040&&ca<=0x30FF));
+    const bWord=((cb>=48&&cb<=57)||(cb>=65&&cb<=90)||(cb>=97&&cb<=122)||(cb>=0x4E00&&cb<=0x9FFF)||(cb>=0x3040&&cb<=0x30FF));
+    if(aWord&&bWord)continue;
     const a=text[i],b=text[i+1];
-    if(/[a-zA-Z0-9\u4E00-\u9FFF\u30A0-\u30FF\u3040-\u309F]/.test(a)&&/[a-zA-Z0-9\u4E00-\u9FFF\u30A0-\u30FF\u3040-\u309F]/.test(b))continue;
-    if(a===' '||b===' '||a==='\n'||b==='\n'||a==='.'||a===','||a==='!'||a==='?'||a===';'||a===':'||a==='-'||a==='—')continue;
+    if(a===' '||b===' '||a==='\n'||b==='\n'||a==='.'||a===','||a==='!'||a==='?'||a===';'||a===':'||a==='-'||a==='-')continue;
     bc++;
   }
   return bc/len>0.06&&len>60;
 }
 
 function extractSegments() {
+  const skipCache = new Map();
+  const cachedSkip = (t) => { let r = skipCache.get(t); if (r === undefined) { r = shouldSkipText(t); skipCache.set(t, r); } return r; };
   const result=[];
   const mTL=settings.rules.minTextLength||3;
   const tCB=settings.rules.translateCodeBlocks||false;
@@ -653,8 +672,8 @@ function extractSegments() {
             if(p2.closest&&p2.closest('[class*="stat"],[class*="endorse"],[class*="download"],[class*="meta"],[class*="metric"],[class*="count"],[class*="number"],[class*="badge"]'))return NodeFilter.FILTER_SKIP;
             return NodeFilter.FILTER_ACCEPT;
           }});let cn;while((cn=w.nextNode()))dtn.push(cn);
-          const tt=dtn.map(n=>n.textContent.trim()).filter(t=>t.length>=mTL&&!shouldSkipText(t)&&!/^\s*$/.test(t)&&!/^[\d\s.,!?;:'"()\[\]{}<>/\\|]+$/.test(t)).join(' ');
-          if(tt.length>=mTL&&!shouldSkipText(tt)){
+          const tt=dtn.map(n=>n.textContent.trim()).filter(t=>t.length>=mTL&&!cachedSkip(t)&&!/^\s*$/.test(t)&&!/^[\d\s.,!?;:'"()\[\]{}<>/\\|]+$/.test(t)).join(' ');
+          if(tt.length>=mTL&&!cachedSkip(tt)){
             dtn.forEach(n=>processedNodes.add(n));
             if(!result.find(r=>r.text===tt&&r.blockParent===el))result.push({id:'seg_'+result.length,text:tt,node:dtn[0]||el,blockParent:el});
           }
@@ -677,7 +696,7 @@ function extractSegments() {
     const text=node.textContent.trim();
     if(text.length<mTL)continue;
     if(/^[\d\s.,!?;:'"()\-–—+×÷=%&@#$^*_~`\[\]{}<>/\\|]+$/.test(text))continue;
-    if(shouldSkipText(text))continue;
+    if(cachedSkip(text))continue;
     const parent=node.parentElement;
     if(parent){
       // v1.0.6 perf: 合并 11 次 closest 为 1 次，减少选择器解析开销
@@ -688,10 +707,10 @@ function extractSegments() {
     while(bp&&!blockTags.has(bp.tagName.toLowerCase())&&bp!==document.body)bp=bp.parentElement;
     if(bp&&blockTags.has(bp.tagName.toLowerCase())&&!looksLikeConcatenatedText(text)){
       const at=bp.textContent.trim();
-      if(at.length>=mTL&&at!==text&&!shouldSkipText(at)&&!looksLikeConcatenatedText(at)){
+      if(at.length>=mTL&&at!==text&&!cachedSkip(at)&&!looksLikeConcatenatedText(at)){
         const lines=at.split(/[\n\r]+/).filter(l=>l.trim().length>0);
         if(lines.length>=2&&lines.length<=6){
-          const metricLines=lines.filter(l=>shouldSkipText(l.trim()));
+          const metricLines=lines.filter(l=>cachedSkip(l.trim()));
           if(metricLines.length/lines.length>0.5)continue;
         }
         const iw=document.createTreeWalker(bp,NodeFilter.SHOW_TEXT,{acceptNode:n=>{const p2=n.parentElement;if(!p2)return NodeFilter.FILTER_SKIP;if(skipTags.has(p2.tagName.toLowerCase()))return NodeFilter.FILTER_SKIP;return NodeFilter.FILTER_ACCEPT;}});
@@ -976,7 +995,7 @@ async function translateSegments(segs, signal) {
           }
           translationCache.set(uncachedIds[j], translation);
           if(translation && translation.length > 0){
-            textCache.set(sourceLang + '::' + normText(uncached[j]), translation);
+            textCache.set(sourceLang + '::' + nt, translation);
             if (textCache.size > TEXT_CACHE_MAX_SIZE) {
               const firstKey = textCache.keys().next().value;
               textCache.delete(firstKey);

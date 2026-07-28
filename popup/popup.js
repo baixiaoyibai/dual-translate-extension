@@ -4,10 +4,7 @@ let cachedSettings = null;
 let cancelPollTimer = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
-  await loadState();
-  await loadApiStatus();
-  await loadDailyUsage();
-  await loadCacheInfo();
+  await Promise.all([loadState(), loadApiStatus(), loadDailyUsage(), loadCacheInfo()]);
   setupEventListeners();
 });
 

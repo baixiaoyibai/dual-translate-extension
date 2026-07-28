@@ -134,6 +134,25 @@
   - 收益：未来加新 endpoint input 直接调，未来改 alert 文案只改 1 处
   - 净 +11 行函数 / -16 行重复
 
+#### v1.0.6 hotfix 第十一轮 - 性能优化批
+
+> 3 子代理并发审核性能瓶颈（content.js / lib / background+popup），主代理验证后委托 2 子代理实施。仅热路径优化，零行为变更。
+
+- **`content.js` 热路径 regex 替换为 charCodeAt 循环**
+  - `isGarbledText()` - 3 处 `match(/[...]/g)` 改为 `charCodeAt` 循环，避免正则引擎+数组分配
+  - `detectPageLanguage()` - `for...of` + 3 次 `.test()` 改为 `charCodeAt` 循环
+  - `looksLikeConcatenatedText()` - 2 次 `.test()` 改为预计算 `charCodeAt`，复用 aWord/bWord
+  - `startTranslation()` 中文段判断 - `match(/[\u4E00-\u9FFF]/g)` 改为 `charCodeAt` 循环
+- **`content.js` `extractSegments()` shouldSkipText 缓存** - 同一文本片段在 extract 内被 `shouldSkipText` 多次调用，用 `Map` 缓存去重
+- **`content.js` `translateSegments()` normText 去重** - `textCache.set` 复用已有 `nt` 变量，避免重复调用 `normText()`
+- **`lib/api-manager.js` `reload()` 并行化** - 3 个串行 `await` 改为 `Promise.all`
+- **`lib/api-manager.js` `translate()` 跳过冗余写入** - `saveApiStatus` 仅在状态非 available 时执行；`saveApiStatus`+`addDailyUsage` 并行
+- **`lib/api-manager.js` `_handleApiError()` 减少一次 storage 读** - `saveApiStatus` 返回 allStatus，直接赋给 `statusCache`，省去 `getApiStatus()` 调用
+- **`lib/settings-manager.js` `resetApiQuotaIfNeeded()` 批量读取** - 3 次 `chrome.storage.local.get` 合并为 1 次
+- **`background.js` `getApiStatus` handler** - 仅刷新状态缓存而非完整 `reload()`（省 2 次存储读 + `_buildTranslators`）
+- **`background.js` context-menu 惰性 reload** - 仅在 translators 为空时才 `reload()`
+- **`popup/popup.js` 初始化并行化** - 4 个串行 `await` 改为 `Promise.all`
+
 #### v1.0.6 hotfix 第十轮 - 残余死代码清理
 
 > hotfix9 后再次全量审核（3 子代理），主代理验证后委托 2 子代理实施。仅 🟢 安全项，零行为变更。
