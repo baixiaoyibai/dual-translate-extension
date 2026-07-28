@@ -16,11 +16,11 @@
     "bilingual",
     "game-mod"
   ],
-  "author": "TODO: 替换为你的 GitHub 用户名",
+  "author": "unknown",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "TODO: 替换为你的 GitHub 仓库地址"
+    "url": "https://example.com/your-repo"
   },
   "engines": {
     "node": ">=18"

@@ -114,6 +114,21 @@
             <input type="number" id="hoverDelay" value="200" min="0" max="2000"> ms
           </div>
         </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">切换翻译快捷键</div>
+            <div class="setting-desc">修改后立即生效。Edge/Chrome 限制了可用组合（仅 Alt/Ctrl + 单字母/功能键）</div>
+          </div>
+          <div class="setting-control">
+            <select id="toggleTranslateShortcut">
+              <option value="Alt+T">Alt + T</option>
+              <option value="Alt+Y">Alt + Y</option>
+              <option value="Alt+Shift+T">Alt + Shift + T</option>
+              <option value="Ctrl+T">Ctrl + T</option>
+              <option value="Ctrl+Shift+T">Ctrl + Shift + T</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <div class="section-card">
@@ -248,7 +263,7 @@
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">列表模式</div>
-            <div class="setting-desc">黑名单：排除列表中的网站；白名单：仅翻译列表中的网站</div>
+            <div class="setting-desc">黑名单：排除列表中的网站；白名单：仅翻译列表中的网站<br><small style="color:#888">黑名单示例：<code>*.example.com</code> 匹配 <code>a.example.com</code> / <code>b.example.com</code> / <code>example.com</code>；<code>example.com</code> 仅匹配裸域。<br>白名单示例：留空 = 所有网站都翻译；填了 <code>*.github.com</code> = 只翻译 GitHub。</small></div>
           </div>
           <div class="setting-control">
             <select id="excludeMode">
@@ -364,6 +379,12 @@
             <input type="number" id="retryCount" value="1" min="0" max="5"> 次
           </div>
         </div>
+        <div class="setting-row" style="background:var(--warning-light);border-left:3px solid var(--warning);padding:10px 14px;border-radius:6px;margin-top:8px;">
+          <div class="setting-info">
+            <div class="setting-label" style="color:var(--warning);">⚠ 参数联动提示</div>
+            <div class="setting-desc">批量越大越省请求数，但单次失败时丢的段也越多；超时越短越快放弃错误请求，但慢 API 会频繁失败。建议新手保持默认（10 段 / 10 秒 / 1 次重试）。</div>
+          </div>
+        </div>
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">全部不可用时重试间隔</div>
@@ -421,6 +442,16 @@
               <option value="4">4 调试</option>
             </select>
           </div>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">💼 数据管理</div>
+        <p class="setting-desc" style="margin-bottom:12px;">导出全部设置（不含 API 密钥）到 JSON 文件，方便换机迁移。在新机器上安装扩展后用「导入」恢复。</p>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary" id="exportAllSettingsBtn">⬇ 导出全部设置</button>
+          <button class="btn" id="importAllSettingsBtn">⬆ 导入设置</button>
+          <input type="file" id="importAllSettingsFile" accept="application/json" style="display:none;">
         </div>
       </div>
     </div>

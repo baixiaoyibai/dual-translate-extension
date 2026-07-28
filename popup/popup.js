@@ -27,6 +27,7 @@ if (typeof window.escapeHtml !== 'function') {
 document.addEventListener('DOMContentLoaded', async () => {
   await loadState();
   await loadApiStatus();
+  await loadDailyUsage();
   await loadCacheInfo();
   setupEventListeners();
 });
@@ -144,6 +145,49 @@ async function loadApiStatus() {
     renderApiStatus(res.status, res.configuredCount, res.availableCount);
   } catch {
     container.innerHTML = '<div class="no-api-warning">无法获取 API 状态</div>';
+  }
+}
+
+async function loadDailyUsage() {
+  const container = document.getElementById('apiUsage');
+  if (!container) return;
+  try {
+    const usage = await chrome.runtime.sendMessage({ action: 'getDailyUsage' });
+    if (!usage) {
+      container.innerHTML = '<div class="status-loading">暂无数据</div>';
+      return;
+    }
+    const today = new Date().toDateString();
+    if (usage._date !== today) {
+      container.innerHTML = '<div class="status-loading">今日尚未使用</div>';
+      return;
+    }
+    const displayNames = (typeof API_DISPLAY_NAMES !== 'undefined') ? API_DISPLAY_NAMES : {};
+    const items = [];
+    for (const [name, count] of Object.entries(usage)) {
+      if (name === '_date' || typeof count !== 'number') continue;
+      const displayName = displayNames[name] || name;
+      items.push({ name, displayName, count });
+    }
+    if (items.length === 0) {
+      container.innerHTML = '<div class="status-loading">今日尚未使用</div>';
+      return;
+    }
+    const max = Math.max(...items.map(i => i.count), 1);
+    container.innerHTML = items.map(i => {
+      const pct = Math.min(100, Math.round((i.count / max) * 100));
+      return `
+        <div class="api-usage-item" style="display:flex;align-items:center;gap:6px;padding:3px 0;">
+          <span style="flex:1;font-size:12px;">${escapeAttr(i.displayName)}</span>
+          <div style="flex:2;height:4px;background:#eee;border-radius:2px;overflow:hidden;">
+            <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#1a73e8,#4fc3f7);"></div>
+          </div>
+          <span style="font-size:11px;color:#888;min-width:50px;text-align:right;">${i.count.toLocaleString()}</span>
+        </div>
+      `;
+    }).join('');
+  } catch {
+    container.innerHTML = '<div class="status-loading">无法获取用量</div>';
   }
 }
 

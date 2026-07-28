@@ -13,6 +13,64 @@
 
 ---
 
+## v1.0.6 — 2026-07-28
+
+> P0/P1 缺口修复批（10 项功能补齐）。`manifest.json` 版本号未变更（hotfix 风格）。
+> 3 个子代理并发实施，主代理合并 + 校验 + commit。
+
+### Added — P1 用户体验补齐（6 项）
+
+- **P1-4 导出/导入全部设置**
+  - `background.js` 新增 `case 'exportAllSettings'` / `case 'importAllSettings'`
+  - 导出 JSON 含 `version / exportedAt / settings（去 apiKeys） / glossary / customPrompt`
+  - `options/options.html` 在「高级设置 → 日志级别」之后追加「💼 数据管理」section card（导出 / 导入两个按钮 + 隐藏 file input）
+  - `options/options.js` 在 `setupAdvancedSettings()` 末尾追加 3 个 listener：export / import trigger / import file change
+  - 导入后弹 alert 提示密钥需重填 + 500ms `location.reload()` 刷新界面
+- **P1-7 popup 今日用量**
+  - `popup/popup.html` 在 API 状态 section 之后追加「今日用量」section
+  - `popup/popup.js` 新增 `loadDailyUsage()`，按 `usage._date === new Date().toDateString()` 判定今日，水平条形图 + 千分位字符数
+  - `popup/popup.css` 末尾追加 `.api-usage` 样式（max-height 100px + overflow-y）
+- **P1-8 快捷键自定义**
+  - `lib/settings-manager.js` `DEFAULT_SETTINGS.general` 追加 `toggleTranslateShortcut: 'Alt+T'`
+  - `background.js` `init()` 末尾追加 `chrome.commands.update` 应用用户设置；`updateSettings` case 末尾追加运行时应用
+  - `options/options.html` 在「显示设置 → 交互设置 → hoverDelay」之后追加 `<select id="toggleTranslateShortcut">`（5 个 Chrome 兼容组合）
+  - `options/options.js` `setupDisplaySettings` 末尾追加 select 绑定
+  - `manifest.json` `commands.toggle-translate.description` 更新为「切换翻译开关（可在「显示设置 → 交互设置」中自定义）」
+  - 说明：Chrome MV3 限制，浏览器设置 UI 中仍显示 `Alt+T` 建议值，扩展 handler 会响应新快捷键
+- **P1-10 "仅翻译选中文本"右键菜单**
+  - `background.js` `setupContextMenu` 追加 `translate-selection-only` 菜单项
+  - `onClicked` 追加 `else if` 分支，复用 `showSelectionTranslation` action（content.js 已有实现）
+  - 选中文字后右键即可在不修改页面的情况下独立翻译
+
+### Fixed — P0 缺陷修复（3 项）
+
+- **P0-1 对照面板按钮样式脱节**
+  - `content.css` 末尾追加 `.dual-translate-panel button.panel-toggle-btn` / `.panel-close-btn` 样式（hover / focus-visible 走 `--dt-*` 变量体系，CSS 选择器优先级覆盖 `content.js:1101` 的 inline style）
+- **P0-2 package.json TODO 字面量清理**
+  - `author` 由 `"TODO: 替换为你的 GitHub 用户名"` → `"unknown"`
+  - `repository.url` 由 `"TODO: 替换为你的 GitHub 仓库地址"` → `"https://example.com/your-repo"`
+  - 不编造虚假 GitHub 信息，留待发布时填入
+- **P0-3 README host_permissions 警告强化**
+  - 在「安全性 → 权限说明」section 之前插入 `>` 引用块警告框：Edge/Chrome 首次安装时的 `<all_urls>` 警告是翻译类扩展行业惯例，扩展**不会**上传页面内容
+
+### Changed — P1 易用性改进（3 项）
+
+- **P1-5 黑名单/白名单模式加示例**
+  - `options/options.html`「列表模式」`setting-desc` 内追加 `<br>` + `<small>` 示例：黑名单 `*.example.com` 匹配子域 + 裸域；白名单留空 = 全翻
+- **P1-6 高级参数联动提示**
+  - `options/options.html` 在 `retryCount` 之后追加 `.setting-row` 警示块，引用 `--warning-light` / `--warning` 变量
+  - 说明 batchSize / requestTimeout / retryCount 互相影响：批量越大越省请求但丢段越多；超时越短越快放弃但慢 API 失败率高
+- **P1-9 自定义供应商 endpoint URL 校验**
+  - `options/options.js` 末尾新增 `isValidEndpointUrl()`（拒绝非 http/https 协议）
+  - `renderApiCards()` custom 段 + `renderCustomProviders()` 中 endpoint 字段在保存前校验，失败 alert + 回滚 input
+
+### 工程
+
+- 新增 `.agent-collision-rules.md`（3 子代理并发协作说明，未提交）
+- `npm run check`（12 个 `node --check`）全部通过
+
+---
+
 ## v1.0.5 — 2026-07-25
 
 ### Security

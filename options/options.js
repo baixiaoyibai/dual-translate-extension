@@ -184,6 +184,17 @@ function setupDisplaySettings() {
   // v1.0.2: §3.2 页面元素翻译开关
   bindToggle('translatePageTitle', 'display.translatePageTitle', d.translatePageTitle !== false);
   bindToggle('translateImgAlt', 'display.translateImgAlt', d.translateImgAlt !== false);
+
+  const toggleTranslateShortcutEl = document.getElementById('toggleTranslateShortcut');
+  if (toggleTranslateShortcutEl) {
+    const cur = settings.general?.toggleTranslateShortcut || 'Alt+T';
+    toggleTranslateShortcutEl.value = cur;
+    toggleTranslateShortcutEl.addEventListener('change', () => {
+      settings.general.toggleTranslateShortcut = toggleTranslateShortcutEl.value;
+      saveSetting('general.toggleTranslateShortcut', toggleTranslateShortcutEl.value);
+      showSavedTip();
+    });
+  }
 }
 
 function setupRulesSettings() {
@@ -656,8 +667,13 @@ function renderApiCards() {
       if (apiName.startsWith('custom_')) {
         const provider = (settings.api.customProviders || []).find(p => p.id === apiName.slice(7));
         if (!provider) return;
-        
+
         if (field === 'name' || field === 'apiKey' || field === 'endpoint' || field === 'model') {
+          if (field === 'endpoint' && input.value && !isValidEndpointUrl(input.value)) {
+            alert('Endpoint 格式无效，应以 http:// 或 https:// 开头，例如 https://api.openai.com');
+            input.value = provider.endpoint;
+            return;
+          }
           provider[field] = input.value;
         } else if (field === 'enabled') {
           provider.enabled = input.checked;
@@ -848,7 +864,13 @@ function renderCustomProviders() {
       const field = input.dataset.field;
       const provider = (settings.api.customProviders || []).find(p => p.id === providerId);
       if (!provider) return;
-      
+
+      if (field === 'endpoint' && input.value && !isValidEndpointUrl(input.value)) {
+        alert('Endpoint 格式无效，应以 http:// 或 https:// 开头，例如 https://api.openai.com');
+        input.value = provider.endpoint;
+        return;
+      }
+
       provider[field] = input.value;
       saveAllSettings(settings).then(() => {
         chrome.runtime.sendMessage({ action: 'reloadApis' });
@@ -1025,6 +1047,50 @@ function setupAdvancedSettings() {
     await loadCacheStats();
     showSavedTip();
   });
+
+  document.getElementById('exportAllSettingsBtn')?.addEventListener('click', async () => {
+    try {
+      const data = await chrome.runtime.sendMessage({ action: 'exportAllSettings' });
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.href = url;
+      a.download = `dual-translate-settings-${ts}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showSavedTip();
+    } catch (e) {
+      alert('导出失败：' + e.message);
+    }
+  });
+
+  document.getElementById('importAllSettingsBtn')?.addEventListener('click', () => {
+    document.getElementById('importAllSettingsFile').click();
+  });
+
+  document.getElementById('importAllSettingsFile')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!confirm(`确定导入「${file.name}」？当前所有设置（不含 API 密钥）将被覆盖。`)) {
+      e.target.value = '';
+      return;
+    }
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!data || typeof data !== 'object' || !data.settings) throw new Error('文件格式无效（缺少 settings 字段）');
+      if (!data.version) throw new Error('文件格式无效（缺少 version 字段）');
+      await chrome.runtime.sendMessage({ action: 'importAllSettings', data });
+      showSavedTip();
+      alert('导入成功！API 密钥需要重新在「API 管理」中填写。');
+      setTimeout(() => location.reload(), 500);
+    } catch (err) {
+      alert('导入失败：' + err.message);
+    } finally {
+      e.target.value = '';
+    }
+  });
 }
 
 async function loadCacheStats() {
@@ -1083,3 +1149,13 @@ async function loadLlmPrompt() {
     });
   });
 })();
+
+function isValidEndpointUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' || u.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}

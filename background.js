@@ -16,6 +16,14 @@ async function init() {
     setupCommands();
     // 定期维护：重置API配额 + 清理缓存
     await settingsManager.resetApiQuotaIfNeeded();
+    try {
+      const s = settingsManager.settings.general?.toggleTranslateShortcut;
+      if (s && s !== 'Alt+T') {
+        await chrome.commands.update({ name: 'toggle-translate', shortcut: s });
+      }
+    } catch (e) {
+      console.warn('[dual-translate] update shortcut failed:', e.message);
+    }
     initialized = true;
   })();
   return initPromise;
@@ -29,11 +37,33 @@ function setupContextMenu() {
       title: '翻译选中文字',
       contexts: ['selection']
     });
+    chrome.contextMenus.create({
+      id: 'translate-selection-only',
+      title: '仅翻译选中文本（不修改页面）',
+      contexts: ['selection']
+    });
   });
 }
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === 'translate-selection' && info.selectionText) {
+    try {
+      await apiManager.reload();
+      const results = await apiManager.translate([info.selectionText], 'auto', 'zh');
+      const translation = results[0]?.translation || '翻译失败';
+      chrome.tabs.sendMessage(tab.id, {
+        action: 'showSelectionTranslation',
+        original: info.selectionText,
+        translation: translation
+      });
+    } catch (error) {
+      chrome.tabs.sendMessage(tab.id, {
+        action: 'showSelectionTranslation',
+        original: info.selectionText,
+        translation: '翻译失败: ' + error.message
+      });
+    }
+  } else if (info.menuItemId === 'translate-selection-only' && info.selectionText) {
     try {
       await apiManager.reload();
       const results = await apiManager.translate([info.selectionText], 'auto', 'zh');
@@ -83,7 +113,7 @@ async function handleMessage(message, sender) {
 
     case 'updateSettings':
       await settingsManager.updateSetting(message.path, message.value);
-      
+
       // 如果更新的是 api.sourceLanguage，通知活跃 tab 重新翻译
       if (message.path === 'api.sourceLanguage') {
         // 读取 translationEnabled 状态
@@ -97,6 +127,14 @@ async function handleMessage(message, sender) {
               // content script 未加载，忽略
             }
           }
+        }
+      }
+
+      if (message.path === 'general.toggleTranslateShortcut' && typeof message.value === 'string') {
+        try {
+          await chrome.commands.update({ name: 'toggle-translate', shortcut: message.value });
+        } catch (e) {
+          console.warn('[dual-translate] apply shortcut failed:', e.message);
         }
       }
 
@@ -183,15 +221,43 @@ async function handleMessage(message, sender) {
       return { success: true };
 
     case 'cancelTranslation':
-      // 转发到当前活跃 tab 的 content script
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab && tab.id) {
           await chrome.tabs.sendMessage(tab.id, { action: 'cancelTranslation' });
         }
-      } catch {
-        // content script 未加载或已关闭，忽略
+      } catch {}
+      return { success: true };
+
+    case 'exportAllSettings': {
+      const settings = JSON.parse(JSON.stringify(settingsManager.settings));
+      if (settings.api && settings.api.apiKeys) delete settings.api.apiKeys;
+      const glossary = await settingsManager.getGlossary();
+      let customPrompt = '';
+      try {
+        const p = await chrome.storage.local.get('dual_translate_custom_llm_prompt');
+        customPrompt = p['dual_translate_custom_llm_prompt'] || '';
+      } catch {}
+      return {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        settings,
+        glossary,
+        customPrompt
+      };
+    }
+
+    case 'importAllSettings':
+      await settingsManager.saveSettings(message.data.settings);
+      if (message.data.glossary) await settingsManager.saveGlossary(message.data.glossary);
+      if (typeof message.data.customPrompt === 'string') {
+        if (message.data.customPrompt) {
+          await chrome.storage.local.set({ 'dual_translate_custom_llm_prompt': message.data.customPrompt });
+        } else {
+          await chrome.storage.local.remove('dual_translate_custom_llm_prompt');
+        }
       }
+      await apiManager.reload();
       return { success: true };
 
     default:

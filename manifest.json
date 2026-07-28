@@ -46,7 +46,7 @@
       "suggested_key": {
         "default": "Alt+T"
       },
-      "description": "切换翻译开关"
+      "description": "切换翻译开关（可在「显示设置 → 交互设置」中自定义）"
     }
   },
   "options_page": "options/options.html",
