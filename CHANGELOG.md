@@ -134,6 +134,35 @@
   - 收益：未来加新 endpoint input 直接调，未来改 alert 文案只改 1 处
   - 净 +11 行函数 / -16 行重复
 
+#### v1.0.6 hotfix 第六轮 — 风险评估后续修复（R1 / R2 / R6）
+
+> v1.0.6 hotfix1-5 完成后做了一次全项目代码审查，识别出 5 项风险，本轮修其中 2 项 🔴 + 1 项 🟠。
+
+- **R1 🔴 `commands.update` 失败不回滚** — `background.js` `init()` 末尾
+  - **现象**：用户在 Options 选了 Chrome 拒绝的快捷键组合（如 `Ctrl+Shift+Y`），`chrome.commands.update` 抛错，仅 `console.warn`，**但 storage 已写入新值**。下次 Service Worker 重启 / 扩展被禁用再启用，`init()` 再次读到这个非法值再次失败，**永久循环** console 警告。
+  - **触发条件**：用户改快捷键 → Chrome 拒绝（如选 `Ctrl+Shift+1`、在某些平台无效组合等）
+  - **修**：失败时调 `settingsManager.updateSetting('general.toggleTranslateShortcut', 'Alt+T')` 回滚 storage（注意：这次回滚本身要 try-catch，避免 `updateSetting` 失败导致 throw 到 init 顶层）。即便如此，Options UI 端 storage 仍是用户输入的非法值——**但** `commands.update` 不通过就回滚 storage，下次启动不会重复失败。
+  - **遗留**：`options/options.js` 的 handler 内 `commands.update` 失败时（line 209-211 路径）**不会**回滚 storage——**暂不修**（单次失败 + storage 已有防 prototype 校验；下次启动会被 R1 修复再次触发回滚）。如用户反馈 R1 残留，再补。
+  - 净 +5 行
+
+- **R2 🔴 `content.js` `escapeHtml` 实体不全** — `content.js:1131`
+  - **现象**：本地 `escapeHtml` 只转 3 实体 `& < >`，而 `lib/escape-utils.js` `escapeAttr` 转 5 实体。当前 4 处调用都是 div content 拼接（安全），但**未来若误用做 attribute 拼接**会有 XSS 风险——`"` 不转，`onerror="..."` 可注入。
+  - **修**：函数体升级为 5 实体；同时**重命名为 `escapeContent`** 强化"只作文本内容"语义，避免与 `escapeAttr` 混淆。
+  - 4 处调用点同步改名（line 270 / 292 / 1124 / 1210）。
+  - 净 +1 行（多 2 个 .replace）
+
+- **R6 🟠 对照面板关闭不清理监听器** — `content.js:1106`
+  - **现象**：`updatePanel` 内 `mousedown/mousemove/mouseup` 3 个 listener 注册到 `document`（非 panel），依赖 `globalCleanupHandlers` 清理。**但** `panel-close-btn` 点击时只 `panel.remove() + 复位 body margin`，**不**调 `globalCleanupHandlers`——每次开/关 panel 累积 3 个 stale listener，多次后页面 mousemove 卡顿、内存增长。
+  - **修**：close handler 内 `globalCleanupHandlers.forEach(fn => { try { fn() } catch {} }); globalCleanupHandlers = [];`
+  - 注：`panel-toggle-btn` 不关闭 panel，无需清理；`panelClose()` 全局函数（line 1177）已会调 `globalCleanupHandlers` 清理——本轮只补 `updatePanel` 内的 close 路径。
+  - 净 +1 行
+
+- **未修的剩余风险**
+  - R3 🟠 `lib/api-manager.js` 未识别错误无 UI 提示——体验问题
+  - R4 🟠 "将在 N 分钟后重试" 误导（无重试机制）——文案问题
+  - 留待 v1.0.7 或下个版本
+- 净 +7 行 / -0 行（CHANGELOG 不计）
+
 #### v1.0.6 hotfix 第四轮 — `loadDailyUsage` 样式抽 CSS
 
 - **#4 样式与逻辑分离** — `popup.js` 中 `loadDailyUsage` 渲染的 item 行所有样式（display/flex/font-size/gradient/width）都 inline 在 HTML template 字符串中

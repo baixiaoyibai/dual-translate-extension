@@ -22,7 +22,13 @@ async function init() {
         await chrome.commands.update({ name: 'toggle-translate', shortcut: s });
       }
     } catch (e) {
-      console.warn('[dual-translate] update shortcut failed:', e.message);
+      // v1.0.6 hotfix6: 失败回滚 storage，避免下次启动重复失败并产生噪音
+      console.warn('[dual-translate] update shortcut failed, rolling back to Alt+T:', e.message);
+      try {
+        await settingsManager.updateSetting('general.toggleTranslateShortcut', 'Alt+T');
+      } catch (e2) {
+        console.warn('[dual-translate] rollback also failed:', e2.message);
+      }
     }
     initialized = true;
   })();

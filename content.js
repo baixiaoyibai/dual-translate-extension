@@ -267,7 +267,7 @@ function showLoading(title, subtitle) {
   hideLoading();
   const el = document.createElement('div');
   el.className = 'dual-translate-loading-overlay';
-  el.innerHTML = `<div class="dual-translate-loading-spinner"></div><div class="dual-translate-loading-info"><div class="dual-translate-loading-title">${escapeHtml(title||'正在翻译...')}</div>${subtitle?`<div class="dual-translate-loading-subtitle">${escapeHtml(subtitle)}</div>`:''}<div class="dual-translate-loading-progress"><div class="dual-translate-loading-progress-bar" style="width:0%"></div></div></div>`;
+  el.innerHTML = `<div class="dual-translate-loading-spinner"></div><div class="dual-translate-loading-info"><div class="dual-translate-loading-title">${escapeContent(title||'正在翻译...')}</div>${subtitle?`<div class="dual-translate-loading-subtitle">${escapeContent(subtitle)}</div>`:''}<div class="dual-translate-loading-progress"><div class="dual-translate-loading-progress-bar" style="width:0%"></div></div></div>`;
   document.body.appendChild(el);
   loadingElement = el;
 }
@@ -289,7 +289,7 @@ function showErrorBanner(text) {
   hideErrorBanner();
   const el = document.createElement('div');
   el.className = 'dual-translate-error-banner';
-  el.innerHTML = `<span class="dual-translate-error-text">${escapeHtml(text)}</span><button class="dual-translate-error-close">✕</button>`;
+  el.innerHTML = `<span class="dual-translate-error-text">${escapeContent(text)}</span><button class="dual-translate-error-close">✕</button>`;
   el.style.cssText = 'position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:2147483646;background:var(--dt-bg-error);color:var(--dt-text-error);border:1px solid var(--dt-border-error);border-radius:8px;padding:10px 16px;font-size:13px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;box-shadow:0 4px 16px var(--dt-shadow);display:flex;align-items:center;gap:12px;max-width:520px;';
   el.querySelector('.dual-translate-error-close').style.cssText = 'background:none;border:none;cursor:pointer;font-size:16px;color:var(--dt-text-error);padding:0 4px;line-height:1;';
   el.querySelector('.dual-translate-error-close').addEventListener('click', hideErrorBanner);
@@ -1103,7 +1103,7 @@ function updatePanel(segSubset) {
     ct.className='dual-translate-panel-content';
     let collapsed=false;
     hd.querySelector('.panel-toggle-btn').addEventListener('click',()=>{collapsed=!collapsed;panel.style.transform=collapsed?(pos==='right'?'translateX(calc(100% - 30px))':'translateY(calc(100% - 30px))'):'translate(0)';hd.querySelector('.panel-toggle-btn').textContent=collapsed?'▶':'◀';});
-    hd.querySelector('.panel-close-btn').addEventListener('click',()=>{panel.remove();panelInstance=null;document.body.style.marginRight='';document.body.style.marginBottom='';});
+    hd.querySelector('.panel-close-btn').addEventListener('click',()=>{panel.remove();panelInstance=null;document.body.style.marginRight='';document.body.style.marginBottom='';globalCleanupHandlers.forEach(fn=>{try{fn()}catch{}});globalCleanupHandlers=[];});
     let isDragging=false,sX,sY,sW,sH;
     const mdh=e=>{if(e.target.tagName==='BUTTON')return;isDragging=true;sX=e.clientX;sY=e.clientY;const r=panel.getBoundingClientRect();sW=r.width;sH=r.height;document.body.style.userSelect='none';};
     const mmh=e=>{if(!isDragging)return;if(pos==='right')panel.style.width=Math.max(200,Math.min(800,sW-(e.clientX-sX)))+'px';else panel.style.height=Math.max(150,Math.min(600,sH-(e.clientY-sY)))+'px';};
@@ -1121,14 +1121,14 @@ function updatePanel(segSubset) {
     const tr=translationCache.get(seg.id);if(!tr)continue;
     panelRenderedSegIds.add(seg.id);
     const row=document.createElement('div');row.style.cssText=`display:flex;gap:14px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--dt-border-light);cursor:pointer;`;
-    row.innerHTML=`<div style="flex:1;font-size:13px;color:var(--dt-text-primary);min-width:0;line-height:1.6">${escapeHtml(seg.text)}</div><div style="flex:1;font-size:13px;color:${color};min-width:0;line-height:1.6">${escapeHtml(tr)}</div>`;
+    row.innerHTML=`<div style="flex:1;font-size:13px;color:var(--dt-text-primary);min-width:0;line-height:1.6">${escapeContent(seg.text)}</div><div style="flex:1;font-size:13px;color:${color};min-width:0;line-height:1.6">${escapeContent(tr)}</div>`;
     row.addEventListener('click',()=>{if(seg.node&&seg.node.parentElement){seg.node.parentElement.scrollIntoView({behavior:'smooth',block:'center'});seg.node.parentElement.style.transition='background 0.3s';seg.node.parentElement.style.background='var(--dt-bg-highlight)';setTimeout(()=>{seg.node.parentElement.style.background=''},2000);}});
     ct.appendChild(row);
   }
 }
 
 function positionAt(el,x,y){const r=el.getBoundingClientRect();let px=x,py=y;if(px+r.width>window.innerWidth)px=x-r.width-12;if(py+r.height>window.innerHeight)py=y-r.height-12;el.style.left=Math.max(0,px)+'px';el.style.top=Math.max(0,py)+'px';}
-function escapeHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function escapeContent(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function toggleTranslation() {
   if (isTranslating) return;
   if (segments.length > 0 || translationCache.size > 0) {
@@ -1207,7 +1207,7 @@ function showSelectionTranslation(original,translation){
   if(sel&&sel.rangeCount>0){const r=sel.getRangeAt(0).getBoundingClientRect();x=r.left+r.width/2;y=r.bottom+10;}
   const hover=document.createElement('div');hover.className='dual-translate-hover pinned';
   hover.style.cssText=`position:fixed;background:var(--dt-bg-primary);color:var(--dt-text-primary);padding:10px 14px;border-radius:6px;font-size:14px;z-index:2147483647;max-width:450px;box-shadow:0 4px 16px var(--dt-shadow);border:1px solid var(--dt-border-primary);cursor:pointer;line-height:1.6;left:${x}px;top:${y}px;`;
-  hover.innerHTML=`<div style="color:var(--dt-text-secondary);font-size:12px;margin-bottom:4px">${escapeHtml(original)}</div><div>${escapeHtml(translation)}</div>`;
+  hover.innerHTML=`<div style="color:var(--dt-text-secondary);font-size:12px;margin-bottom:4px">${escapeContent(original)}</div><div>${escapeContent(translation)}</div>`;
   hover.addEventListener('click',()=>hover.remove());
   document.body.appendChild(hover);
 }
