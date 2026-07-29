@@ -134,7 +134,8 @@ function renderApiStatus(statusMap, configuredCount, availableCount) {
     available: '可用',
     quota_exceeded: '额度不足',
     error: '异常',
-    auth_error: '密钥错误'
+    auth_error: '密钥错误',
+    unconfigured: '未配置'
   };
 
   let html = '';

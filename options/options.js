@@ -1012,6 +1012,25 @@ function renderApiCards() {
         btn.textContent = '✗ 失败';
         btn.style.background = '#f44336';
         btn.style.color = '#fff';
+        // v1.0.10: 测试失败也刷新 apiStatus 并更新状态标识
+        // background 的 testApi 已将错误状态写入 statusCache，但 options 不刷新就会显示旧状态
+        try {
+          const fresh = await chrome.runtime.sendMessage({ action: 'getApiStatus' });
+          if (fresh && fresh.status) {
+            apiStatus = fresh.status;
+            const card = btn.closest('.api-card');
+            if (card) {
+              const statusEl = card.querySelector('.api-card-status');
+              if (statusEl) {
+                const newStatus = apiStatus[apiName];
+                const statusValue = newStatus?.status || 'error';
+                statusEl.className = `api-card-status ${statusValue}`;
+                statusEl.textContent = getStatusLabel(statusValue);
+              }
+            }
+            renderApiUsage();
+          }
+        } catch {}
         alert('测试失败：' + ((res && res.error) || '未知错误'));
         btn._testRestoreTimer = setTimeout(() => { btn.textContent = '测试'; btn.style.background = ''; btn.style.color = ''; btn._testRestoreTimer = null; }, 2000);
       }
