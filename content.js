@@ -304,7 +304,7 @@ function showErrorBanner(text) {
   const el = document.createElement('div');
   el.className = 'dual-translate-error-banner';
   el.innerHTML = `<span class="dual-translate-error-text">${escapeContent(text)}</span><button class="dual-translate-error-close">✕</button>`;
-  el.style.cssText = 'position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:2147483646;background:var(--dt-bg-error);color:var(--dt-text-error);border:1px solid var(--dt-border-error);border-radius:8px;padding:10px 16px;font-size:13px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;box-shadow:0 4px 16px var(--dt-shadow);display:flex;align-items:center;gap:12px;max-width:520px;';
+  el.style.cssText = 'position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:2147483646;background:var(--dt-bg-error);color:var(--dt-text-error);border:1px solid var(--dt-border-error);border-radius:8px;padding:10px 16px;font-size:13px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI Variable","Segoe UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB","Ubuntu","Cantarell","Noto Sans",sans-serif;box-shadow:0 4px 16px var(--dt-shadow);display:flex;align-items:center;gap:12px;max-width:520px;';
   el.querySelector('.dual-translate-error-close').style.cssText = 'background:none;border:none;cursor:pointer;font-size:16px;color:var(--dt-text-error);padding:0 4px;line-height:1;';
   el.querySelector('.dual-translate-error-close').addEventListener('click', hideErrorBanner);
   document.body.appendChild(el);

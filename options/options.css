@@ -1444,21 +1444,16 @@ input:checked + .toggle-slider:before {
 }
 
 /* ===== 超宽屏适配（21:9 / 32:9 等特殊比例） ===== */
+/* 仅通过 tab-content 的 max-width + margin:0 auto 实现居中，
+   不使用 padding 计算（padding 的 100% 引用包含块宽度而非元素自身宽度，
+   在 flex 布局中会导致内容区被过度压缩） */
 @media (min-width: 1920px) {
-  .main-content {
-    padding-left: calc((100% - 900px) / 2);
-    padding-right: calc((100% - 900px) / 2);
-  }
   .tab-content {
     max-width: 900px;
   }
 }
 
 @media (min-width: 2560px) {
-  .main-content {
-    padding-left: calc((100% - 1000px) / 2);
-    padding-right: calc((100% - 1000px) / 2);
-  }
   .tab-content {
     max-width: 1000px;
   }
@@ -1473,7 +1468,8 @@ input:checked + .toggle-slider:before {
   input[type="text"],
   input[type="number"],
   input[type="password"],
-  select {
+  select,
+  textarea {
     border-width: 1px;
   }
   .btn {
@@ -1861,7 +1857,10 @@ input:checked + .toggle-slider:before {
 
 /* ===== 跨平台兼容性说明（v1.0.18） =====
  * 以下适配已实现：
- * 1. 超宽屏（21:9/32:9）：@media (min-width: 1920px/2560px) 内容居中+加宽
+ * 1. 超宽屏（21:9/32:9）：@media (min-width: 1920px/2560px) 通过 tab-content
+ *    max-width + margin:0 auto 实现居中加宽（不使用 padding 100% 计算，
+ *    因为 padding 的百分比引用包含块宽度而非元素自身宽度，在 flex 布局中
+ *    会导致内容区被过度压缩）
  * 2. Win10 及更早系统：字体栈包含 'Segoe UI'（非 Variable 变体）
  * 3. macOS：scrollbar-gutter 防滚动条跳动，-webkit-user-select 前缀
  * 4. 高分屏（Retina/4K）：@media (min-device-pixel-ratio: 2) 边框降级为 1px
