@@ -452,6 +452,15 @@
           <input type="file" id="importAllSettingsFile" accept="application/json" style="display:none;">
         </div>
       </div>
+
+      <div class="section-card">
+        <div class="section-card-header">🔧 诊断工具</div>
+        <p class="setting-desc" style="margin-bottom:10px;">检查 API 密钥存储状态，排查密钥丢失问题。对比 sync storage、local storage 和 background 返回的 settings 三个来源的密钥状态。</p>
+        <button class="btn btn-primary" id="diagnoseStorageBtn">检查 Storage 状态</button>
+        <div id="diagnoseResult" style="margin-top:10px;display:none;">
+          <!-- 诊断结果动态填充 -->
+        </div>
+      </div>
     </div>
   </div>
 

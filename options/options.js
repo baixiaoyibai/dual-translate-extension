@@ -43,7 +43,9 @@ const DEFAULT_API_ENDPOINTS = (typeof window !== 'undefined' && window.API_ENDPO
 const DEFAULT_API_MODELS = (typeof window !== 'undefined' && window.API_MODELS_DEFAULT) ? window.API_MODELS_DEFAULT : {};
 
 document.addEventListener('DOMContentLoaded', async () => {
-  chrome.runtime.sendMessage({ action: 'reloadApis' });
+  // 预热 background 的 API 缓存（fire-and-forget，失败不影响设置页加载）
+  // reloadApis 只读取 storage 刷新 background 内存缓存，不修改 settings，不会与 loadAllData 产生竞态
+  chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
   await loadAllData();
   setupTabSwitching();
   setupDisplaySettings();
@@ -51,6 +53,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupGlossaryManagement();
   setupApiManagement();
   setupAdvancedSettings();
+  setupDiagnostics();
 });
 
 function showSavedTip() {
@@ -60,12 +63,19 @@ function showSavedTip() {
 }
 
 async function loadAllData() {
-  const [res, glossaryRes, apiRes, usageRes] = await Promise.all([
+  // 使用 Promise.allSettled 确保单个消息失败不会导致全部数据加载失败
+  const results = await Promise.allSettled([
     chrome.runtime.sendMessage({ action: 'getSettings' }),
     chrome.runtime.sendMessage({ action: 'getGlossary' }),
     chrome.runtime.sendMessage({ action: 'getApiStatus' }),
     chrome.runtime.sendMessage({ action: 'getDailyUsage' })
   ]);
+
+  const res = results[0].status === 'fulfilled' ? results[0].value : null;
+  const glossaryRes = results[1].status === 'fulfilled' ? results[1].value : null;
+  const apiRes = results[2].status === 'fulfilled' ? results[2].value : null;
+  const usageRes = results[3].status === 'fulfilled' ? results[3].value : null;
+
   if (res && res.settings) {
     settings = res.settings;
   }
@@ -503,6 +513,7 @@ const API_STATUS_LABELS = { available: '可用', quota_exceeded: '额度不足',
 function getStatusLabel(status) { return API_STATUS_LABELS[status] || '未配置'; }
 
 function setupApiManagement() {
+  if (!settings) return;
   renderApiCards();
   renderCustomProviders();
   renderApiPriority();
@@ -792,6 +803,7 @@ function renderApiPriority() {
 function renderCustomProviders() {
   const container = document.getElementById('customProvidersContainer');
   if (!container) return;
+  if (!settings) return;
   
   const providers = settings.api.customProviders || [];
   
@@ -1150,4 +1162,147 @@ function validateEndpointInput(input, currentValue) {
     return false;
   }
   return true;
+}
+
+// ============ 诊断工具（集成自 diagnose.html） ============
+const DIAG_SETTINGS_KEY = 'dual_translate_settings';
+const DIAG_LOCAL_API_KEYS_KEY = 'dual_translate_api_keys_local';
+
+function setupDiagnostics() {
+  const btn = document.getElementById('diagnoseStorageBtn');
+  if (!btn) return;
+  btn.addEventListener('click', runStorageDiagnosis);
+}
+
+// 脱敏显示密钥：前4位 + **** + 后2位
+function maskApiValue(val) {
+  if (typeof val !== 'string' || val.length === 0) return '';
+  if (val.length <= 6) return '****';
+  return val.substring(0, 4) + '****' + val.slice(-2);
+}
+
+async function runStorageDiagnosis() {
+  const resultDiv = document.getElementById('diagnoseResult');
+  if (!resultDiv) return;
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = '<div class="diag-loading">正在检查 Storage 状态...</div>';
+
+  try {
+    // 并行读取三个来源，任一失败不影响其他
+    const [syncRes, localRes, msgRes] = await Promise.allSettled([
+      chrome.storage.sync.get(DIAG_SETTINGS_KEY),
+      chrome.storage.local.get(DIAG_LOCAL_API_KEYS_KEY),
+      chrome.runtime.sendMessage({ action: 'getSettings' })
+    ]);
+
+    const syncSettings = syncRes.status === 'fulfilled' ? syncRes.value[DIAG_SETTINGS_KEY] : null;
+    const localKeys = localRes.status === 'fulfilled' ? localRes.value[DIAG_LOCAL_API_KEYS_KEY] : null;
+    const msgSettings = (msgRes.status === 'fulfilled' && msgRes.value) ? msgRes.value.settings : null;
+
+    const syncApiKeys = syncSettings?.api?.apiKeys || {};
+    const localApiKeys = localKeys || {};
+    const msgApiKeys = msgSettings?.api?.apiKeys || {};
+
+    // 收集所有 API 名称
+    const allApis = new Set([
+      ...Object.keys(syncApiKeys),
+      ...Object.keys(localApiKeys),
+      ...Object.keys(msgApiKeys)
+    ]);
+
+    let html = '';
+
+    // 三个来源概览
+    const syncCount = Object.keys(syncApiKeys).length;
+    const localCount = Object.keys(localApiKeys).length;
+    const msgCount = Object.keys(msgApiKeys).length;
+    html += '<div class="diag-overview">';
+    html += `<div class="diag-source"><span class="diag-source-label">Sync Storage:</span> <span class="${syncCount ? 'diag-ok' : 'diag-empty'}">${syncSettings ? '存在 settings' : '未找到 settings'} / apiKeys: ${syncCount} 个</span></div>`;
+    html += `<div class="diag-source"><span class="diag-source-label">Local Storage:</span> <span class="${localCount ? 'diag-ok' : 'diag-empty'}">${localKeys ? '存在密钥' : '未找到密钥'} / apiKeys: ${localCount} 个</span></div>`;
+    html += `<div class="diag-source"><span class="diag-source-label">getSettings 消息:</span> <span class="${msgCount ? 'diag-ok' : 'diag-empty'}">${msgSettings ? '返回正常' : '返回无效'} / apiKeys: ${msgCount} 个</span></div>`;
+    html += '</div>';
+
+    // 密钥对比表格
+    if (allApis.size === 0) {
+      html += '<div class="diag-empty-msg">未发现任何已配置的 API 密钥</div>';
+    } else {
+      html += '<table class="diag-table">';
+      html += '<thead><tr><th>API</th><th>字段</th><th>Sync 值</th><th>Local 值</th><th>getSettings 值</th></tr></thead><tbody>';
+      for (const apiName of [...allApis].sort()) {
+        const syncObj = syncApiKeys[apiName] || {};
+        const localObj = localApiKeys[apiName] || {};
+        const msgObj = msgApiKeys[apiName] || {};
+        const allFields = new Set([...Object.keys(syncObj), ...Object.keys(localObj), ...Object.keys(msgObj)]);
+        for (const field of allFields) {
+          const sv = syncObj[field];
+          const lv = localObj[field];
+          const mv = msgObj[field];
+          html += '<tr>'
+            + `<td>${escapeAttr(apiName)}</td>`
+            + `<td>${escapeAttr(field)}</td>`
+            + `<td class="${sv ? 'diag-ok' : 'diag-empty'}">${sv ? escapeAttr(maskApiValue(sv)) : '空'}</td>`
+            + `<td class="${lv ? 'diag-ok' : 'diag-empty'}">${lv ? escapeAttr(maskApiValue(lv)) : '空'}</td>`
+            + `<td class="${mv ? 'diag-ok' : 'diag-empty'}">${mv ? escapeAttr(maskApiValue(mv)) : '空'}</td>`
+            + '</tr>';
+        }
+      }
+      html += '</tbody></table>';
+    }
+
+    // 迁移按钮：仅当 sync 中有真实密钥时显示
+    const hasSyncKeys = Object.values(syncApiKeys).some(k =>
+      k && typeof k === 'object' && Object.values(k).some(v => typeof v === 'string' && v.length > 0)
+    );
+    if (hasSyncKeys) {
+      html += '<div class="diag-migrate-area">';
+      html += '<button class="btn btn-primary" id="migrateKeysBtn">迁移 Sync→Local 密钥</button>';
+      html += '<span class="setting-desc">将 sync 中的 API 密钥复制到 local，然后从 sync 中删除（避免 sync 配额限制导致密钥丢失）</span>';
+      html += '</div>';
+    }
+
+    resultDiv.innerHTML = html;
+
+    // 绑定迁移按钮
+    const migrateBtn = document.getElementById('migrateKeysBtn');
+    if (migrateBtn) {
+      migrateBtn.addEventListener('click', migrateSyncToLocal);
+    }
+  } catch (e) {
+    resultDiv.innerHTML = `<div class="diag-error">诊断失败：${escapeAttr(e.message || String(e))}</div>`;
+  }
+}
+
+async function migrateSyncToLocal() {
+  try {
+    const syncResult = await chrome.storage.sync.get(DIAG_SETTINGS_KEY);
+    const syncSettings = syncResult[DIAG_SETTINGS_KEY];
+    if (!syncSettings || !syncSettings.api || !syncSettings.api.apiKeys) {
+      alert('Sync storage 中没有 apiKeys，无需迁移');
+      return;
+    }
+    const apiKeys = syncSettings.api.apiKeys;
+    const hasReal = Object.values(apiKeys).some(k =>
+      k && typeof k === 'object' && Object.values(k).some(v => typeof v === 'string' && v.length > 0)
+    );
+    if (!hasReal) {
+      alert('Sync storage 中的 apiKeys 全为空，无需迁移');
+      return;
+    }
+    if (!confirm('确认将 sync storage 中的 apiKeys 迁移到 local storage？\n\n迁移后将从 sync 中删除密钥，避免 sync 存储配额限制导致密钥丢失。')) return;
+
+    // 复制到 local
+    await chrome.storage.local.set({ [DIAG_LOCAL_API_KEYS_KEY]: apiKeys });
+    // 从 sync 中删除
+    delete syncSettings.api.apiKeys;
+    await chrome.storage.sync.set({ [DIAG_SETTINGS_KEY]: syncSettings });
+
+    // 通知 background 重新加载 API 缓存
+    chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
+
+    alert('迁移完成！建议重新加载扩展并刷新设置页以确认密钥状态。');
+    // 重新运行诊断以刷新结果
+    runStorageDiagnosis();
+  } catch (e) {
+    alert('迁移失败：' + (e.message || String(e)));
+  }
 }

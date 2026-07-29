@@ -736,6 +736,83 @@ input:checked + .toggle-slider:before {
   font-size: 13px;
 }
 
+/* ============ 诊断工具 ============ */
+.diag-loading { color: var(--text-muted); font-size: 13px; padding: 8px 0; }
+
+.diag-overview {
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diag-source { font-size: 13px; line-height: 1.6; }
+
+.diag-source-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 150px;
+  display: inline-block;
+}
+
+.diag-ok { color: var(--success); font-weight: 500; }
+.diag-empty { color: var(--danger); }
+
+.diag-empty-msg {
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.diag-error {
+  padding: 10px 14px;
+  color: var(--danger);
+  font-size: 13px;
+  background: var(--danger-light);
+  border-radius: var(--radius);
+}
+
+.diag-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 12.5px;
+}
+
+.diag-table th,
+.diag-table td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.diag-table th {
+  background: #f8f9fb;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.diag-table td.diag-ok,
+.diag-table td.diag-empty {
+  font-family: 'Consolas', 'Courier New', monospace;
+}
+
+.diag-migrate-area {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 @media (max-width: 768px) {
   body {
     flex-direction: column;
