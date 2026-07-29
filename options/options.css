@@ -39,7 +39,8 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  /* 跨平台字体栈：system-ui(现代浏览器) → macOS → Win11 → Win10/旧Win → Linux → 兜底 */
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Ubuntu', 'Cantarell', 'Noto Sans', sans-serif;
   background: var(--bg);
   color: var(--text);
   display: flex;
@@ -59,6 +60,7 @@ body {
   display: flex;
   flex-direction: column;
   padding: 0;
+  -webkit-user-select: none;
   user-select: none;
   position: relative;
   overflow: hidden;
@@ -209,6 +211,8 @@ body {
   padding: 36px 44px 48px;
   background: var(--bg);
   scroll-behavior: smooth;
+  /* macOS 滚动条覆盖式显示时，预留空间防止内容跳动 */
+  scrollbar-gutter: stable;
 }
 
 .main-content::-webkit-scrollbar {
@@ -231,6 +235,7 @@ body {
 .tab-content {
   display: none;
   max-width: 860px;
+  margin: 0 auto; /* 超宽屏内容居中 */
   animation: fadeIn 0.3s ease;
 }
 
@@ -1438,6 +1443,44 @@ input:checked + .toggle-slider:before {
   }
 }
 
+/* ===== 超宽屏适配（21:9 / 32:9 等特殊比例） ===== */
+@media (min-width: 1920px) {
+  .main-content {
+    padding-left: calc((100% - 900px) / 2);
+    padding-right: calc((100% - 900px) / 2);
+  }
+  .tab-content {
+    max-width: 900px;
+  }
+}
+
+@media (min-width: 2560px) {
+  .main-content {
+    padding-left: calc((100% - 1000px) / 2);
+    padding-right: calc((100% - 1000px) / 2);
+  }
+  .tab-content {
+    max-width: 1000px;
+  }
+  body {
+    font-size: 15px;
+  }
+}
+
+/* ===== 高分屏（Retina/4K）边框优化 ===== */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  /* 高分屏下 1.5px 边框可能渲染异常，降级为 1px */
+  input[type="text"],
+  input[type="number"],
+  input[type="password"],
+  select {
+    border-width: 1px;
+  }
+  .btn {
+    border-width: 1px;
+  }
+}
+
 /* ===== API 密钥安全锁 ===== */
 .api-security-bar {
   display: flex;
@@ -1627,6 +1670,7 @@ input:checked + .toggle-slider:before {
   margin-left: 6px;
   cursor: pointer;
   font-size: 14px;
+  -webkit-user-select: none;
   user-select: none;
   vertical-align: middle;
   transition: opacity var(--transition);
@@ -1814,3 +1858,19 @@ input:checked + .toggle-slider:before {
   color: var(--primary);
   text-decoration: underline;
 }
+
+/* ===== 跨平台兼容性说明（v1.0.18） =====
+ * 以下适配已实现：
+ * 1. 超宽屏（21:9/32:9）：@media (min-width: 1920px/2560px) 内容居中+加宽
+ * 2. Win10 及更早系统：字体栈包含 'Segoe UI'（非 Variable 变体）
+ * 3. macOS：scrollbar-gutter 防滚动条跳动，-webkit-user-select 前缀
+ * 4. 高分屏（Retina/4K）：@media (min-device-pixel-ratio: 2) 边框降级为 1px
+ * 5. 多浏览器：chrome.storage 按浏览器隔离，互不干扰（见 settings-manager.js）
+ * 6. 海外 Win 编码：所有 HTML 均声明 <meta charset="UTF-8">，Fetch API 默认 UTF-8
+ *
+ * 未来扩展预留：
+ * - 深色模式：可在 :root 中通过 prefers-color-scheme 媒体查询添加暗色变量
+ * - 缩放适配：tab-content 使用 max-width + margin:auto，天然支持浏览器缩放
+ * - 触屏设备：可添加 @media (pointer: coarse) 增大触摸目标
+ * - 右往左（RTL）语言：可添加 [dir="rtl"] 样式覆盖
+ */

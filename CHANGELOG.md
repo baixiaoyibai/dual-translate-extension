@@ -13,6 +13,26 @@
 
 ---
 
+## v1.0.18 — 2026-07-30
+
+> 跨平台兼容性适配：超宽屏 / 旧版 Windows / macOS / 高分屏 / 多浏览器 / 海外编码。
+
+### Changed — 行为变更
+
+- **统一字体栈**：所有 CSS 文件（options / popup / welcome / content）的 `font-family` 更新为跨平台字体栈，新增 `system-ui`（现代浏览器）、`'Segoe UI Variable'`（Win11）、`'Hiragino Sans GB'`（macOS 旧版中文）、`'Ubuntu'` / `'Cantarell'` / `'Noto Sans'`（Linux）兜底
+- **月度用量时区修复**：`options.js` 中 `currentMonth` 从 `new Date().toISOString().slice(0,7)`（UTC）改为本地时间 `${year}-${month}`，与 `settings-manager.js` 保持一致，修复非 UTC 时区用户月初配额显示异常
+
+### Added — 新功能
+
+- **超宽屏适配**：新增 `@media (min-width: 1920px)` 和 `@media (min-width: 2560px)` 媒体查询，21:9 / 32:9 等特殊比例屏幕下内容自动居中并加宽，2560px+ 屏幕字号微增至 15px
+- **macOS 滚动条处理**：`.main-content` 添加 `scrollbar-gutter: stable`，防止 macOS 覆盖式滚动条出现/消失时内容布局跳动
+- **高分屏边框优化**：新增 `@media (-webkit-min-device-pixel-ratio: 2)` 媒体查询，Retina/4K 屏幕下将 1.5px 边框降级为 1px，避免子像素渲染异常
+- **`-webkit-user-select` 前缀**：为 `content.css` 浮层、`options.css` 侧边栏和 API 字段切换的 `user-select: none` 补充 `-webkit-` 前缀，确保旧版 Chromium 内核正确禁用文本选中
+- **诊断页 viewport**：`diagnose.html` 补充 `<meta name="viewport">` 标签
+- **跨平台兼容性注释**：在 `settings-manager.js` 添加多浏览器存储隔离说明，在 `base.js` 添加编码安全说明，在 `options.css` 末尾添加完整兼容性清单和未来扩展预留（深色模式 / 触屏 / RTL 等）
+
+---
+
 ## v1.0.17 — 2026-07-30
 
 > 设置页排版优化：内联样式清理 + 视觉层次提升 + 工具类体系建立。

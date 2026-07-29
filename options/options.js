@@ -1771,8 +1771,10 @@ async function renderMonthlyUsage() {
     const freshDailyUsage = dailyRes || {};
     const priority = settings.api.apiPriority || [];
     const quotaLimits = settings.api.quotaLimits || {};
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    const today = new Date().toDateString();
+    // v1.0.18 fix: 改用本地时间，与 settings-manager.js 保持一致，避免 UTC 时区偏移导致月初配额显示异常
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    const today = now.toDateString();
     const isThisMonth = monthlyUsage._month === currentMonth;
     const isToday = freshDailyUsage._date === today;
 
