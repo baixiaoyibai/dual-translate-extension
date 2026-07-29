@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -350,7 +350,7 @@
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">列表模式</div>
-            <div class="setting-desc">黑名单：排除列表中的网站；白名单：仅翻译列表中的网站<br><small style="color:#888">黑名单示例：<code>*.example.com</code> 匹配 <code>a.example.com</code> / <code>b.example.com</code> / <code>example.com</code>；<code>example.com</code> 仅匹配裸域。<br>白名单示例：留空 = 所有网站都翻译；填了 <code>*.github.com</code> = 只翻译 GitHub。</small></div>
+            <div class="setting-desc">黑名单：排除列表中的网站；白名单：仅翻译列表中的网站<br><small >黑名单示例：<code>*.example.com</code> 匹配 <code>a.example.com</code> / <code>b.example.com</code> / <code>example.com</code>；<code>example.com</code> 仅匹配裸域。<br>白名单示例：留空 = 所有网站都翻译；填了 <code>*.github.com</code> = 只翻译 GitHub。</small></div>
           </div>
           <div class="setting-control">
             <select id="excludeMode">
@@ -376,29 +376,29 @@
           <button class="btn btn-primary" id="addGlossaryBtn">+ 添加术语</button>
           <button class="btn" id="exportGlossaryBtn">⬇ 导出 JSON</button>
           <button class="btn" id="importGlossaryBtn">⬆ 导入 JSON</button>
-          <button class="btn btn-danger" id="resetGlossaryBtn" style="margin-left:auto;">恢复默认</button>
+          <button class="btn btn-danger ml-auto" id="resetGlossaryBtn">恢复默认</button>
         </div>
-        <div class="glossary-scope-bar" style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
-          <label style="font-weight:500;">范围:</label>
-          <select id="glossaryScope" style="min-width:180px;"></select>
-          <input type="text" id="addCustomScope" placeholder="example.com 或 *.example.com" style="flex:1;min-width:200px;">
+        <div class="glossary-scope-bar">
+          <label>范围:</label>
+          <select id="glossaryScope"></select>
+          <input type="text" id="addCustomScope" placeholder="example.com 或 *.example.com">
           <button class="btn" id="addScopeBtn">+ 添加域名</button>
           <button class="btn btn-danger btn-sm" id="deleteScopeBtn" title="删除当前范围的术语（仅该范围）">删除范围</button>
         </div>
-        <div class="import-export-area" id="importExportArea" style="display:none;">
+        <div class="import-export-area hidden" id="importExportArea">
           <textarea id="importExportText" placeholder="在此粘贴 JSON 格式的术语表..."></textarea>
-          <div style="margin-top:8px;display:flex;gap:8px;">
+          <div class="btn-row btn-row-top">
             <button class="btn btn-primary" id="confirmImportBtn">确认导入</button>
             <button class="btn" id="cancelImportBtn">取消</button>
           </div>
         </div>
       </div>
 
-      <div class="section-card" style="padding:12px 0 0 0;">
+      <div class="section-card glossary-table-card">
         <div class="glossary-table-wrap">
           <table class="glossary-table" id="glossaryTable">
             <thead>
-              <tr><th>原文术语</th><th>目标译文</th><th>匹配模式</th><th>保留原文</th><th style="width:60px;"></th></tr>
+              <tr><th>原文术语</th><th>目标译文</th><th>匹配模式</th><th>保留原文</th><th class="col-action"></th></tr>
             </thead>
             <tbody id="glossaryBody"></tbody>
           </table>
@@ -416,16 +416,16 @@
         <span class="security-hint">输入 PIN 码后可查看和修改密钥</span>
         <button class="btn btn-sm btn-primary" id="unlockApiBtn">🔓 解锁</button>
       </div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+      <div class="api-toolbar">
         <button class="btn btn-sm" id="refreshApiBtn" title="重新从后台加载 API 配置">🔄 刷新API配置</button>
-        <span id="apiDebugStatus" style="font-size:12px;color:#888;"></span>
+        <span id="apiDebugStatus" class="text-debug"></span>
       </div>
       <div id="apiCardsContainer"></div>
-      <button class="btn btn-primary" id="addCustomProviderBtn" style="margin:10px 0;">+ 添加自定义大模型</button>
+      <button class="btn btn-primary add-provider-btn" id="addCustomProviderBtn">+ 添加自定义大模型</button>
 
       <div class="section-card">
         <div class="section-card-header">📊 今日用量统计</div>
-        <p class="setting-desc" style="margin-bottom:10px;">各 API 今日已使用的字符数（每日 0 点重置）</p>
+        <p class="setting-desc desc-mb-sm">各 API 今日已使用的字符数（每日 0 点重置）</p>
         <div id="apiUsageContainer" class="api-usage-container">
           <div class="status-loading">加载中...</div>
         </div>
@@ -433,7 +433,7 @@
 
       <div class="section-card">
         <div class="section-card-header">🔢 API 使用优先级</div>
-        <p class="setting-desc" style="margin-bottom:8px;">拖拽调整翻译接口的使用顺序，排在上面的优先使用</p>
+        <p class="setting-desc desc-mb-sm">拖拽调整翻译接口的使用顺序，排在上面的优先使用</p>
         <div class="api-priority-list" id="apiPriorityList"></div>
       </div>
     </div>
@@ -444,17 +444,17 @@
 
       <div class="section-card">
         <div class="section-card-header">📊 额度配置</div>
-        <p class="setting-desc" style="margin-bottom:12px;">
+        <p class="setting-desc desc-mb">
           开启后，插件会跟踪每个接口的字符使用量。当用量达到设定额度的 97% 时，自动按优先级切换到下一个翻译源，避免超额产生费用。
-          <br><small style="color:#888;">单位说明：机器翻译接口（百度/火山引擎）按字符计费，选「字符」；大模型接口按 Token 计费，选「Token」（插件按 1 Token ≈ 2 字符 估算）。</small>
-          <br><small style="color:#888;">重置周期：选「每日」则每天 0 点重置用量；选「每月」则每月 1 号重置用量。</small>
+          <br><small>单位说明：机器翻译接口（百度/火山引擎）按字符计费，选「字符」；大模型接口按 Token 计费，选「Token」（插件按 1 Token ≈ 2 字符 估算）。</small>
+          <br><small>重置周期：选「每日」则每天 0 点重置用量；选「每月」则每月 1 号重置用量。</small>
         </p>
         <div id="quotaLimitsContainer"></div>
       </div>
 
       <div class="section-card">
         <div class="section-card-header">📈 当前用量</div>
-        <p class="setting-desc" style="margin-bottom:10px;">各接口当前周期已使用的字符数（按设定的重置周期自动归零）</p>
+        <p class="setting-desc desc-mb-sm">各接口当前周期已使用的字符数（按设定的重置周期自动归零）</p>
         <div id="monthlyUsageContainer" class="api-usage-container">
           <div class="status-loading">加载中...</div>
         </div>
@@ -487,13 +487,13 @@
 
       <div class="section-card">
         <div class="section-card-header">📝 翻译效果示例</div>
-        <p class="setting-desc" style="margin-bottom:12px;">以下为「双语对照」模式下的翻译效果示例（字体大小和颜色遵循您的显示设置）：</p>
+        <p class="setting-desc desc-mb">以下为「双语对照」模式下的翻译效果示例（字体大小和颜色遵循您的显示设置）：</p>
         <div class="tips-translation-example">
           <div class="tips-example-original">The dragon guards the ancient treasure deep within the dungeon. Players must defeat it to obtain the legendary sword.</div>
           <div class="tips-example-translation">巨龙守护着地下城深处的远古宝藏。玩家必须击败它才能获得传说中的宝剑。</div>
         </div>
-        <p class="setting-desc" style="margin-top:8px;">
-          <small style="color:#888;">译文颜色和大小会随「显示设置」中的配置自动调整。上方示例已按当前设置渲染。</small>
+        <p class="setting-desc desc-mt">
+          <small>译文颜色和大小会随「显示设置」中的配置自动调整。上方示例已按当前设置渲染。</small>
         </p>
       </div>
 
@@ -518,7 +518,7 @@
           <br>• <strong>优先级排序</strong>：拖拽列表调整接口使用顺序，排在前面的优先使用
           <br>• <strong>免费额度标注</strong>：每个接口旁显示该服务的免费额度信息
           <br><br>
-          <small style="color:#888;">提示：机器翻译接口翻译速度快、成本低，适合日常浏览；大模型接口翻译质量更高，适合对翻译准确性要求较高的场景。建议两者搭配使用。</small>
+          <small >提示：机器翻译接口翻译速度快、成本低，适合日常浏览；大模型接口翻译质量更高，适合对翻译准确性要求较高的场景。建议两者搭配使用。</small>
         </p>
       </div>
 
@@ -534,7 +534,7 @@
           <br><br>
           当某接口用量达到设定额度的 <strong>97%</strong> 时，插件会自动按「API 管理」中的优先级排序切换到下一个翻译源，避免超额产生费用。
           <br><br>
-          <small style="color:#888;">注意：Token 用量为估算值（1 Token ≈ 2 字符），实际计费以服务商账单为准。此功能仅为辅助提醒，不保证完全避免超额。</small>
+          <small >注意：Token 用量为估算值（1 Token ≈ 2 字符），实际计费以服务商账单为准。此功能仅为辅助提醒，不保证完全避免超额。</small>
         </p>
       </div>
 
@@ -574,7 +574,7 @@
           <br><br>
           <strong>清除密钥</strong>：在「API 管理」页面，每个接口卡片右侧有「清除」按钮，可一键删除该接口的所有配置信息。
           <br><br>
-          <small style="color:#888;">如需彻底清除所有数据，可在浏览器扩展管理页面点击「清除数据」。</small>
+          <small >如需彻底清除所有数据，可在浏览器扩展管理页面点击「清除数据」。</small>
         </p>
       </div>
 
@@ -595,7 +595,7 @@
           <strong>开源与反馈</strong>：
           <br>本项目代码完全开源，欢迎在代码仓库中提交 Issue 或 Pull Request。如发现翻译异常、功能缺陷或有改进建议，请通过项目仓库的 Issue 页面反馈。
           <br><br>
-          <small style="color:#888;">声明：Vibe Coding 生成的代码可能存在未预见的行为或边界情况。虽然已尽力测试和审查，但仍建议在使用重要内容翻译时以人工翻译为参考。</small>
+          <small >声明：Vibe Coding 生成的代码可能存在未预见的行为或边界情况。虽然已尽力测试和审查，但仍建议在使用重要内容翻译时以人工翻译为参考。</small>
         </p>
       </div>
 
@@ -613,7 +613,7 @@
           <br>• API 密钥 PIN 码保护
           <br>• 页面标题和图片 alt 文本翻译
           <br><br>
-          <small style="color:#888;">感谢您使用双语翻译助手。如有问题或建议，欢迎反馈。</small>
+          <small >感谢您使用双语翻译助手。如有问题或建议，欢迎反馈。</small>
         </p>
       </div>
     </div>
@@ -651,9 +651,9 @@
             <input type="number" id="retryCount" value="1" min="0" max="5"> 次
           </div>
         </div>
-        <div class="setting-row" style="background:var(--warning-light);border-left:3px solid var(--warning);padding:10px 14px;border-radius:6px;margin-top:8px;">
+        <div class="setting-row warning-callout">
           <div class="setting-info">
-            <div class="setting-label" style="color:var(--warning);">⚠ 参数联动提示</div>
+            <div class="setting-label">⚠ 参数联动提示</div>
             <div class="setting-desc">批量越大越省请求数，但单次失败时丢的段也越多；超时越短越快放弃错误请求，但慢 API 会频繁失败。建议新手保持默认（10 段 / 10 秒 / 1 次重试）。</div>
           </div>
         </div>
@@ -682,9 +682,9 @@
 
       <div class="section-card">
         <div class="section-card-header">🤖 大模型翻译 Prompt</div>
-        <p class="setting-desc" style="margin-bottom:12px;">自定义发送给大模型的翻译指令，可微调翻译效果</p>
+        <p class="setting-desc desc-mb">自定义发送给大模型的翻译指令，可微调翻译效果</p>
         <textarea id="llmPrompt" class="prompt-editor"></textarea>
-        <div style="margin-top:10px;display:flex;gap:8px;">
+        <div class="btn-row btn-row-top">
           <button class="btn btn-primary" id="saveLlmPromptBtn">💾 保存 Prompt</button>
           <button class="btn" id="resetLlmPromptBtn">↺ 恢复默认</button>
         </div>
@@ -692,14 +692,14 @@
 
       <div class="section-card">
         <div class="section-card-header">💾 翻译缓存</div>
-        <p class="setting-desc" style="margin-bottom:12px;">已翻译的文本会缓存 3 天，再次遇到相同内容时直接使用缓存，无需重复调用 API。每次命中会自动刷新有效期。</p>
-        <div id="cacheStats" class="cache-stats" style="margin-bottom:10px;font-size:13px;color:#666;">加载中...</div>
+        <p class="setting-desc desc-mb">已翻译的文本会缓存 3 天，再次遇到相同内容时直接使用缓存，无需重复调用 API。每次命中会自动刷新有效期。</p>
+        <div id="cacheStats" class="cache-stats">加载中...</div>
         <button class="btn btn-danger" id="clearCacheBtn">🗑 清除全部缓存</button>
       </div>
 
       <div class="section-card">
         <div class="section-card-header">📋 日志级别（v1.0.2 新增）</div>
-        <p class="setting-desc" style="margin-bottom:12px;">控制扩展运行时在浏览器开发者工具控制台输出的日志详细程度。普通用户保持"仅错误"即可，调试时可调到"调试"获取完整调用链。</p>
+        <p class="setting-desc desc-mb">控制扩展运行时在浏览器开发者工具控制台输出的日志详细程度。普通用户保持"仅错误"即可，调试时可调到"调试"获取完整调用链。</p>
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">日志级别</div>
@@ -719,19 +719,19 @@
 
       <div class="section-card">
         <div class="section-card-header">💼 数据管理</div>
-        <p class="setting-desc" style="margin-bottom:12px;">导出全部设置（不含 API 密钥）到 JSON 文件，方便换机迁移。在新机器上安装扩展后用「导入」恢复。</p>
-        <div style="display:flex;gap:8px;">
+        <p class="setting-desc desc-mb">导出全部设置（不含 API 密钥）到 JSON 文件，方便换机迁移。在新机器上安装扩展后用「导入」恢复。</p>
+        <div class="btn-row">
           <button class="btn btn-primary" id="exportAllSettingsBtn">⬇ 导出全部设置</button>
           <button class="btn" id="importAllSettingsBtn">⬆ 导入设置</button>
-          <input type="file" id="importAllSettingsFile" accept="application/json" style="display:none;">
+          <input type="file" id="importAllSettingsFile" accept="application/json" class="hidden">
         </div>
       </div>
 
       <div class="section-card">
         <div class="section-card-header">🔧 诊断工具</div>
-        <p class="setting-desc" style="margin-bottom:10px;">检查 API 密钥存储状态，排查密钥丢失问题。对比 sync storage、local storage 和 background 返回的 settings 三个来源的密钥状态。</p>
+        <p class="setting-desc desc-mb-sm">检查 API 密钥存储状态，排查密钥丢失问题。对比 sync storage、local storage 和 background 返回的 settings 三个来源的密钥状态。</p>
         <button class="btn btn-primary" id="diagnoseStorageBtn">检查 Storage 状态</button>
-        <div id="diagnoseResult" style="margin-top:10px;display:none;">
+        <div id="diagnoseResult" class="diag-result-area hidden">
           <!-- 诊断结果动态填充 -->
         </div>
       </div>
@@ -743,18 +743,18 @@
   <script src="../lib/api-metadata.js"></script>
   <script src="options.js"></script>
   <!-- PIN 码对话框 -->
-  <div id="pinDialog" class="pin-dialog-overlay" style="display:none;">
+  <div id="pinDialog" class="pin-dialog-overlay hidden">
     <div class="pin-dialog">
       <h3 id="pinDialogTitle">输入 PIN 码</h3>
       <p class="pin-dialog-desc" id="pinDialogDesc">请输入 PIN 码以解锁密钥编辑</p>
       <input type="password" id="pinInput" maxlength="6" pattern="[0-9]*" inputmode="numeric" placeholder="6 位数字" autocomplete="off">
-      <div id="pinError" class="pin-error" style="display:none;"></div>
+      <div id="pinError" class="pin-error hidden"></div>
       <div class="pin-dialog-actions">
         <button class="btn btn-sm" id="pinCancelBtn">取消</button>
         <button class="btn btn-sm btn-primary" id="pinConfirmBtn">确认</button>
       </div>
       <div class="pin-dialog-footer">
-        <a href="#" id="resetPinLink" style="font-size:12px;color:#666;">忘记 PIN？重置密钥保护</a>
+        <a href="#" id="resetPinLink" class="pin-reset-link">忘记 PIN？重置密钥保护</a>
       </div>
     </div>
   </div>
