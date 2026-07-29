@@ -86,6 +86,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('[options] 全局错误:', e.message, e.filename + ':' + e.lineno);
   });
 
+  // 欢迎页覆盖层：每次打开设置页都显示，用户交互后隐藏
+  try { setupWelcomeOverlay(); } catch(e) { console.error('[options] setupWelcomeOverlay:', e); }
+
   // 诊断工具提前初始化（不依赖 settings 数据，确保一定能用）
   try { setupDiagnostics(); } catch(e) { console.error('[options] setupDiagnostics 失败:', e); }
 
@@ -265,6 +268,38 @@ async function saveSetting(path, value) {
 async function saveAllSettings(newSettings) {
   await chrome.runtime.sendMessage({ action: 'saveSettings', settings: newSettings });
   settings = newSettings;
+}
+
+function setupWelcomeOverlay() {
+  const overlay = document.getElementById('welcomeOverlay');
+  if (!overlay) return;
+
+  const enterBtn = document.getElementById('welcomeEnterBtn');
+  const skipLink = document.getElementById('welcomeSkipLink');
+
+  function hideOverlay() {
+    overlay.classList.add('hidden');
+    // 延迟移除 DOM 节点，避免覆盖层残留拦截交互
+    setTimeout(() => { overlay.remove(); }, 300);
+  }
+
+  if (enterBtn) {
+    enterBtn.addEventListener('click', hideOverlay);
+  }
+  if (skipLink) {
+    skipLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      hideOverlay();
+    });
+  }
+
+  // ESC 键也可关闭欢迎页
+  document.addEventListener('keydown', function escHandler(e) {
+    if (e.key === 'Escape' && !overlay.classList.contains('hidden')) {
+      hideOverlay();
+      document.removeEventListener('keydown', escHandler);
+    }
+  });
 }
 
 function setupTabSwitching() {

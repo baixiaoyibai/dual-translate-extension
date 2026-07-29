@@ -7,6 +7,89 @@
   <link rel="stylesheet" href="options.css">
 </head>
 <body>
+  <!-- 欢迎页覆盖层：每次打开设置页时显示 -->
+  <div id="welcomeOverlay" class="welcome-overlay">
+    <div class="welcome-overlay-container">
+      <div class="welcome-overlay-icon">🌐</div>
+      <h1 class="welcome-overlay-title">欢迎使用双语翻译助手</h1>
+      <p class="welcome-overlay-subtitle">
+        一款强大的多模式网页翻译扩展，支持英语/日语翻译为简体中文<br>
+        自动 API 轮换，确保翻译永不中断
+      </p>
+
+      <div class="welcome-overlay-features">
+        <div class="welcome-overlay-feature">
+          <span class="welcome-overlay-feature-icon">📄</span>
+          <div class="welcome-overlay-feature-text">
+            <strong>双语对照</strong>原文+译文逐段对照显示
+          </div>
+        </div>
+        <div class="welcome-overlay-feature">
+          <span class="welcome-overlay-feature-icon">🔄</span>
+          <div class="welcome-overlay-feature-text">
+            <strong>仅译文模式</strong>替换为中文，悬停查看原文
+          </div>
+        </div>
+        <div class="welcome-overlay-feature">
+          <span class="welcome-overlay-feature-icon">🖱</span>
+          <div class="welcome-overlay-feature-text">
+            <strong>悬停翻译</strong>鼠标悬停段落即显示译文
+          </div>
+        </div>
+        <div class="welcome-overlay-feature">
+          <span class="welcome-overlay-feature-icon">📋</span>
+          <div class="welcome-overlay-feature-text">
+            <strong>对照面板</strong>右侧/底部同步对照面板
+          </div>
+        </div>
+        <div class="welcome-overlay-feature">
+          <span class="welcome-overlay-feature-icon">🔄</span>
+          <div class="welcome-overlay-feature-text">
+            <strong>API 自动轮换</strong>多平台冗余，宕机自动切换
+          </div>
+        </div>
+        <div class="welcome-overlay-feature">
+          <span class="welcome-overlay-feature-icon">📖</span>
+          <div class="welcome-overlay-feature-text">
+            <strong>术语优化</strong>内置专业术语表，支持自定义
+          </div>
+        </div>
+      </div>
+
+      <div class="welcome-overlay-steps">
+        <h3>快速开始（3步）</h3>
+        <div class="welcome-overlay-step">
+          <span class="welcome-overlay-step-number">1</span>
+          <div class="welcome-overlay-step-content">
+            <strong>配置一个翻译 API</strong><br>
+            在「API 管理」中启用并填写任一免费翻译 API 的密钥
+          </div>
+        </div>
+        <div class="welcome-overlay-step">
+          <span class="welcome-overlay-step-number">2</span>
+          <div class="welcome-overlay-step-content">
+            <strong>选择默认显示模式</strong><br>
+            推荐「双语对照」模式，也可切换为仅译文、悬停翻译或对照面板
+          </div>
+        </div>
+        <div class="welcome-overlay-step">
+          <span class="welcome-overlay-step-number">3</span>
+          <div class="welcome-overlay-step-content">
+            <strong>浏览外文网页体验翻译</strong><br>
+            打开任意英文或日文网页，扩展将自动检测语言并翻译
+          </div>
+        </div>
+      </div>
+
+      <div class="welcome-overlay-actions">
+        <button class="btn btn-primary welcome-overlay-enter-btn" id="welcomeEnterBtn">进入设置 →</button>
+      </div>
+      <div class="welcome-overlay-skip">
+        <a href="#" id="welcomeSkipLink">跳过，直接进入设置</a>
+      </div>
+    </div>
+  </div>
+
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="sidebar-header-icon">T</div>
@@ -485,11 +568,52 @@
           <br>• DeepSeek / 智谱 / 通义 / 零一 / 豆包 API Key → 本地存储
           <br>• 自定义大模型 API Key → 本地存储
           <br><br>
+          <strong>PIN 码保护</strong>：API 密钥受 6 位 PIN 码保护，输入正确 PIN 码后才能查看和编辑密钥。连续 5 次输错将临时锁定，锁定状态在 Service Worker 重启后仍然有效。密钥在未解锁状态下以掩码形式显示（如 <code>sk-12****78</code>）。
+          <br><br>
           <strong>导出设置时</strong>：导出的 JSON 文件<strong>不包含</strong>任何 API 密钥，仅包含显示设置、翻译规则、术语库等非敏感数据。换机迁移后需重新填写密钥。
           <br><br>
           <strong>清除密钥</strong>：在「API 管理」页面，每个接口卡片右侧有「清除」按钮，可一键删除该接口的所有配置信息。
           <br><br>
           <small style="color:#888;">如需彻底清除所有数据，可在浏览器扩展管理页面点击「清除数据」。</small>
+        </p>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">💻 开发说明</div>
+        <p class="setting-desc">
+          本插件是一个开源的个人项目，部分代码使用 <strong>Vibe Coding</strong> 方式编写——即通过 AI 辅助编程工具（如 Cursor、TRAE 等）以自然语言描述需求，由 AI 生成代码并经人工审查和调试。
+          <br><br>
+          <strong>什么是 Vibe Coding？</strong>
+          <br>Vibe Coding 是一种新兴的编程范式，开发者通过自然语言向 AI 描述意图和逻辑，AI 生成对应的代码实现。开发者负责需求定义、架构设计、代码审查和质量把控，AI 负责具体的代码编写。这种方式能显著提升开发效率，尤其适合快速迭代的项目。
+          <br><br>
+          <strong>质量保障措施</strong>：
+          <br>• 所有 AI 生成的代码均经过人工逐行审查
+          <br>• 关键逻辑（签名算法、密钥存储、安全校验等）经多轮测试验证
+          <br>• 已知问题在后续版本中持续修复和优化
+          <br>• 代码遵循安全最佳实践（输入校验、XSS 防护、密钥隔离等）
+          <br><br>
+          <strong>开源与反馈</strong>：
+          <br>本项目代码完全开源，欢迎在代码仓库中提交 Issue 或 Pull Request。如发现翻译异常、功能缺陷或有改进建议，请通过项目仓库的 Issue 页面反馈。
+          <br><br>
+          <small style="color:#888;">声明：Vibe Coding 生成的代码可能存在未预见的行为或边界情况。虽然已尽力测试和审查，但仍建议在使用重要内容翻译时以人工翻译为参考。</small>
+        </p>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">📌 版本信息</div>
+        <p class="setting-desc">
+          <strong>双语翻译助手</strong> 是一款免费、开源的浏览器扩展，支持 Edge 和 Chrome 浏览器。
+          <br><br>
+          <strong>核心特性</strong>：
+          <br>• 4 种翻译显示模式（双语对照 / 仅译文 / 悬停翻译 / 对照面板）
+          <br>• 8+ 翻译接口支持（百度、火山引擎、DeepSeek、智谱、通义、零一、豆包、自定义）
+          <br>• API 自动轮换与额度限制管理
+          <br>• 专业术语库（全局 + 域名专属）
+          <br>• 翻译缓存与懒加载优化
+          <br>• API 密钥 PIN 码保护
+          <br>• 页面标题和图片 alt 文本翻译
+          <br><br>
+          <small style="color:#888;">感谢您使用双语翻译助手。如有问题或建议，欢迎反馈。</small>
         </p>
       </div>
     </div>
