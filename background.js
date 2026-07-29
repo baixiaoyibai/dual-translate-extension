@@ -9,7 +9,10 @@ const DAILY_USAGE_KEY = 'dual_translate_daily_usage';
 // v1.0.19: 运行时日志缓冲区（环形队列，最多 500 条）
 // 供设置页诊断工具中的日志查看器使用
 const LOG_BUFFER_MAX = 500;
-const logBuffer = [];
+// v1.1.0 perf: 预分配定长数组 + 写指针，避免每次超限都 O(n) shift
+const logBuffer = new Array(LOG_BUFFER_MAX);
+let logHead = 0;   // 下一个写入位置（取模回绕）
+let logCount = 0;   // 当前有效条数（<= LOG_BUFFER_MAX）
 let logSeq = 0;
 
 function _getLogLevel() {
@@ -26,8 +29,20 @@ function _pushLog(level, args) {
       try { return JSON.stringify(a); } catch { return String(a); }
     }).join(' ')
   };
-  logBuffer.push(entry);
-  if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift();
+  // v1.1.0 perf: 直接覆写槽位并回绕写指针，O(1) 写入，不再调用 O(n) 的 shift
+  logBuffer[logHead] = entry;
+  logHead = (logHead + 1) % LOG_BUFFER_MAX;
+  if (logCount < LOG_BUFFER_MAX) logCount++;
+}
+
+// v1.1.0 perf: 将环形缓冲区按逻辑顺序导出为密集数组，供读取端使用
+function _getLogEntries() {
+  if (logCount < LOG_BUFFER_MAX) {
+    // 未写满：有效条目集中在 [0, logCount)
+    return logBuffer.slice(0, logCount);
+  }
+  // 写满后：tail 起始于 logHead，按时间顺序拼回
+  return logBuffer.slice(logHead).concat(logBuffer.slice(0, logHead));
 }
 
 // 覆写 console 方法，在保留原生行为的同时写入缓冲区
@@ -134,25 +149,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 function _isExtensionSender(sender) {
-  const url = sender && typeof sender.url === 'string' ? sender.url : '';
-  return url.startsWith('chrome-extension://');
+  if (!sender) return false;
+  // v1.1.0 security: 双重校验——URL 前缀 + 扩展 ID，防止跨扩展伪造
+  const url = typeof sender.url === 'string' ? sender.url : '';
+  return url.startsWith('chrome-extension://') && sender.id === chrome.runtime.id;
 }
+
+// v1.1.0 perf: 将写操作白名单提升为模块级常量，避免每条消息都重新构造 Set
+// v1.1.0 security: 补充敏感写操作（saveGlossary/clearCache/clearLogs/testApi），统一拦截非扩展页面的调用
+const WRITE_ACTIONS = new Set([
+  'updateSettings', 'saveSettings', 'importAllSettings', 'reloadApis', 'clearApi',
+  'setupPin', 'resetPin', 'saveGlossary', 'clearCache', 'clearLogs', 'testApi'
+]);
 
 async function handleMessage(message, sender) {
   await init();
 
   // 安全修复：写操作仅允许扩展自身页面调用，content script 调用时拒绝
-  const WRITE_ACTIONS = new Set([
-    'updateSettings', 'saveSettings', 'importAllSettings', 'reloadApis', 'clearApi',
-    'setupPin', 'resetPin'
-  ]);
   if (WRITE_ACTIONS.has(message.action) && !_isExtensionSender(sender)) {
     return { error: 'Permission denied' };
   }
 
   switch (message.action) {
     case 'translateTexts':
-      try { await translationCache.flush(); } catch {}
+      // v1.1.0 perf: 移除翻译前的冗余 flush——handleTranslateTexts 在翻译结束后已统一 flush
       return await handleTranslateTexts(message, sender);
 
     case 'getSettings': {
@@ -169,7 +189,15 @@ async function handleMessage(message, sender) {
         return { settings: settingsManager.settings };
       }
       // 非 extension 页面（content script 等）：深拷贝并将 apiKeys 置空，防止密钥泄露给网页
-      const safeSettings = JSON.parse(JSON.stringify(settingsManager.settings));
+      // v1.1.0 perf: 优先 structuredClone；回退时仅深拷贝 api 段，避免整体 JSON 序列化开销
+      const _raw = settingsManager.settings;
+      let safeSettings;
+      if (typeof structuredClone === 'function') {
+        safeSettings = structuredClone(_raw);
+      } else {
+        safeSettings = { ..._raw };
+        if (_raw && _raw.api) safeSettings.api = JSON.parse(JSON.stringify(_raw.api));
+      }
       if (safeSettings && safeSettings.api) {
         safeSettings.api.apiKeys = {};
         if (Array.isArray(safeSettings.api.customProviders)) {
@@ -214,11 +242,16 @@ async function handleMessage(message, sender) {
       return { success: true };
 
     case 'getApiStatus':
+      // v1.1.0 security: API 状态属敏感读，仅允许扩展页面调用
+      if (!_isExtensionSender(sender)) return { error: 'unauthorized' };
       const summary = apiManager.getApiStatusSummary();
+      // v1.1.0 perf: 用 Map 缓存自定义供应商，O(1) 查找替代循环内 find()
+      const customProviders = settingsManager.settings.api.customProviders || [];
+      const providerMap = new Map(customProviders.map(p => [p.id, p]));
       // 附加 displayName
       for (const [name, info] of Object.entries(summary)) {
         if (name.startsWith('custom_')) {
-          const provider = (settingsManager.settings.api.customProviders || []).find(p => p.id === name.slice(7));
+          const provider = providerMap.get(name.slice(7));
           info.displayName = provider ? provider.name : name;
         }
       }
@@ -229,13 +262,18 @@ async function handleMessage(message, sender) {
       };
 
     case 'testApi':
-      try { await translationCache.flush(); } catch {}
+      // v1.1.0 perf: 移除测试前冗余 flush（testApi 不写缓存，无需提前刷盘）
+      // v1.1.0 security: 已纳入 WRITE_ACTIONS，仅扩展页面可调用
       return await apiManager.testApi(message.apiName, message.apiConfig);
 
     case 'getDailyUsage':
+      // v1.1.0 security: 用量数据属敏感读，仅允许扩展页面调用
+      if (!_isExtensionSender(sender)) return { error: 'unauthorized' };
       return await settingsManager.getDailyUsage();
 
     case 'getMonthlyUsage':
+      // v1.1.0 security: 用量数据属敏感读，仅允许扩展页面调用
+      if (!_isExtensionSender(sender)) return { error: 'unauthorized' };
       return { usage: await settingsManager.getMonthlyUsage() };
 
     case 'getGlossary':
@@ -253,6 +291,8 @@ async function handleMessage(message, sender) {
       return { success: true };
 
     case 'getLLMPrompt':
+      // v1.1.0 security: LLM 提示词属敏感读，仅允许扩展页面调用
+      if (!_isExtensionSender(sender)) return { error: 'unauthorized' };
       try {
         const response = await fetch(chrome.runtime.getURL('config/llm-prompt.txt'));
         const text = await response.text();
@@ -275,6 +315,8 @@ async function handleMessage(message, sender) {
       return await handleClearApi(message.apiName);
 
     case 'hasPin': {
+      // v1.1.0 security: PIN 状态属敏感读，仅允许扩展页面调用
+      if (!_isExtensionSender(sender)) return { error: 'unauthorized' };
       const has = await settingsManager.hasPin();
       return { has };
     }
@@ -289,6 +331,8 @@ async function handleMessage(message, sender) {
     }
 
     case 'verifyPin': {
+      // v1.1.0 security: PIN 校验属敏感读，仅允许扩展页面调用
+      if (!_isExtensionSender(sender)) return { error: 'unauthorized' };
       const pin = String(message.pin || '');
       const result = await settingsManager.verifyPin(pin);
       return result;
@@ -296,7 +340,7 @@ async function handleMessage(message, sender) {
 
     case 'resetPin': {
       await settingsManager.resetPin();
-      await apiManager.reload();
+      // v1.1.0 perf: PIN 重置与 API 配置无关，无需 reload apiManager
       return { success: true };
     }
 
@@ -329,6 +373,8 @@ async function handleMessage(message, sender) {
       return { success: true };
 
     case 'exportAllSettings': {
+      // v1.1.0 security: 导出全部设置属敏感读，仅允许扩展页面调用
+      if (!_isExtensionSender(sender)) return { error: 'unauthorized' };
       const settings = JSON.parse(JSON.stringify(settingsManager.settings));
       if (settings.api && settings.api.apiKeys) delete settings.api.apiKeys;
       // 安全：清除自定义供应商的 apiKey，防止随导出文件泄露
@@ -372,33 +418,39 @@ async function handleMessage(message, sender) {
       return { success: true };
 
     case 'getLogs':
+      // v1.1.0 security: 运行时日志属敏感读，仅允许扩展页面调用
+      if (!_isExtensionSender(sender)) return { error: 'unauthorized' };
       // v1.0.19: 供诊断工具日志查看器使用
       // 可选参数: level (过滤级别), limit (返回条数上限), since (起始 seq)
       {
         const level = message.level || 'all';
         const limit = Math.min(message.limit || 500, LOG_BUFFER_MAX);
         const since = message.since || 0;
-        let logs = logBuffer.filter(e => e.seq > since);
+        let logs = _getLogEntries().filter(e => e.seq > since);
         if (level !== 'all') {
           const priority = { error: 1, warn: 2, info: 3, debug: 4 };
           const threshold = priority[level] || 4;
           logs = logs.filter(e => (priority[e.level] || 3) <= threshold);
         }
         logs = logs.slice(-limit);
-        return { logs, total: logBuffer.length, nextSeq: logSeq };
+        return { logs, total: logCount, nextSeq: logSeq };
       }
 
     case 'clearLogs':
-      logBuffer.length = 0;
+      // v1.1.0 perf: 环形缓冲区重置 head/count，旧条目将被覆写
+      logHead = 0;
+      logCount = 0;
       logSeq = 0;
       console.info('[dual-translate] 日志缓冲区已由诊断工具清空');
       return { success: true, cleared: true };
 
     case 'getLogConfig':
+      // v1.1.0 security: 日志配置属敏感读，仅允许扩展页面调用
+      if (!_isExtensionSender(sender)) return { error: 'unauthorized' };
       // v1.0.19: 返回当前日志配置信息
       return {
         logLevel: settingsManager.settings?.general?.logLevel ?? 2,
-        bufferSize: logBuffer.length,
+        bufferSize: logCount,
         maxBufferSize: LOG_BUFFER_MAX
       };
 
@@ -472,13 +524,33 @@ async function handleClearApi(apiName) {
 
 async function handleTranslateTexts(message, sender) {
   try {
+    // v1.1.0 security: 输入校验，防止畸形/超大请求耗尽资源
+    const MAX_TEXTS = 500;
+    const MAX_TEXT_LEN = 10000;
+    if (!Array.isArray(message.texts)) {
+      return { error: 'texts must be an array', translations: [] };
+    }
+    if (message.texts.length > MAX_TEXTS) {
+      return { error: `texts length exceeds limit (${MAX_TEXTS})`, translations: [] };
+    }
+    for (const t of message.texts) {
+      if (typeof t !== 'string') {
+        return { error: 'each text must be a string', translations: [] };
+      }
+      if (t.length > MAX_TEXT_LEN) {
+        return { error: `text length exceeds limit (${MAX_TEXT_LEN})`, translations: [] };
+      }
+    }
+    if (message.sourceLang != null && typeof message.sourceLang !== 'string') {
+      return { error: 'sourceLang must be a string', translations: [] };
+    }
     // v1.0.6 perf: 不再每批 reload——reload 会读 storage + fetch prompt + 重建全部 translator
     // 仅在 init() 和 updateSettings/reloadApis 时 reload，翻译批次直接复用已构建的实例
     if (!apiManager.translators || apiManager.translators.size === 0) {
       await apiManager.reload();
     }
     const sourceLang = message.sourceLang || 'auto';
-    const texts = message.texts || [];
+    const texts = message.texts;
     const cacheEnabled = settingsManager.settings.trigger.translationCache !== false;
 
     let hits = new Map();

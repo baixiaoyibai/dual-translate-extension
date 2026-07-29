@@ -1691,23 +1691,25 @@ function renderQuotaLimits() {
     const limit = quotaLimits[apiName] || { enabled: false, limit: 0, unit: 'chars', resetType: 'monthly' };
     const displayName = getApiDisplayName(apiName);
     const freeQuota = API_FREE_QUOTAS[apiName];
+    // v1.1.0 security: apiName 可能来自存储中的自定义供应商，统一转义后再插入属性
+    const apiNameAttr = escapeAttr(apiName);
     return `
-      <div class="quota-setting-row" data-api="${apiName}">
+      <div class="quota-setting-row" data-api="${apiNameAttr}">
         <div class="quota-setting-info">
           <label class="toggle-switch">
-            <input type="checkbox" class="quota-enable" data-api="${apiName}" ${limit.enabled ? 'checked' : ''}>
+            <input type="checkbox" class="quota-enable" data-api="${apiNameAttr}" ${limit.enabled ? 'checked' : ''}>
             <span class="toggle-slider"></span>
           </label>
           <span class="quota-api-name">${escapeAttr(displayName)}</span>
           ${freeQuota ? `<span class="quota-free-hint">${escapeAttr(freeQuota)}</span>` : ''}
         </div>
         <div class="quota-setting-controls">
-          <input type="number" class="quota-limit-input" data-api="${apiName}" value="${limit.limit || 0}" min="0" placeholder="0">
-          <select class="quota-unit-select" data-api="${apiName}">
+          <input type="number" class="quota-limit-input" data-api="${apiNameAttr}" value="${limit.limit || 0}" min="0" placeholder="0">
+          <select class="quota-unit-select" data-api="${apiNameAttr}">
             <option value="chars" ${limit.unit === 'chars' ? 'selected' : ''}>字符</option>
             <option value="tokens" ${limit.unit === 'tokens' ? 'selected' : ''}>Token</option>
           </select>
-          <select class="quota-reset-select" data-api="${apiName}">
+          <select class="quota-reset-select" data-api="${apiNameAttr}">
             <option value="monthly" ${limit.resetType !== 'daily' ? 'selected' : ''}>每月</option>
             <option value="daily" ${limit.resetType === 'daily' ? 'selected' : ''}>每日</option>
           </select>
@@ -1988,7 +1990,12 @@ function isValidEndpointUrl(url) {
   if (!url || typeof url !== 'string') return false;
   try {
     const u = new URL(url);
-    return u.protocol === 'https:' || u.protocol === 'http:';
+    // v1.1.0 security: 强制 HTTPS 防止 API 密钥明文传输
+    // 允许 localhost/127.0.0.1 使用 HTTP（仅开发调试场景）
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
+      return u.protocol === 'https:' || u.protocol === 'http:';
+    }
+    return u.protocol === 'https:';
   } catch {
     return false;
   }
@@ -1996,7 +2003,7 @@ function isValidEndpointUrl(url) {
 
 function validateEndpointInput(input, currentValue) {
   if (input.value && !isValidEndpointUrl(input.value)) {
-    alert('Endpoint 格式无效，应以 http:// 或 https:// 开头，例如 https://api.openai.com');
+    alert('Endpoint 格式无效：必须使用 HTTPS（例如 https://api.openai.com）。仅 localhost/127.0.0.1 允许 HTTP（开发调试）。');
     input.value = currentValue || '';
     return false;
   }

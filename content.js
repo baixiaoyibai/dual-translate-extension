@@ -19,6 +19,8 @@ let globalCleanupHandlers = [];
 // v1.0.7 perf: HOVER 模式事件委托，替代每段独立 mouseenter/mouseleave
 let hoverDelegationRegistered = false;
 let hoverTranslations = new Map();
+// v1.1.0 perf: 跟踪当前 hover 元素数量，供全局 click 处理器短路判断，避免每次点击都 querySelectorAll
+let _activeHoverCount = 0;
 let loadingElement = null;
 let panelInstance = null;
 
@@ -497,6 +499,8 @@ function cleanupAllInjections() {
     panelRenderedSegIds.clear();
     document.querySelectorAll('[data-dt-hover-id]').forEach(el=>{el.removeAttribute('data-dt-hover-id');});
     document.querySelectorAll('.dual-translate-hover,.dual-translate-panel,.dual-translate-translation,.dual-translate-placeholder,.dual-translate-spinner').forEach(el=>el.remove());
+    // v1.1.0 perf: 上述已移除所有 hover 元素，同步清零计数
+    _activeHoverCount=0;
     document.body.style.marginRight='';
     document.body.style.marginBottom='';
     document.body.style.userSelect='';
@@ -532,6 +536,12 @@ function setupMutationObserver() {
               continue;
             }
 
+          } else if (node.nodeType === Node.TEXT_NODE) {
+            // v1.1.0 perf: 跳过我们自己注入元素内部的文本节点，避免 observer 自计数触发重翻译
+            const p = node.parentElement;
+            if (p && typeof p.className === 'string' && p.className.includes('dual-translate-')) {
+              continue;
+            }
           }
           batchAdded++;
         }
@@ -690,6 +700,8 @@ function extractSegments() {
         }});let sn;while((sn=w.nextNode()))processedNodes.add(sn);
       });
     });
+    // v1.1.0 perf: 用 Map<el, Set<text>> 做 O(1) 去重，替代 result.find 线性搜索
+    const nexusTitleSeen = new Map();
     const titleSelectors=['.mod-tile-title a','.tile-name a','.mod-tile-name a','.mod-name a','[class*="tile-name"] a','[class*="tile-title"] a','[class*="mod-name"] a','a.tile-name','a[class*="tile-name"]','.mod-title-text','[data-testid="mod-tile-title"]','.tile-name','.mod-tile-title','.mod-title-text'];
     for(const sel of titleSelectors){
       try{document.querySelectorAll(sel).forEach(el=>{
@@ -704,7 +716,13 @@ function extractSegments() {
           const tt=dtn.map(n=>n.textContent.trim()).filter(t=>t.length>=mTL&&!cachedSkip(t)&&!/^\s*$/.test(t)&&!/^[\d\s.,!?;:'"()\[\]{}<>/\\|]+$/.test(t)).join(' ');
           if(tt.length>=mTL&&!cachedSkip(tt)){
             dtn.forEach(n=>processedNodes.add(n));
-            if(!result.find(r=>r.text===tt&&r.blockParent===el))result.push({id:'seg_'+result.length,text:tt,node:dtn[0]||el,blockParent:el});
+            // v1.1.0 perf: O(1) 去重替代 result.find 线性搜索
+            let seenForEl=nexusTitleSeen.get(el);
+            if(!seenForEl){seenForEl=new Set();nexusTitleSeen.set(el,seenForEl);}
+            if(!seenForEl.has(tt)){
+              seenForEl.add(tt);
+              result.push({id:'seg_'+result.length,text:tt,node:dtn[0]||el,blockParent:el});
+            }
           }
         }
       })}catch{}
@@ -834,27 +852,40 @@ async function translatePageMeta() {
 }
 
 function placePendingSpans() {
+  // v1.1.0 perf: 按父节点分组，用 DocumentFragment 批量插入，避免每段 append 触发一次 reflow
+  if (currentMode !== BILINGUAL && currentMode !== TRANSLATION_ONLY) return;
+  const buckets = new Map(); // parent -> [{ span, ref }]
   for (const seg of segments) {
-    if (currentMode !== BILINGUAL && currentMode !== TRANSLATION_ONLY) continue;
     const segId = seg.id;
+    let parent, ref;
     if (seg.blockParent) {
-      if (seg.blockParent.querySelector('[data-dt-seg="'+segId+'"]')) continue;
-      const span = document.createElement('span');
-      span.className = 'dual-translate-placeholder';
-      span.dataset.dtSeg = segId;
-      span.innerHTML = '<span class="dual-translate-spinner"></span><span class="dual-translate-loader-text">正在翻译...</span>';
-      seg.blockParent.appendChild(span);
+      parent = seg.blockParent;
+      if (parent.querySelector('[data-dt-seg="'+segId+'"]')) continue;
+      ref = null; // append to end
     } else {
-      const parent = seg.node.parentElement;
+      parent = seg.node.parentElement;
       if (!parent) continue;
       if (parent.querySelector('[data-dt-seg="'+segId+'"]')) continue;
-      const span = document.createElement('span');
-      span.className = 'dual-translate-placeholder';
-      span.dataset.dtSeg = segId;
-      span.innerHTML = '<span class="dual-translate-spinner"></span><span class="dual-translate-loader-text">正在翻译...</span>';
-      const next = seg.node.nextSibling;
-      if (next) { parent.insertBefore(span, next); } else { parent.appendChild(span); }
+      ref = seg.node.nextSibling; // null -> append
     }
+    const span = document.createElement('span');
+    span.className = 'dual-translate-placeholder';
+    span.dataset.dtSeg = segId;
+    span.innerHTML = '<span class="dual-translate-spinner"></span><span class="dual-translate-loader-text">正在翻译...</span>';
+    let arr = buckets.get(parent);
+    if (!arr) { arr = []; buckets.set(parent, arr); }
+    arr.push({ span, ref });
+  }
+  for (const [parent, arr] of buckets) {
+    const frag = document.createDocumentFragment();
+    const insertList = [];
+    for (const item of arr) {
+      if (item.ref) insertList.push(item);
+      else frag.appendChild(item.span);
+    }
+    if (frag.hasChildNodes()) parent.appendChild(frag);
+    // 有明确参考节点的逐个 insertBefore（参考节点为文本节点，互不影响，安全）
+    for (const item of insertList) parent.insertBefore(item.span, item.ref);
   }
 }
 
@@ -911,13 +942,12 @@ function teardownLazyObserver() {
   lazyPendingSegs.clear();
 }
 
-function isSegInViewport(seg) {
+// v1.1.0 perf: 视口尺寸由调用方传入，避免在 filter 回调内对每段重复读取 window.innerHeight/innerWidth
+function isSegInViewport(seg, vh, vw) {
   try {
     const anchor = seg.blockParent || (seg.node && seg.node.parentElement);
     if (!anchor || !anchor.getBoundingClientRect) return false;
     const r = anchor.getBoundingClientRect();
-    const vh = window.innerHeight || document.documentElement.clientHeight;
-    const vw = window.innerWidth || document.documentElement.clientWidth;
     return r.bottom > -200 && r.top < vh + 200 && r.right > -200 && r.left < vw + 200;
   } catch (e) { return false; }
 }
@@ -925,8 +955,11 @@ function isSegInViewport(seg) {
 async function translateSegmentsLazy(segs, signal) {
   if (segs.length === 0) return;
   teardownLazyObserver();
+  // v1.1.0 perf: 缓存视口尺寸一次，传入 filter 回调避免每段重复读取
+  const _vh = window.innerHeight || document.documentElement.clientHeight;
+  const _vw = window.innerWidth || document.documentElement.clientWidth;
   // v1.0.6 perf: 用 Set 替代 includes，O(1) 查找替代 O(n)
-  const initialSegSet = new Set(segs.filter(isSegInViewport));
+  const initialSegSet = new Set(segs.filter(s => isSegInViewport(s, _vh, _vw)));
   const initialSegs = [...initialSegSet];
   for (const seg of segs) {
     if (!initialSegSet.has(seg)) lazyPendingSegs.set(seg.id, seg);
@@ -1046,7 +1079,8 @@ async function translateSegments(segs, signal) {
         const errMsg=(resp&&resp.error)?resp.error:'翻译失败';
         if(errMsg.includes('所有翻译服务')||errMsg.includes('NO_API')||errMsg.includes('暂时不可用')||errMsg.includes('AUTH_ERROR')||errMsg.includes('QUOTA_EXCEEDED')){
           showErrorBanner(errMsg);
-          for(let k=0;k<segs.length;k++){if(!translationCache.has(segs[k].id))translationCache.set(segs[k].id,'');}
+          // v1.1.0 fix: 仅标记当前批次失败，避免误清空其它批次未翻译段
+          for(let k=0;k<batch.length;k++){if(!translationCache.has(batch[k].id))translationCache.set(batch[k].id,'');}
           break;
         }
         for(let j=0;j<uncachedIds.length;j++){
@@ -1083,8 +1117,21 @@ function updateHover(segSubset) {
   if(!hoverDelegationRegistered){
     hoverDelegationRegistered=true;
     let ht=null;
-    const onOver=(e)=>{
-      const target=e.target.closest('[data-dt-hover-id]');
+    // v1.1.0 perf: rAF 节流，避免每次 mouseover/mouseout 都调用 closest()
+    let hoverRaf=0,lastHoverEv=null,lastHoverType=null;
+    const processHover=()=>{
+      hoverRaf=0;
+      const ev=lastHoverEv;if(!ev)return;
+      if(lastHoverType==='out'){
+        const target=ev.target.closest&&ev.target.closest('[data-dt-hover-id]');
+        if(!target)return;
+        // 检查是否移出 target（mouseout 会在子元素间触发，需判断 relatedTarget）
+        const rt=ev.relatedTarget;
+        if(rt&&target.contains(rt))return;
+        clearTimeout(ht);
+        return;
+      }
+      const target=ev.target.closest&&ev.target.closest('[data-dt-hover-id]');
       if(!target)return;
       clearTimeout(ht);
       ht=setTimeout(()=>{
@@ -1092,21 +1139,16 @@ function updateHover(segSubset) {
         const tr=hoverTranslations.get(sid);
         if(!tr)return;
         const ex=document.querySelector('.dual-translate-hover:not(.pinned)');
-        if(ex)ex.remove();
-        showHover(e,tr,sid);
+        if(ex){ex.remove();_activeHoverCount--;if(_activeHoverCount<0)_activeHoverCount=0;}
+        showHover(ev,tr,sid);
       },hoverDelay);
     };
-    const onOut=(e)=>{
-      const target=e.target.closest('[data-dt-hover-id]');
-      if(!target)return;
-      // 检查是否移出 target（mouseout 会在子元素间触发，需判断 relatedTarget）
-      const rt=e.relatedTarget;
-      if(rt&&target.contains(rt))return;
-      clearTimeout(ht);
-    };
+    const onOver=(e)=>{lastHoverEv=e;lastHoverType='over';if(!hoverRaf)hoverRaf=requestAnimationFrame(processHover);};
+    const onOut=(e)=>{lastHoverEv=e;lastHoverType='out';if(!hoverRaf)hoverRaf=requestAnimationFrame(processHover);};
     document.addEventListener('mouseover',onOver);
     document.addEventListener('mouseout',onOut);
     hoverCleanupHandlers.push(()=>{
+      if(hoverRaf){cancelAnimationFrame(hoverRaf);hoverRaf=0;}
       document.removeEventListener('mouseover',onOver);
       document.removeEventListener('mouseout',onOut);
     });
@@ -1124,9 +1166,14 @@ function updateHover(segSubset) {
   if(!hoverClickRegistered){
     const ch=e=>{
       if(e.target.classList.contains('dual-translate-hover')){
-        if(e.target.classList.contains('pinned')){e.target.classList.remove('pinned');e.target.remove();}
-        else{e.target.classList.add('pinned');const pv=document.querySelector('.dual-translate-hover.pinned:not([data-segment-id="'+e.target.dataset.segmentId+'"])');if(pv)pv.remove();}
-      }else if(!e.target.closest('.dual-translate-hover')){document.querySelectorAll('.dual-translate-hover:not(.pinned)').forEach(h=>h.remove());}
+        if(e.target.classList.contains('pinned')){e.target.classList.remove('pinned');e.target.remove();_activeHoverCount--;if(_activeHoverCount<0)_activeHoverCount=0;}
+        else{e.target.classList.add('pinned');const pv=document.querySelector('.dual-translate-hover.pinned:not([data-segment-id="'+e.target.dataset.segmentId+'"])');if(pv){pv.remove();_activeHoverCount--;if(_activeHoverCount<0)_activeHoverCount=0;}}
+      }else if(_activeHoverCount>0&&!e.target.closest('.dual-translate-hover')){
+        // v1.1.0 perf: 仅当存在 hover 元素时才查询并清理未固定的 hover，避免每次点击都 querySelectorAll
+        const unpinned=document.querySelectorAll('.dual-translate-hover:not(.pinned)');
+        unpinned.forEach(h=>h.remove());
+        _activeHoverCount-=unpinned.length;if(_activeHoverCount<0)_activeHoverCount=0;
+      }
     };
     document.addEventListener('click',ch);
     globalCleanupHandlers.push(()=>document.removeEventListener('click',ch));
@@ -1137,6 +1184,8 @@ function showHover(e,tr,sid){
   const h=document.createElement('div');h.className='dual-translate-hover';h.textContent=tr;h.dataset.segmentId=sid;
   h.style.cssText='position:fixed;background:var(--dt-bg-primary);color:var(--dt-text-primary);padding:10px 14px;border-radius:6px;font-size:14px;z-index:2147483647;max-width:450px;box-shadow:0 4px 16px var(--dt-shadow);border:1px solid var(--dt-border-primary);cursor:pointer;line-height:1.6;';
   document.body.appendChild(h);positionAt(h,e.clientX+14,e.clientY+14);
+  // v1.1.0 perf: 新增一个 hover 元素，计数 +1
+  _activeHoverCount++;
 }
 
 function updatePanel(segSubset) {
@@ -1157,10 +1206,11 @@ function updatePanel(segSubset) {
     hd.querySelector('.panel-toggle-btn').addEventListener('click',()=>{collapsed=!collapsed;panel.style.transform=collapsed?(pos==='right'?'translateX(calc(100% - 30px))':'translateY(calc(100% - 30px))'):'translate(0)';hd.querySelector('.panel-toggle-btn').textContent=collapsed?'▶':'◀';});
     hd.querySelector('.panel-close-btn').addEventListener('click',()=>{panel.remove();panelInstance=null;panelRenderedSegIds.clear();document.body.style.marginRight='';document.body.style.marginBottom='';if(panelCleanup){try{panelCleanup()}catch{}const idx=globalCleanupHandlers.indexOf(panelCleanup);if(idx>=0)globalCleanupHandlers.splice(idx,1);panelCleanup=null;}});
     let isDragging=false,sX,sY,sW,sH;
-    const mdh=e=>{if(e.target.tagName==='BUTTON')return;isDragging=true;sX=e.clientX;sY=e.clientY;const r=panel.getBoundingClientRect();sW=r.width;sH=r.height;document.body.style.userSelect='none';};
+    // v1.1.0 perf: mousemove/mouseup 仅在拖拽期间注册，拖拽结束即移除，避免常驻 document 监听
     const mmh=e=>{if(!isDragging)return;if(pos==='right')panel.style.width=Math.max(200,Math.min(800,sW-(e.clientX-sX)))+'px';else panel.style.height=Math.max(150,Math.min(600,sH-(e.clientY-sY)))+'px';};
-    const muh=()=>{isDragging=false;document.body.style.userSelect='';};
-    hd.addEventListener('mousedown',mdh);document.addEventListener('mousemove',mmh);document.addEventListener('mouseup',muh);
+    const muh=()=>{isDragging=false;document.body.style.userSelect='';document.removeEventListener('mousemove',mmh);document.removeEventListener('mouseup',muh);};
+    const mdh=e=>{if(e.target.tagName==='BUTTON')return;isDragging=true;sX=e.clientX;sY=e.clientY;const r=panel.getBoundingClientRect();sW=r.width;sH=r.height;document.body.style.userSelect='none';document.addEventListener('mousemove',mmh);document.addEventListener('mouseup',muh);};
+    hd.addEventListener('mousedown',mdh);
     let panelCleanup=()=>{hd.removeEventListener('mousedown',mdh);document.removeEventListener('mousemove',mmh);document.removeEventListener('mouseup',muh);};
     globalCleanupHandlers.push(panelCleanup);
     panel.appendChild(hd);panel.appendChild(ct);document.body.appendChild(panel);panelInstance=panel;
@@ -1169,6 +1219,8 @@ function updatePanel(segSubset) {
 
   // 追加新行（跳过已渲染的）
   const ct=panelInstance.querySelector('.dual-translate-panel-content');
+  // v1.1.0 perf: 用 DocumentFragment 收集所有新行一次性插入，避免逐行 append 触发 reflow
+  const frag=document.createDocumentFragment();
   for(const seg of segSubset){
     if(panelRenderedSegIds.has(seg.id))continue;
     const tr=translationCache.get(seg.id);if(!tr)continue;
@@ -1176,12 +1228,16 @@ function updatePanel(segSubset) {
     const row=document.createElement('div');row.style.cssText=`display:flex;gap:14px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--dt-border-light);cursor:pointer;`;
     row.innerHTML=`<div style="flex:1;font-size:13px;color:var(--dt-text-primary);min-width:0;line-height:1.6">${escapeContent(seg.text)}</div><div style="flex:1;font-size:13px;color:${color};min-width:0;line-height:1.6">${escapeContent(tr)}</div>`;
     row.addEventListener('click',()=>{if(seg.node&&seg.node.parentElement){seg.node.parentElement.scrollIntoView({behavior:'smooth',block:'center'});seg.node.parentElement.style.transition='background 0.3s';seg.node.parentElement.style.background='var(--dt-bg-highlight)';const pe=seg.node.parentElement;setTimeout(()=>{if(pe)pe.style.background=''},2000);}});
-    ct.appendChild(row);
+    frag.appendChild(row);
   }
+  if(frag.hasChildNodes())ct.appendChild(frag);
 }
 
 function positionAt(el,x,y){const r=el.getBoundingClientRect();let px=x,py=y;if(px+r.width>window.innerWidth)px=x-r.width-12;if(py+r.height>window.innerHeight)py=y-r.height-12;el.style.left=Math.max(0,px)+'px';el.style.top=Math.max(0,py)+'px';}
-function escapeContent(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+// v1.1.0 perf: 单次正则替换替代 5 次链式 replace
+const _DT_ESCAPE_RE=/[&<>"']/g;
+const _DT_ESCAPE_MAP={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
+function escapeContent(s){return String(s==null?'':s).replace(_DT_ESCAPE_RE,ch=>_DT_ESCAPE_MAP[ch]);}
 function toggleTranslation() {
   if (isTranslating) return;
   if (segments.length > 0 || translationCache.size > 0) {
@@ -1260,11 +1316,13 @@ function resetAll() {
   // v1.0.7 perf: 重置 hover 事件委托状态
   hoverDelegationRegistered=false;
   hoverTranslations.clear();
-  // 清理 DOM 上的 data-dt-hover-id 属性
-  document.querySelectorAll('[data-dt-hover-id]').forEach(el=>{el.removeAttribute('data-dt-hover-id');});
+  // v1.1.0 perf: 移除冗余的 [data-dt-hover-id] 查询——cleanupAllInjections 已在上文清理过
 }
 function showSelectionTranslation(original,translation){
-  document.querySelectorAll('.dual-translate-hover:not(.pinned)').forEach(h=>h.remove());
+  const removed=document.querySelectorAll('.dual-translate-hover:not(.pinned)');
+  removed.forEach(h=>h.remove());
+  // v1.1.0 perf: 同步 hover 计数（移除未固定 + 新增固定）
+  _activeHoverCount-=removed.length;if(_activeHoverCount<0)_activeHoverCount=0;
   const sel=window.getSelection();let x=100,y=100;
   if(sel&&sel.rangeCount>0){const r=sel.getRangeAt(0).getBoundingClientRect();x=r.left+r.width/2;y=r.bottom+10;}
   const hover=document.createElement('div');hover.className='dual-translate-hover pinned';
@@ -1272,6 +1330,7 @@ function showSelectionTranslation(original,translation){
   hover.innerHTML=`<div style="color:var(--dt-text-secondary);font-size:12px;margin-bottom:4px">${escapeContent(original)}</div><div>${escapeContent(translation)}</div>`;
   hover.addEventListener('click',()=>hover.remove());
   document.body.appendChild(hover);
+  _activeHoverCount++;
 }
 
 chrome.runtime.onMessage.addListener((m,s,resp)=>{
@@ -1312,17 +1371,23 @@ chrome.runtime.onMessage.addListener((m,s,resp)=>{
 loadSettings();
 
 // SPA 路由变化时清理模块级状态并重新翻译
+// v1.1.0 perf: 300ms 防抖，避免 SPA 快速路由变化时多次 resetAll+startTranslation
+let _spaRouteTimer = null;
 function onSpaRouteChange() {
-  try {
-    resetAll();
-    if (settings && settings.general.translationEnabled !== false && settings.trigger.autoTranslate) {
-      isTranslating = false;
-      const url = location.href;
-      if (url.startsWith('http') && shouldAutoTranslate(new URL(url).hostname)) {
-        setTimeout(() => startTranslation(), settings.trigger.translateDelay || 500);
+  if (_spaRouteTimer) clearTimeout(_spaRouteTimer);
+  _spaRouteTimer = setTimeout(() => {
+    _spaRouteTimer = null;
+    try {
+      resetAll();
+      if (settings && settings.general.translationEnabled !== false && settings.trigger.autoTranslate) {
+        isTranslating = false;
+        const url = location.href;
+        if (url.startsWith('http') && shouldAutoTranslate(new URL(url).hostname)) {
+          setTimeout(() => startTranslation(), settings.trigger.translateDelay || 500);
+        }
       }
-    }
-  } catch (err) { dtError('spa route change error:', err); }
+    } catch (err) { dtError('spa route change error:', err); }
+  }, 300);
 }
 window.addEventListener('popstate', onSpaRouteChange);
 window.addEventListener('hashchange', onSpaRouteChange);

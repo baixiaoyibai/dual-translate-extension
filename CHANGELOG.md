@@ -3,6 +3,20 @@
 > 本文件记录双语翻译助手扩展每个版本的变更。
 > 当前版本请见 [README.md](./README.md)。
 
+## 版本迭代逻辑
+
+> **自 v1.1.0 起生效**，供未来开发者或 AI 大模型在更新维护本项目时遵循。
+
+版本号采用语义化版本三段式：`主版本.中版本.小版本`（如 `1.2.3`）。
+
+| 变更类型 | 版本升级方式 | 示例 |
+|----------|-------------|------|
+| 用户可直观感知的功能性改动，或较大的视觉效果改动 | **升级中版本** | `1.1.0` → `1.2.0` |
+| 漏洞修复、性能优化、代码重构等非用户可直观感知的更新 | **升级小版本** | `1.1.0` → `1.1.1` |
+| 不兼容的架构变更或重大重构（极少） | **升级主版本** | `1.x.x` → `2.0.0` |
+
+详细判定标准见 [README.md — 版本迭代逻辑](./README.md#版本迭代逻辑)。
+
 ## 版本格式说明
 
 - **Added** — 新功能
@@ -10,6 +24,71 @@
 - **Changed** — 行为变更
 - **Removed** — 删除功能/文件
 - **Security** — 安全修复
+- **Performance** — 性能优化
+
+---
+
+## v1.1.0 — 2026-07-30
+
+> 性能优化 + 安全加固：全面降低运行时资源占用，强化 API 密钥防泄漏防御体系，建立版本迭代逻辑规范。
+
+### Performance — 性能优化
+
+**content.js（翻译注入脚本）：**
+- **全局 click 短路守卫**：维护 `_activeHoverCount` 计数器，仅在存在 hover 元素时才执行 `querySelectorAll`，避免每次点击都全文档扫描
+- **视口判断缓存**：`isSegInViewport` 不再在循环内逐段读取 `window.innerHeight/innerWidth`，改为循环外缓存后传参
+- **DocumentFragment 批量插入**：`placePendingSpans` 按父节点分组后用 `DocumentFragment` 一次性插入，将 500+ 段文本的回流次数从 N 次降至 1 次/父节点
+- **mousemove 按需注册**：拖拽面板时 `mousemove`/`mouseup` 仅在 mousedown 时注册、mouseup 时移除，消除 60fps 常驻回调
+- **mouseover/mouseout rAF 节流**：用 `requestAnimationFrame` 合并高频鼠标事件，每帧最多调用一次 `closest()`
+- **updatePanel 批量追加**：panel 行收集到 `DocumentFragment` 后一次性 `appendChild`
+- **escapeContent 单次正则**：5 次链式 `replace` 合并为 1 次正则回调
+- **SPA 路由防抖**：`popstate`/`hashchange` 添加 300ms 防抖，避免连续触发 `resetAll`
+- **MutationObserver 自计数修复**：跳过 `dual-translate-` 元素内的文本节点，避免翻译注入触发重翻译
+- **翻译错误批次作用域修正**：API 错误时仅标记当前批次失败（原误标全部 segments）
+- **NexusMods 去重 O(1)**：标题去重从 `Array.find` 改为 `Map<el, Set<text>>`
+- **移除冗余 DOM 查询**：`resetAll` 中重复的 `[data-dt-hover-id]` 查询删除
+
+**background.js（Service Worker）：**
+- **WRITE_ACTIONS 提升为模块级常量**：避免每条消息重建 `Set`
+- **日志环形缓冲区**：`logBuffer` 从 `Array.push/shift`（O(n)）改为预分配数组 + head 指针覆盖（O(1)）
+- **getSettings 深拷贝优化**：优先使用 `structuredClone()`，回退时仅深拷贝 `api` 段
+- **移除冗余 flush**：翻译前和 testApi 前的 `translationCache.flush()` 移除（翻译后已统一 flush）
+- **移除 resetPin 后多余 reload**：PIN 重置与 API 配置无关，删除 `apiManager.reload()`
+- **getApiStatus Map 查找**：自定义供应商查找从 `Array.find` 改为 `Map.get`
+
+**lib/api-manager.js：**
+- **LLM prompt 缓存**：内置 prompt 首次 fetch 后缓存到 `_llmPromptCached`，后续 reload 不再重复请求
+- **并行额度预检查**：`translate()` 中所有翻译源的额度检查从串行 `await` 改为 `Promise.all` 并行
+- **testApi 单条刷新**：测试成功后仅更新被测 API 的 statusCache 条目，不再全量 `getApiStatus()`
+
+**lib/translation-cache.js：**
+- **lookup 去重归一化复用**：miss 文本 `_norm()` 调用从 2 次降至 1 次
+- **批量淘汰 + 字节预判**：超容量时一次淘汰 1000 条（10%），并新增 8MB 字节上限提前淘汰
+- **flush 最小间隔节流**：`flush()` 新增 2 秒最小间隔，避免高频调用绕过 debounce
+
+**lib/settings-manager.js：**
+- **resetApiQuotaIfNeeded 幂等化**：同一天内多次调用只首次执行存储读写
+- **用量数据内存缓存**：`getDailyUsage`/`getMonthlyUsage` 命中内存缓存，`isApiQuotaReached` 循环内不再逐个读存储
+
+### Security — 安全加固
+
+**background.js：**
+- **写操作白名单补全**：`saveGlossary`、`clearCache`、`clearLogs`、`testApi` 加入 `WRITE_ACTIONS`，content script 无法再直接调用这些写操作
+- **sender 身份强化**：`_isExtensionSender` 增加 `sender.id === chrome.runtime.id` 校验，防御跨扩展伪造
+- **敏感读操作 sender 校验**：`getApiStatus`、`getDailyUsage`、`getMonthlyUsage`、`getLLMPrompt`、`hasPin`、`verifyPin`、`exportAllSettings`、`getLogs`、`getLogConfig` 共 9 个接口增加扩展页面身份验证
+- **翻译输入校验**：`handleTranslateTexts` 校验 `texts` 为字符串数组（上限 500 条、每条上限 10000 字符），校验 `sourceLang` 类型
+
+**lib/settings-manager.js：**
+- **saveGlossary 结构校验**：写入前校验 glossary 为合法对象结构，拦截 `__proto__`/`constructor`/`prototype` 防原型链污染
+
+**options/options.js：**
+- **Endpoint 强制 HTTPS**：`isValidEndpointUrl` 仅允许 `https:` 协议（`localhost`/`127.0.0.1` 保留 HTTP 例外用于开发调试），防止 API 密钥明文传输
+- **renderQuotaLimits XSS 加固**：`data-api` 属性的 `apiName` 统一使用 `escapeAttr()` 转义
+
+### Changed — 行为变更
+
+- **版本迭代逻辑建立**：自 v1.1.0 起建立语义化版本规范，详见 README.md 和 CHANGELOG.md 顶部说明
+- **CHANGELOG 新增 Performance 类别**：用于区分性能优化与其他变更
 
 ---
 
