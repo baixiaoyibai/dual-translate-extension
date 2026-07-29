@@ -3,15 +3,45 @@ let translationEnabled = true;
 let cachedSettings = null;
 let cancelPollTimer = null;
 
+// v1.2.2 fix: chrome.runtime.sendMessage 在 MV3 下可能因 Service Worker
+// 冷启动而瞬时失败（如 "Could not establish connection"）。此包装函数提供
+// 最多 3 次重试、递增间隔（200/400/800ms），提升 popup 与 background 通信可靠性。
+async function sendMessageWithRetry(message, retries = 3) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await chrome.runtime.sendMessage(message);
+    } catch (e) {
+      lastError = e;
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, 200 * Math.pow(2, attempt)));
+      }
+    }
+  }
+  throw lastError;
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
-  await loadState();
+  // v1.2.2 fix: loadState 失败不应导致 popup 完全失灵。
+  // 原先无 try/catch，loadState 抛错会中断后续 setupEventListeners()，
+  // 使所有按钮无响应。现包裹 try/catch，失败时设置默认状态并继续初始化。
+  try {
+    await loadState();
+  } catch (e) {
+    console.warn('[popup] loadState failed:', e);
+    cachedSettings = null;
+    currentMode = 'bilingual';
+    translationEnabled = true;
+    updateToggleButton();
+    updateModeButtons();
+  }
   await Promise.all([loadApiStatus(), loadDailyUsage(), loadCacheInfo()]);
   setupEventListeners();
 });
 
 async function loadState() {
   const [response, [tab]] = await Promise.all([
-    chrome.runtime.sendMessage({ action: 'getSettings' }),
+    sendMessageWithRetry({ action: 'getSettings' }),
     chrome.tabs.query({ active: true, currentWindow: true })
   ]);
   cachedSettings = response?.settings || null;
@@ -115,7 +145,7 @@ async function loadApiStatus() {
   const container = document.getElementById('apiStatus');
   if (!container) return;
   try {
-    const res = await chrome.runtime.sendMessage({ action: 'getApiStatus' });
+    const res = await sendMessageWithRetry({ action: 'getApiStatus' });
     if (!res || res.error) {
       container.innerHTML = '<div class="no-api-warning">请先在设置中配置至少一个翻译 API</div>';
       return;
@@ -170,7 +200,7 @@ function setupEventListeners() {
     const prevState = translationEnabled;
     translationEnabled = !translationEnabled;
     try {
-      await chrome.runtime.sendMessage({ action: 'updateSettings', path: 'general.translationEnabled', value: translationEnabled });
+      await sendMessageWithRetry({ action: 'updateSettings', path: 'general.translationEnabled', value: translationEnabled });
       updateToggleButton();
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab) {
@@ -202,8 +232,8 @@ function setupEventListeners() {
     currentMode = mode;
     updateModeButtons();
     try {
-      await chrome.runtime.sendMessage({ action: 'updateSettings', path: 'general.lastMode', value: mode });
-      await chrome.runtime.sendMessage({ action: 'updateSettings', path: 'display.defaultMode', value: mode });
+      await sendMessageWithRetry({ action: 'updateSettings', path: 'general.lastMode', value: mode });
+      await sendMessageWithRetry({ action: 'updateSettings', path: 'display.defaultMode', value: mode });
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab) {
         try {
@@ -211,16 +241,16 @@ function setupEventListeners() {
         } catch (e) {
           currentMode = prevMode;
           updateModeButtons();
-          chrome.runtime.sendMessage({ action: 'updateSettings', path: 'general.lastMode', value: prevMode });
-          chrome.runtime.sendMessage({ action: 'updateSettings', path: 'display.defaultMode', value: prevMode });
+          sendMessageWithRetry({ action: 'updateSettings', path: 'general.lastMode', value: prevMode }).catch(() => {});
+          sendMessageWithRetry({ action: 'updateSettings', path: 'display.defaultMode', value: prevMode }).catch(() => {});
           alert('切换显示模式失败，请在普通网页上重试');
         }
       }
     } catch (e) {
       currentMode = prevMode;
       updateModeButtons();
-      chrome.runtime.sendMessage({ action: 'updateSettings', path: 'general.lastMode', value: prevMode });
-      chrome.runtime.sendMessage({ action: 'updateSettings', path: 'display.defaultMode', value: prevMode });
+      sendMessageWithRetry({ action: 'updateSettings', path: 'general.lastMode', value: prevMode }).catch(() => {});
+      sendMessageWithRetry({ action: 'updateSettings', path: 'display.defaultMode', value: prevMode }).catch(() => {});
     }
   });
 
@@ -236,7 +266,7 @@ function setupEventListeners() {
       clearTimeout(sourceLangDebounceTimer);
       sourceLangDebounceTimer = setTimeout(async () => {
         try {
-          await chrome.runtime.sendMessage({
+          await sendMessageWithRetry({
             action: 'updateSettings',
             path: 'api.sourceLanguage',
             value: newLang
@@ -304,7 +334,7 @@ async function loadCacheInfo() {
   const el = document.getElementById('cacheInfo');
   if (!el) return;
   try {
-    const stats = await chrome.runtime.sendMessage({ action: 'getCacheStats' });
+    const stats = await sendMessageWithRetry({ action: 'getCacheStats' });
     if (stats && stats.total !== undefined) {
       el.textContent = `已缓存 ${stats.active} 条译文（${stats.sizeKB} KB）`;
     } else {
@@ -319,7 +349,7 @@ async function loadDailyUsage() {
   const container = document.getElementById('apiUsage');
   if (!container) return;
   try {
-    const usage = await chrome.runtime.sendMessage({ action: 'getDailyUsage' });
+    const usage = await sendMessageWithRetry({ action: 'getDailyUsage' });
     if (!usage) {
       container.innerHTML = '<div class="status-loading">暂无数据</div>';
       return;

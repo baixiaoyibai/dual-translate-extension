@@ -28,6 +28,95 @@
 
 ---
 
+## v1.2.2 — 2026-07-30
+
+> Bug 修复：修复 v1.1.0 性能优化引入的回归缺陷、设置页逻辑错误及安全加固，经 3 轮子代理审查验证。
+
+### Fixed — Bug 修复
+
+**content.js / popup.js（翻译注入与弹出面板）：**
+- **_activeHoverCount 计数泄漏**：`showSelectionTranslation` 中点击关闭 hover 时未递减计数器，导致 click 短路守卫失效，每次点击都执行 `querySelectorAll`（完全抵消性能优化）
+- **hover 延迟定时器未清理**：`hoverCleanupHandlers` 中未 `clearTimeout(ht)`，cleanup 后定时器可能触发 `showHover` 创建悬空元素
+- **mousemove 拖拽缺兜底**：鼠标移出浏览器窗口时 `mouseup` 不触发，拖拽状态残留；新增 `window.blur` 兜底清理
+- **cancelTranslation 导致 isTranslating 卡死**：取消翻译后 `currentAbortController` 被立即置 null，导致 `startTranslation` 的 finally 块守卫永远为 false，`isTranslating` 无法归零，popup 取消按钮永不消失
+- **popup loadState 无容错**：SW 冷启动时 `loadState()` 抛错会导致 `setupEventListeners()` 不执行，所有按钮失灵；添加 try/catch 和默认状态恢复
+- **popup 无 SW 冷启动重试**：所有 `chrome.runtime.sendMessage` 调用新增 3 次递增间隔重试包装
+
+**background.js / lib/（Service Worker 与核心库）：**
+- **getSettings 发送者校验不严**：仅校验 URL 前缀而非扩展 ID，其他扩展可伪造获取含密钥的完整 settings；改用 `_isExtensionSender` 双重校验
+- **handleClearApi 密钥清除无效**：深拷贝修复与 `saveSettings` 内存覆盖保护冲突，清除唯一密钥时密钥被恢复；将密钥删除移至 saveSettings 后执行
+- **handleClearApi 未清除月度用量**：仅清除日度用量，月度用量残留导致重新添加 API 后误判额度已达上限
+- **handleClearApi 未清理 enabledApis**：清除自定义供应商时 enabledApis 残留孤立条目
+- **handleClearApi 直接修改内存对象**：先改内存后持久化，失败时内存与存储不一致；改为深拷贝副本
+- **contextMenus.onClicked 未校验 tab**：无 tab 上下文时 `tab.id` 抛 TypeError
+- **onUpdated/onInstalled init() 未捕获错误**：init 失败后后续代码访问 null settings 抛异常；添加 try/catch + return/守卫
+- **_llmPromptCached 永久缓存空字符串**：fetch 失败后空字符串被永久缓存不再重试；改为真值检查
+- **并行额度预检查缺异常隔离**：单个 `isApiQuotaReached` 抛异常中断整个翻译；改为 try/catch 隔离
+- **testApi/translate 成功未重置 consecutiveErrors**：历史错误计数残留导致下次失败时 API 立即不可用
+- **testApi/translate 成功未清除旧 reason**：状态变为 available 后旧错误描述残留，UI 显示矛盾
+- **translate() 成功路径跳过 reason 清除**：status 已为 available 时跳过 saveApiStatus，残留 reason 不被清除
+- **月度配额重置未清零 consecutiveErrors**：仅日度重置清零，月度重置遗漏，导致月度重置后 API 仍可能被误判不可用
+- **flush 未强制落盘**：翻译完成后 `flush()` 未传 `force=true`，2 秒内第二次调用被节流跳过
+- **content.js updateSettings 被拦截**：WRITE_ACTIONS 一刀切拦截导致 content script 无法持久化翻译开关/模式；新增 path 白名单
+- **translatePageMeta 超过 500 条上限**：图片密集页面 alt 翻译项超限导致静默失败；改为每批 200 条分批
+
+**options/（设置页）：**
+- **PIN 失败计数前后端不同步**：前端 3 次/30 秒 vs 后端 5 次/60 秒，且前端忽略后端错误消息；删除前端独立计数，完全依赖后端
+- **设置完整性验证字段名错误**：`s.display.mode` 应为 `defaultMode`，`whitelist`/`blacklist` 应为 `excludeList`，导致每次诊断都报虚假错误
+- **设置概览字段名错误**：同上字段名问题，翻译模式始终显示"未设置"，排除列表数量始终为 0
+- **月度用量进度条不可见**：使用未定义的 CSS 变量 `--primary-color`，正常状态进度条透明；改为 `--accent`
+- **诊断用量表格背景色失效**：使用未定义的 CSS 变量 `--bg-secondary`；改为 `--bg-hover`
+- **saveGlossary 多处未捕获异常**：7 处 fire-and-forget 调用无错误处理，保存失败时用户看到虚假成功提示；添加 `.catch()`
+- **clearApi 按钮缺少防重复点击**：异步操作期间按钮仍可点击；添加 disabled/finally
+- **.add-provider-btn 水平溢出**：`width:100%` + `margin:0 20px` 导致按钮超出父容器 40px；改为 `calc(100% - 40px)`
+- **ESC 监听器内存泄漏**：通过按钮关闭欢迎页时 ESC 监听器未移除；提取为命名函数统一清理
+- **handleUnlockClick 无错误处理**：SW 冷启动时 hasPin 查询失败产生未捕获 rejection
+- **reloadApis / saveAllSettings 多处无 .catch()**：22 处 fire-and-forget 调用缺少错误捕获
+
+---
+
+## v1.2.1 — 2026-07-30
+
+> UI 布局修复：修复设置页排版对齐与响应式布局问题。
+
+### Fixed — Bug 修复
+
+- **超宽屏内容区宽度**：>1800px 屏幕下内容区最大宽度扩展至 1400px，提升空间利用率
+- **API 卡片头部防挤压**：`api-card-header` 添加 `flex-wrap`，中等宽度下元素不再挤压
+- **API 用量计数宽度**：`api-usage-count` 宽度从 100px 扩展至 150px，避免月度用量文本溢出
+- **设置行防溢出**：`setting-row` 添加 `flex-wrap`，窄屏下控件自动换行不溢出
+- **输入框最大宽度**：所有 `input`/`select` 添加 `max-width:100%` 防止溢出容器
+- **文本断字修复**：`word-break:break-all` 改为 `overflow-wrap:break-word`，英文/URL 不再任意断字
+- **术语表最小宽度**：`glossary-table` 设 `min-width:640px` 配合横向滚动，避免列宽挤压
+- **诊断链路箭头防换行**：`diag-chain-arrow` 添加 `flex-shrink:0` 防止换行悬挂
+- **API 名称溢出省略**：`api-usage-name`/`api-priority-name` 添加 `text-overflow:ellipsis`
+- **API 字段标签宽度**：`api-field-label` 宽度从 90px 增至 100px 容纳长标签
+- **装饰渐变定位修复**：修复装饰渐变 `position:absolute` 跟随内容滚动的问题
+- **Prompt 编辑器宽度**：修复 `calc` 问题改为 `width:auto`
+- **响应式断点**：添加 <900px 侧边栏收缩为图标栏、<600px 内边距缩小
+- **HiDPI/Retina 屏边框**：0.5px 边框更锐利
+- **欢迎页特性网格**：`welcome-overlay-features` 在 <560px 时改为单列
+- **诊断日志信息对齐**：`diag-log-info` 改为 `flex:1 text-align:right` 避免 `flex-wrap` 错位
+- **添加供应商按钮宽度**：使用 `box-sizing` 确保不溢出
+
+---
+
+## v1.2.0 — 2026-07-30
+
+> UI 风格重构：所有页面重构为 Claude Code 风格深色主题。
+
+### Changed — 行为变更
+
+- **深色主题**：全站切换为深色主题（`#1c1c1c`/`#262626`/`#171717`），配 Anthropic 橙色强调色（`#F97316`）
+- **Popup 弹窗页**：2×2 模式选择网格、橙色状态圆点、橙色进度条
+- **Options 设置页**：深色侧边栏、橙色激活态、卡片式布局、全深色表单控件
+- **Welcome 欢迎页**：深色背景、橙色按钮和装饰、feature 卡片网格
+- **Content 注入样式**：橙色加载动画、橙色悬停高亮、适配暗色模式
+- **UI 交互转场特效**：按钮按压、开关切换、输入框 focus、卡片悬停等交互特效
+- **译文显示策略**：译文出现/取消无动画，仅加载状态保留美化动画
+
+---
+
 ## v1.1.0 — 2026-07-30
 
 > 性能优化 + 安全加固：全面降低运行时资源占用，强化 API 密钥防泄漏防御体系，建立版本迭代逻辑规范。

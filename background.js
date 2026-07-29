@@ -5,6 +5,8 @@ import { translationCache } from './lib/translation-cache.js';
 // v1.0.7: storage key 常量（与 settings-manager.js 保持一致）
 const LOCAL_API_KEYS_KEY = 'dual_translate_api_keys_local';
 const DAILY_USAGE_KEY = 'dual_translate_daily_usage';
+// v1.2.2 fix: BUG-5 新增月度用量存储键常量，handleClearApi 需同步清除月度用量
+const MONTHLY_USAGE_KEY = 'dual_translate_monthly_usage';
 
 // v1.0.19: 运行时日志缓冲区（环形队列，最多 500 条）
 // 供设置页诊断工具中的日志查看器使用
@@ -108,7 +110,8 @@ function setupContextMenu() {
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   await init();
-  if (info.menuItemId === 'translate-selection' && info.selectionText) {
+  // v1.2.2 fix: BUG-7 校验 tab 是否存在及其 id，避免无 tab 上下文（如后台触发）时 sendMessage 抛异常
+  if (info.menuItemId === 'translate-selection' && info.selectionText && tab?.id) {
     try {
       if (!apiManager.translators || apiManager.translators.size === 0) {
         await apiManager.reload();
@@ -166,8 +169,20 @@ async function handleMessage(message, sender) {
   await init();
 
   // 安全修复：写操作仅允许扩展自身页面调用，content script 调用时拒绝
-  if (WRITE_ACTIONS.has(message.action) && !_isExtensionSender(sender)) {
+  // v1.1.0 fix: updateSettings 不再一刀切拦截，改由下方专门白名单放行非敏感字段
+  if (WRITE_ACTIONS.has(message.action) && message.action !== 'updateSettings' && !_isExtensionSender(sender)) {
     return { error: 'Permission denied' };
+  }
+
+  // v1.1.0 fix: 允许 content script 持久化非敏感设置（翻译开关/模式切换）
+  // 敏感设置（API 密钥/端点/PIN 等）仍仅限扩展页面修改
+  if (message.action === 'updateSettings' && !_isExtensionSender(sender)) {
+    const allowedPaths = ['general.translationEnabled', 'general.lastMode', 'display.defaultMode'];
+    if (message.path && allowedPaths.includes(message.path)) {
+      // 放行，继续执行 updateSettings
+    } else {
+      return { error: 'Permission denied: content script can only update non-sensitive settings' };
+    }
   }
 
   switch (message.action) {
@@ -181,10 +196,11 @@ async function handleMessage(message, sender) {
       //       导致设置页 API 卡片密钥为空，但 popup（走 apiManager）仍正常
       await settingsManager.reloadApiKeys();
       // 安全修复：区分 sender 来源，避免向 content script 暴露 apiKeys
-      // 扩展自身页面（popup/options，sender.url 以 chrome-extension:// 开头）返回完整 settings（含 apiKeys）
+      // 扩展自身页面（popup/options）返回完整 settings（含 apiKeys）
       // content script（sender.tab 存在，sender.url 为网页地址）返回不含 apiKeys 的精简 settings
-      const senderUrl = sender && typeof sender.url === 'string' ? sender.url : '';
-      const isExtensionPage = senderUrl.startsWith('chrome-extension://');
+      // v1.2.2 fix: BUG-1 改用 _isExtensionSender 双重校验（URL 前缀 + 扩展 ID），
+      //             与其他敏感读操作保持一致，防止跨扩展伪造 sender.url 绕过校验
+      const isExtensionPage = _isExtensionSender(sender);
       if (isExtensionPage) {
         return { settings: settingsManager.settings };
       }
@@ -463,7 +479,8 @@ async function handleMessage(message, sender) {
 async function handleClearApi(apiName) {
   if (!apiName) return { success: false, error: '缺少 apiName' };
   try {
-    const settings = settingsManager.settings;
+    // v1.2.2 fix: BUG-4 深拷贝 settings，避免直接引用导致 saveSettings 失败时内存对象被修改、与存储不一致
+    const settings = JSON.parse(JSON.stringify(settingsManager.settings));
 
     // 1. 自定义供应商：从 customProviders 和 apiPriority 中彻底删除
     if (apiName.startsWith('custom_')) {
@@ -472,6 +489,10 @@ async function handleClearApi(apiName) {
         settings.api.customProviders = settings.api.customProviders.filter(p => p.id !== providerId);
       }
       settings.api.apiPriority = settings.api.apiPriority.filter(n => n !== apiName);
+      // v1.2.2 fix: BUG-6 清除自定义供应商时同步从 enabledApis 中删除条目，避免残留导致状态不一致
+      if (settings.api.enabledApis) {
+        delete settings.api.enabledApis[apiName];
+      }
     } else {
       // 2. 常规 API：清除密钥、模型、接入点
       if (settings.api.apiKeys && settings.api.apiKeys[apiName]) {
@@ -489,14 +510,6 @@ async function handleClearApi(apiName) {
       }
     }
 
-    // 3. 清除本地存储中的密钥
-    const stored = await chrome.storage.local.get(LOCAL_API_KEYS_KEY);
-    const localKeys = stored[LOCAL_API_KEYS_KEY] || {};
-    if (localKeys[apiName]) {
-      delete localKeys[apiName];
-      await chrome.storage.local.set({ [LOCAL_API_KEYS_KEY]: localKeys });
-    }
-
     // 4. 清除 API 状态
     await settingsManager.deleteApiStatus(apiName);
 
@@ -507,12 +520,33 @@ async function handleClearApi(apiName) {
       delete usageData[apiName];
       await chrome.storage.local.set({ [DAILY_USAGE_KEY]: usageData });
     }
+    // v1.2.2 fix: BUG-5 同步清除月度用量数据，避免清除 API 后残留历史月度量导致额度统计不准
+    const monthlyUsageStored = await chrome.storage.local.get(MONTHLY_USAGE_KEY);
+    const monthlyUsageData = monthlyUsageStored[MONTHLY_USAGE_KEY] || {};
+    if (monthlyUsageData[apiName]) {
+      delete monthlyUsageData[apiName];
+      await chrome.storage.local.set({ [MONTHLY_USAGE_KEY]: monthlyUsageData });
+    }
     // v1.1.0 fix: 直接写 storage 后必须使内存缓存失效，否则 isApiQuotaReached 仍返回旧用量
     settingsManager._dailyUsageCache = null;
     settingsManager._monthlyUsageCache = null;
 
     // 6. 保存设置（sync + local）
     await settingsManager.saveSettings(settings);
+
+    // v1.2.2 fix: BUG-1 saveSettings 内部的"内存覆盖保护"会在 incoming apiKeys 全空时
+    // 将内存中已有密钥恢复回副本并写回 local storage，导致清除操作无效。
+    // 因此将 local storage 密钥删除移到 saveSettings 之后执行，并清理内存中被恢复的密钥。
+    if (settingsManager.settings?.api?.apiKeys?.[apiName]) {
+      delete settingsManager.settings.api.apiKeys[apiName];
+    }
+    // 清除本地存储中的密钥（必须在 saveSettings 之后执行，避免被内存覆盖保护写回）
+    const stored = await chrome.storage.local.get(LOCAL_API_KEYS_KEY);
+    const localKeys = stored[LOCAL_API_KEYS_KEY] || {};
+    if (localKeys[apiName]) {
+      delete localKeys[apiName];
+      await chrome.storage.local.set({ [LOCAL_API_KEYS_KEY]: localKeys });
+    }
 
     // 7. 重新加载 API 管理器
     await apiManager.reload();
@@ -591,7 +625,8 @@ async function handleTranslateTexts(message, sender) {
       return { index: i, original: text, translation: '' };
     });
 
-    try { await translationCache.flush(); } catch {}
+    // v1.1.0 fix: 翻译完成后强制落盘，确保缓存数据在 SW 休眠前持久化
+    try { await translationCache.flush(true); } catch {}
     return { translations };
   } catch (error) {
     const isExtSender = _isExtensionSender(sender);
@@ -627,7 +662,14 @@ async function updateIcon(tabId, state) {
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.url && tab.url.startsWith('http')) {
-    await init();
+    // v1.2.2 fix: BUG-12 包裹 init() 调用，避免初始化失败导致监听器整体 reject 产生未捕获异常
+    try {
+      await init();
+    } catch (e) {
+      console.warn('[dual-translate] tabs.onUpdated init failed:', e.message);
+      // v1.2.2 fix: BUG-3 init 失败时 settings 为 null，shouldAutoTranslate 会抛 TypeError，跳过本次处理
+      return;
+    }
     if (settingsManager.shouldAutoTranslate(tab.url)) {
       chrome.tabs.sendMessage(tabId, { action: 'checkAndTranslate', url: tab.url }).catch(() => {});
     }
@@ -636,11 +678,25 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === 'install') {
-    await init();
-    await settingsManager.updateSetting('general.hasCompletedWelcome', false);
+    // v1.2.2 fix: BUG-12 包裹 init() 调用，避免初始化失败导致 onInstalled reject 产生未捕获异常
+    try {
+      await init();
+    } catch (e) {
+      console.warn('[dual-translate] runtime.onInstalled init failed:', e.message);
+    }
+    // v1.2.2 fix: BUG-4 init 失败时 settings 为 null，updateSetting 会抛 TypeError；
+    // 仅在 settings 已加载时调用 updateSetting，但欢迎页应无条件打开
+    if (settingsManager.settings) {
+      await settingsManager.updateSetting('general.hasCompletedWelcome', false);
+    }
     chrome.tabs.create({ url: chrome.runtime.getURL('welcome/welcome.html') });
   } else if (details.reason === 'update') {
-    await init();
+    // v1.2.2 fix: BUG-12 包裹 init() 调用，避免初始化失败导致 onInstalled reject 产生未捕获异常
+    try {
+      await init();
+    } catch (e) {
+      console.warn('[dual-translate] runtime.onInstalled init failed:', e.message);
+    }
   }
 });
 

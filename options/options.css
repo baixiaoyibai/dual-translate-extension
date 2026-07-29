@@ -1110,7 +1110,8 @@ textarea {
 }
 
 .add-provider-btn {
-  width: 100%;
+  /* v1.2.2 fix: Bug 8 - width:100% + margin 左右各20px 会导致水平溢出，改为 calc(100% - 40px) */
+  width: calc(100% - 40px);
   margin: 0 20px 20px;
   padding: 12px;
   box-sizing: border-box;

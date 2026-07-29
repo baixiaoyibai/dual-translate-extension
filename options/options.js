@@ -49,8 +49,7 @@ const DEFAULT_API_MODELS = (typeof window !== 'undefined' && window.API_MODELS_D
 
 // === API 密钥安全管理状态 ===
 let apiUnlocked = false;          // 解锁状态（页面级，刷新后重置为 false）
-let pinFailCount = 0;             // PIN 失败计数
-let pinCooldownUntil = 0;         // PIN 冷却结束时间戳
+// v1.2.2 fix: Bug 1 - 移除前端独立失败计数 (pinFailCount/pinCooldownUntil)，完全依赖后端返回的 error 消息
 let pinDialogMode = null;         // 当前 PIN 对话框模式：'verify' | 'setup' | 'reset'
 const INCOMPLETE_WARN_KEY = 'dual_translate_incomplete_warned'; // sessionStorage 键
 
@@ -277,8 +276,17 @@ function setupWelcomeOverlay() {
   const enterBtn = document.getElementById('welcomeEnterBtn');
   const skipLink = document.getElementById('welcomeSkipLink');
 
+  // v1.2.2 fix: Bug 12 - 将 escHandler 提取为命名函数，使 hideOverlay 能在按钮关闭时移除监听器
+  function escHandler(e) {
+    if (e.key === 'Escape' && !overlay.classList.contains('hidden')) {
+      hideOverlay();
+    }
+  }
+
   function hideOverlay() {
     overlay.classList.add('hidden');
+    // 移除 ESC 键监听器，避免通过按钮关闭时遗留
+    document.removeEventListener('keydown', escHandler);
     // 延迟移除 DOM 节点，避免覆盖层残留拦截交互
     setTimeout(() => { overlay.remove(); }, 300);
   }
@@ -294,12 +302,7 @@ function setupWelcomeOverlay() {
   }
 
   // ESC 键也可关闭欢迎页
-  document.addEventListener('keydown', function escHandler(e) {
-    if (e.key === 'Escape' && !overlay.classList.contains('hidden')) {
-      hideOverlay();
-      document.removeEventListener('keydown', escHandler);
-    }
-  });
+  document.addEventListener('keydown', escHandler);
 }
 
 function setupTabSwitching() {
@@ -456,7 +459,8 @@ function bindToggle(elementId, path, value) {
     for (let i = 0; i < keys.length - 1; i++) current = current[keys[i]];
     current[keys[keys.length - 1]] = el.checked;
     if (path === 'trigger.contextMenu') {
-      chrome.runtime.sendMessage({ action: 'reloadApis' });
+      // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
+      chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
     }
     showSavedTip();
   });
@@ -547,7 +551,8 @@ function setupGlossaryManagement() {
   document.getElementById('addGlossaryBtn').addEventListener('click', () => {
     getCurrentEntries().push({ source: '', target: '', matchType: 'exact', preserve: false });
     renderGlossaryTable();
-    saveGlossary();
+    // v1.2.2 fix: Bug 5 - 添加 .catch 防止未处理的 Promise 拒绝
+    saveGlossary().catch(e => console.warn('[glossary] saveGlossary failed:', e));
     const rows = document.querySelectorAll('#glossaryTable tbody tr');
     if (rows.length) {
       const lastRow = rows[rows.length - 1];
@@ -585,7 +590,8 @@ function setupGlossaryManagement() {
       if (!Array.isArray(data)) throw new Error('格式错误');
       glossaryByDomain[currentScope] = data;
       renderGlossaryTable();
-      saveGlossary();
+      // v1.2.2 fix: Bug 5 - 添加 .catch 防止未处理的 Promise 拒绝
+      saveGlossary().catch(e => console.warn('[glossary] saveGlossary failed:', e));
       document.getElementById('importExportArea').style.display = 'none';
       showSavedTip();
     } catch (e) {
@@ -639,7 +645,8 @@ function setupGlossaryManagement() {
     input.value = '';
     populateScopeSelect();
     renderGlossaryTable();
-    saveGlossary();
+    // v1.2.2 fix: Bug 5 - 添加 .catch 防止未处理的 Promise 拒绝
+    saveGlossary().catch(e => console.warn('[glossary] saveGlossary failed:', e));
   });
 
   // v1.0.4: 删除当前 scope（_global 不可删）
@@ -650,7 +657,8 @@ function setupGlossaryManagement() {
     currentScope = '_global';
     populateScopeSelect();
     renderGlossaryTable();
-    saveGlossary();
+    // v1.2.2 fix: Bug 5 - 添加 .catch 防止未处理的 Promise 拒绝
+    saveGlossary().catch(e => console.warn('[glossary] saveGlossary failed:', e));
   });
 
   renderGlossaryTable();
@@ -686,7 +694,8 @@ function renderGlossaryTable() {
       const arr = getCurrentEntries();
       if (!arr[idx]) return;
       arr[idx][field] = input.type === 'checkbox' ? input.checked : input.value;
-      saveGlossary();
+      // v1.2.2 fix: Bug 5 - 添加 .catch 防止未处理的 Promise 拒绝
+      saveGlossary().catch(e => console.warn('[glossary] saveGlossary failed:', e));
     });
   });
 
@@ -696,7 +705,8 @@ function renderGlossaryTable() {
       const arr = getCurrentEntries();
       if (!arr[idx]) return;
       arr[idx].matchType = select.value;
-      saveGlossary();
+      // v1.2.2 fix: Bug 5 - 添加 .catch 防止未处理的 Promise 拒绝
+      saveGlossary().catch(e => console.warn('[glossary] saveGlossary failed:', e));
     });
   });
 
@@ -707,7 +717,8 @@ function renderGlossaryTable() {
       if (idx < 0 || idx >= arr.length) return;
       arr.splice(idx, 1);
       renderGlossaryTable();
-      saveGlossary();
+      // v1.2.2 fix: Bug 5 - 添加 .catch 防止未处理的 Promise 拒绝
+      saveGlossary().catch(e => console.warn('[glossary] saveGlossary failed:', e));
     });
   });
 }
@@ -752,7 +763,8 @@ function setupApiManagement() {
       }
 
       saveAllSettings(settings).then(() => {
-        chrome.runtime.sendMessage({ action: 'reloadApis' });
+        // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
+        chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
         renderApiCards();
         renderApiPriority();
         renderApiUsage();
@@ -760,7 +772,8 @@ function setupApiManagement() {
         renderQuotaLimits();
         renderMonthlyUsage();
         showSavedTip();
-      });
+        // v1.2.2 fix: saveAllSettings.then 链添加 .catch 捕获保存失败
+      }).catch(e => console.warn('[options] saveAllSettings failed:', e));
     });
   }
 
@@ -836,11 +849,13 @@ function _cleanupEmptyCustomProviders() {
     });
     console.log(`[options] 清理了 ${before - settings.api.customProviders.length} 个未填写的自定义大模型`);
     saveAllSettings(settings).then(() => {
-      chrome.runtime.sendMessage({ action: 'reloadApis' });
+      // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
+      chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
       // v1.0.19: 清理自定义供应商后联动刷新额度限制和月度用量
       renderQuotaLimits();
       renderMonthlyUsage();
-    });
+      // v1.2.2 fix: saveAllSettings.then 链添加 .catch 捕获保存失败
+    }).catch(e => console.warn('[options] saveAllSettings failed:', e));
   }
 }
 
@@ -1110,12 +1125,14 @@ function renderApiCards() {
     cb.addEventListener('change', () => {
       settings.api.enabledApis[cb.dataset.api] = cb.checked;
       saveAllSettings(settings).then(() => {
-        chrome.runtime.sendMessage({ action: 'reloadApis' });
+        // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
+        chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
         // v1.0.19 fix: renderQuotaLimits/renderApiUsage 不依赖 enabledApis，重绘只会销毁额度输入框焦点
         // 仅刷新月度用量显示（可能因 API 禁用而停止累计）
         renderMonthlyUsage();
         showSavedTip();
-      });
+        // v1.2.2 fix: saveAllSettings.then 链添加 .catch 捕获保存失败
+      }).catch(e => console.warn('[options] saveAllSettings failed:', e));
     });
   });
 
@@ -1137,7 +1154,8 @@ function renderApiCards() {
         }
         
         saveAllSettings(settings).then(async () => {
-          chrome.runtime.sendMessage({ action: 'reloadApis' });
+          // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
+          chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
           showSavedTip();
           // 保存后完整性检查：不完整则禁用启用
           const { complete } = checkApiCompleteness(apiName, null, provider);
@@ -1155,7 +1173,8 @@ function renderApiCards() {
             }
           }
           renderApiPriority();
-        });
+          // v1.2.2 fix: saveAllSettings.then 链添加 .catch 捕获保存失败
+        }).catch(e => console.warn('[options] saveAllSettings failed:', e));
         return;
       }
       
@@ -1173,7 +1192,8 @@ function renderApiCards() {
         settings.api.apiKeys[apiName][field] = input.value;
       }
       saveAllSettings(settings).then(async () => {
-        chrome.runtime.sendMessage({ action: 'reloadApis' });
+        // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
+        chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
         showSavedTip();
         // 保存后新增完整性检查
         const keys = settings.api.apiKeys[apiName] || {};
@@ -1194,7 +1214,8 @@ function renderApiCards() {
             hideIncompleteWarning(card);
           }
         }
-      });
+        // v1.2.2 fix: saveAllSettings.then 链添加 .catch 捕获保存失败
+      }).catch(e => console.warn('[options] saveAllSettings failed:', e));
     });
   });
 
@@ -1295,6 +1316,8 @@ function renderApiCards() {
       const displayName = getApiDisplayName(apiName);
       if (!confirm(`确定清除「${displayName}」的所有配置信息？\n\n这将删除：密钥、模型、接入点等数据，且不可恢复。`)) return;
 
+      // v1.2.2 fix: Bug 11 - 防止重复点击
+      btn.disabled = true;
       try {
         const res = await chrome.runtime.sendMessage({ action: 'clearApi', apiName });
         if (res && res.success) {
@@ -1306,6 +1329,8 @@ function renderApiCards() {
         }
       } catch(e) {
         alert('清除失败：' + (e.message || '未知错误'));
+      } finally {
+        btn.disabled = false;
       }
     });
   });
@@ -1387,16 +1412,8 @@ function showPinDialog(mode) {
     confirmBtn.textContent = '确认重置';
   }
 
-  // 处理冷却
-  const now = Date.now();
-  if (pinCooldownUntil > now) {
-    const waitSec = Math.ceil((pinCooldownUntil - now) / 1000);
-    error.textContent = `请等待 ${waitSec} 秒后再试`;
-    error.style.display = 'block';
-    confirmBtn.disabled = true;
-  } else {
-    confirmBtn.disabled = false;
-  }
+  // v1.2.2 fix: Bug 1 - 移除前端冷却检查，后端会在 verifyPin 响应中返回冷却提示
+  confirmBtn.disabled = false;
 
   dialog.style.display = 'flex';
   // 仅在输入框可见时聚焦（reset 模式下隐藏了输入框）
@@ -1479,33 +1496,15 @@ async function handlePinConfirm() {
     try {
       const resp = await chrome.runtime.sendMessage({ action: 'verifyPin', pin });
       if (resp?.success) {
-        pinFailCount = 0;
         hidePinDialog();
         await setApiUnlockState(true);
       } else {
-        pinFailCount++;
-        if (pinFailCount >= 3) {
-          pinCooldownUntil = Date.now() + 30000;
-          error.textContent = 'PIN 错误次数过多，请等待 30 秒后再试';
-          error.style.display = 'block';
-          if (confirmBtn) confirmBtn.disabled = true;
-          // 30秒后自动恢复
-          setTimeout(() => {
-            pinFailCount = 0;
-            pinCooldownUntil = 0;
-            const dialog = document.getElementById('pinDialog');
-            if (dialog && dialog.style.display !== 'none') {
-              const btn = document.getElementById('pinConfirmBtn');
-              if (btn) btn.disabled = false;
-              const error = document.getElementById('pinError');
-              if (error) error.style.display = 'none';
-            }
-          }, 30000);
-        } else {
-          error.textContent = `PIN 错误，还剩 ${3 - pinFailCount} 次机会`;
-          error.style.display = 'block';
-          if (confirmBtn) confirmBtn.disabled = false;
-        }
+        // v1.2.2 fix: Bug 1 - 完全依赖后端返回的 error 消息（后端使用5次/60秒策略）
+        // 后端失败时返回 { success: false, error: 'PIN 错误，还剩 X 次机会' }
+        // 后端锁定时返回 { success: false, error: 'PIN 错误次数过多，请等待 60 秒后再试' }
+        error.textContent = resp?.error || 'PIN 验证失败';
+        error.style.display = 'block';
+        if (confirmBtn) confirmBtn.disabled = false;
         input.value = '';
         input.focus();
       }
@@ -1524,7 +1523,14 @@ async function handleUnlockClick() {
     return;
   }
   // 未解锁 → 检查是否已设置 PIN
-  const resp = await chrome.runtime.sendMessage({ action: 'hasPin' });
+  // v1.2.2 fix: sendMessage 调用包裹 try/catch，捕获异常并记录
+  let resp;
+  try {
+    resp = await chrome.runtime.sendMessage({ action: 'hasPin' });
+  } catch (e) {
+    console.warn('[options] handleUnlockClick: 查询 PIN 状态失败:', e);
+    return;
+  }
   if (resp?.has) {
     showPinDialog('verify');
   } else {
@@ -1618,13 +1624,15 @@ function renderApiPriority() {
         const newOrder = Array.from(container.children).map(el => el.dataset.api);
         settings.api.apiPriority = newOrder;
         saveAllSettings(settings).then(() => {
-          chrome.runtime.sendMessage({ action: 'reloadApis' });
+          // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
+          chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
           // v1.0.19: 优先级变化后联动刷新额度限制和用量显示
           renderQuotaLimits();
           renderApiUsage();
           renderMonthlyUsage();
           showSavedTip();
-        });
+          // v1.2.2 fix: saveAllSettings.then 链添加 .catch 捕获保存失败
+        }).catch(e => console.warn('[options] saveAllSettings failed:', e));
       }
     });
     item.setAttribute('draggable', 'true');
@@ -1726,9 +1734,11 @@ function renderQuotaLimits() {
       if (!settings.api.quotaLimits[apiName]) settings.api.quotaLimits[apiName] = { enabled: false, limit: 0, unit: 'chars', resetType: 'monthly' };
       settings.api.quotaLimits[apiName].enabled = cb.checked;
       saveAllSettings(settings).then(() => {
-        chrome.runtime.sendMessage({ action: 'reloadApis' });
+        // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
+        chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
         showSavedTip();
-      });
+        // v1.2.2 fix: saveAllSettings.then 链添加 .catch 捕获保存失败
+      }).catch(e => console.warn('[options] saveAllSettings failed:', e));
     });
   });
 
@@ -1740,9 +1750,11 @@ function renderQuotaLimits() {
       if (!settings.api.quotaLimits[apiName]) settings.api.quotaLimits[apiName] = { enabled: false, limit: 0, unit: 'chars', resetType: 'monthly' };
       settings.api.quotaLimits[apiName].limit = val;
       saveAllSettings(settings).then(() => {
-        chrome.runtime.sendMessage({ action: 'reloadApis' });
+        // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
+        chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
         showSavedTip();
-      });
+        // v1.2.2 fix: saveAllSettings.then 链添加 .catch 捕获保存失败
+      }).catch(e => console.warn('[options] saveAllSettings failed:', e));
     });
   });
 
@@ -1753,9 +1765,11 @@ function renderQuotaLimits() {
       if (!settings.api.quotaLimits[apiName]) settings.api.quotaLimits[apiName] = { enabled: false, limit: 0, unit: 'chars', resetType: 'monthly' };
       settings.api.quotaLimits[apiName].unit = sel.value;
       saveAllSettings(settings).then(() => {
-        chrome.runtime.sendMessage({ action: 'reloadApis' });
+        // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
+        chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
         showSavedTip();
-      });
+        // v1.2.2 fix: saveAllSettings.then 链添加 .catch 捕获保存失败
+      }).catch(e => console.warn('[options] saveAllSettings failed:', e));
     });
   });
 
@@ -1766,10 +1780,12 @@ function renderQuotaLimits() {
       if (!settings.api.quotaLimits[apiName]) settings.api.quotaLimits[apiName] = { enabled: false, limit: 0, unit: 'chars', resetType: 'monthly' };
       settings.api.quotaLimits[apiName].resetType = sel.value;
       saveAllSettings(settings).then(() => {
-        chrome.runtime.sendMessage({ action: 'reloadApis' });
+        // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
+        chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
         renderMonthlyUsage();
         showSavedTip();
-      });
+        // v1.2.2 fix: saveAllSettings.then 链添加 .catch 捕获保存失败
+      }).catch(e => console.warn('[options] saveAllSettings failed:', e));
     });
   });
 }
@@ -1819,7 +1835,8 @@ async function renderMonthlyUsage() {
       const limitText = item.enabled && item.limit > 0
         ? ` / ${item.limit.toLocaleString()} (${item.pct}%)`
         : '';
-      const barColor = item.pct >= 97 ? '#f44336' : (item.pct >= 80 ? '#ff9800' : 'var(--primary-color)');
+      // v1.2.2 fix: Bug 4 - 使用已定义的 CSS 变量 --accent 替代未定义的 --primary-color
+      const barColor = item.pct >= 97 ? '#f44336' : (item.pct >= 80 ? '#ff9800' : 'var(--accent)');
       return `
         <div class="api-usage-item">
           <span class="api-usage-name">${escapeAttr(item.displayName)}</span>
@@ -1889,7 +1906,8 @@ function setupAdvancedSettings() {
   document.getElementById('saveLlmPromptBtn').addEventListener('click', async () => {
     const prompt = document.getElementById('llmPrompt').value;
     await chrome.storage.local.set({ 'dual_translate_custom_llm_prompt': prompt });
-    chrome.runtime.sendMessage({ action: 'reloadApis' });
+    // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
+    chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
     showSavedTip();
   });
 
@@ -2532,7 +2550,8 @@ async function runUsageDiagnosis() {
     }
 
     // 合计行
-    html += '<tr style="font-weight:600;background:var(--bg-secondary);">';
+    // v1.2.2 fix: Bug 9 - 使用已定义的 CSS 变量 --bg-hover 替代未定义的 --bg-secondary
+    html += '<tr style="font-weight:600;background:var(--bg-hover);">';
     html += `<td>合计</td>`;
     html += `<td>${totalDaily.toLocaleString()}</td>`;
     html += `<td>${totalMonthly.toLocaleString()}</td>`;
@@ -2666,15 +2685,16 @@ async function runSettingsIntegrityDiagnosis() {
     // 9. 检查 display 结构
     if (s.display) {
       const validModes = ['bilingual', 'translation-only', 'hover', 'panel'];
-      if (!validModes.includes(s.display.mode)) {
-        issues.push(`display.mode 值无效: ${s.display.mode}`);
+      // v1.2.2 fix: Bug 3 - 字段名应为 defaultMode 而非 mode
+      if (!validModes.includes(s.display.defaultMode)) {
+        issues.push(`display.defaultMode 值无效: ${s.display.defaultMode}`);
       }
     }
 
     // 10. 检查 trigger 结构
     if (s.trigger) {
-      if (!Array.isArray(s.trigger.whitelist)) warnings.push('trigger.whitelist 不是数组');
-      if (!Array.isArray(s.trigger.blacklist)) warnings.push('trigger.blacklist 不是数组');
+      // v1.2.2 fix: Bug 3 - trigger 结构使用 excludeList 而非 whitelist/blacklist
+      if (!Array.isArray(s.trigger.excludeList)) warnings.push('trigger.excludeList 不是数组');
       if (!['whitelist', 'blacklist'].includes(s.trigger.excludeMode)) {
         issues.push(`trigger.excludeMode 值无效: ${s.trigger.excludeMode}`);
       }
@@ -2721,16 +2741,17 @@ async function runSettingsIntegrityDiagnosis() {
     // 设置概览
     html += '<div class="diag-section-title">设置概览</div>';
     html += '<div class="diag-config-card">';
-    html += `<div><strong>翻译模式:</strong> ${escapeAttr(s.display?.mode || '未设置')}</div>`;
+    // v1.2.2 fix: 设置概览使用新字段名 defaultMode（原为 mode）
+    html += `<div><strong>翻译模式:</strong> ${escapeAttr(s.display?.defaultMode || '未设置')}</div>`;
     html += `<div><strong>源语言:</strong> ${escapeAttr(s.api?.sourceLanguage || 'auto')}</div>`;
     html += `<div><strong>日志级别:</strong> ${s.general?.logLevel ?? '未设置'}</div>`;
     html += `<div><strong>批量大小:</strong> ${s.advanced?.batchSize ?? '未设置'} 段</div>`;
     html += `<div><strong>超时时间:</strong> ${s.advanced?.requestTimeout ?? '未设置'} 秒</div>`;
     html += `<div><strong>懒加载:</strong> ${s.advanced?.lazyTranslate ? '开启' : '关闭'}</div>`;
     html += `<div><strong>翻译缓存:</strong> ${s.trigger?.translationCache ? '开启' : '关闭'}</div>`;
+    // v1.2.2 fix: 使用新字段名 excludeList/excludeMode 替代旧的 whitelist/blacklist
+    html += `<div><strong>排除列表数量:</strong> ${s.trigger?.excludeList?.length || 0}</div>`;
     html += `<div><strong>排除模式:</strong> ${escapeAttr(s.trigger?.excludeMode || '未设置')}</div>`;
-    html += `<div><strong>白名单数量:</strong> ${s.trigger?.whitelist?.length || 0}</div>`;
-    html += `<div><strong>黑名单数量:</strong> ${s.trigger?.blacklist?.length || 0}</div>`;
     html += `<div><strong>快捷键:</strong> ${escapeAttr(s.general?.toggleTranslateShortcut || 'Alt+T')}</div>`;
     html += `<div><strong>自定义供应商数量:</strong> ${s.api?.customProviders?.length || 0}</div>`;
     html += `<div><strong>配额限制数量:</strong> ${Object.keys(s.api?.quotaLimits || {}).length}</div>`;

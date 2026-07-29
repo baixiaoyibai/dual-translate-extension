@@ -1153,6 +1153,8 @@ function updateHover(segSubset) {
     document.addEventListener('mouseout',onOut);
     hoverCleanupHandlers.push(()=>{
       if(hoverRaf){cancelAnimationFrame(hoverRaf);hoverRaf=0;}
+      // v1.1.0 fix: 清理 hover 延迟定时器 ht，防止 cleanup 后仍触发 showHover
+      if(ht){clearTimeout(ht);ht=null;}
       document.removeEventListener('mouseover',onOver);
       document.removeEventListener('mouseout',onOut);
     });
@@ -1215,7 +1217,9 @@ function updatePanel(segSubset) {
     const muh=()=>{isDragging=false;document.body.style.userSelect='';document.removeEventListener('mousemove',mmh);document.removeEventListener('mouseup',muh);};
     const mdh=e=>{if(e.target.tagName==='BUTTON')return;isDragging=true;sX=e.clientX;sY=e.clientY;const r=panel.getBoundingClientRect();sW=r.width;sH=r.height;document.body.style.userSelect='none';document.addEventListener('mousemove',mmh);document.addEventListener('mouseup',muh);};
     hd.addEventListener('mousedown',mdh);
-    let panelCleanup=()=>{hd.removeEventListener('mousedown',mdh);document.removeEventListener('mousemove',mmh);document.removeEventListener('mouseup',muh);};
+    // v1.1.0 fix: 鼠标移出窗口时兜底清理拖拽状态
+    window.addEventListener('blur',muh);
+    let panelCleanup=()=>{hd.removeEventListener('mousedown',mdh);document.removeEventListener('mousemove',mmh);document.removeEventListener('mouseup',muh);window.removeEventListener('blur',muh);};
     globalCleanupHandlers.push(panelCleanup);
     panel.appendChild(hd);panel.appendChild(ct);document.body.appendChild(panel);panelInstance=panel;
     if(pos==='right')document.body.style.marginRight=w+'px';else document.body.style.marginBottom='300px';
@@ -1332,7 +1336,8 @@ function showSelectionTranslation(original,translation){
   const hover=document.createElement('div');hover.className='dual-translate-hover pinned';
   hover.style.cssText=`position:fixed;background:var(--dt-bg-primary);color:var(--dt-text-primary);padding:10px 14px;border-radius:6px;font-size:14px;z-index:2147483647;max-width:450px;box-shadow:0 4px 16px var(--dt-shadow);border:1px solid var(--dt-border-primary);cursor:pointer;line-height:1.6;left:${x}px;top:${y}px;`;
   hover.innerHTML=`<div style="color:var(--dt-text-secondary);font-size:12px;margin-bottom:4px">${escapeContent(original)}</div><div>${escapeContent(translation)}</div>`;
-  hover.addEventListener('click',()=>hover.remove());
+  // v1.1.0 fix: 点击移除 hover 时同步递减计数，避免 _activeHoverCount 泄漏
+  hover.addEventListener('click',()=>{hover.remove();_activeHoverCount--;if(_activeHoverCount<0)_activeHoverCount=0;});
   document.body.appendChild(hover);
   _activeHoverCount++;
 }
@@ -1357,9 +1362,14 @@ chrome.runtime.onMessage.addListener((m,s,resp)=>{
         resp({success:true});
         break;
       case'cancelTranslation':
+        // v1.2.2 fix: 只 abort，不置 currentAbortController=null。
+        // 原先置 null 会导致 startTranslation 的 finally/catch 块中
+        // `currentAbortController === myAbortController` 永远为 false，
+        // isTranslating 无法归零而卡在 true，popup 取消按钮永不消失。
+        // 现仅触发 abort，交由 startTranslation 的 catch(AbortError)→resetAll
+        // 与 finally 块自行完成 isTranslating=false / currentAbortController=null 清理。
         if (currentAbortController) {
           currentAbortController.abort();
-          currentAbortController = null;
         }
         resp({ success: true });
         break;
