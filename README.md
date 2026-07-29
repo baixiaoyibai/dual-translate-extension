@@ -66,14 +66,15 @@
 
 ### 添加更多预置接口
 
-除上面 4 个默认启用的接口外，扩展还预置了 4 个可启用的供应商（在「API 管理」里勾选即可）：
+除上面 4 个默认启用的接口外，扩展还预置了 5 个可启用的供应商（在「API 管理」里勾选即可）：
 
+- **腾讯翻译 TMT**（机器翻译）：`https://console.cloud.tencent.com/tmt` — 每月 500 万字免费额度，需 SecretId + SecretKey
 - **通义千问**（阿里云百炼）：`https://dashscope.console.aliyun.com`
 - **智谱 GLM**（付费版，与免费版独立）：`https://open.bigmodel.cn`
 - **零一万物**：`https://platform.lingyiwanwu.com`
 - **豆包**（火山方舟）：`https://console.volcengine.com/ark`
 
-加上前面 4 个默认启用的，共 **8 个预置供应商** 可在「API 管理」里自由调整优先级。
+加上前面 4 个默认启用的，共 **9 个预置供应商** 可在「API 管理」里自由调整优先级。
 
 ### 添加自定义接口
 
@@ -185,6 +186,7 @@ dual-translate-extension/
 │   └── api-adapters/
 │       ├── baidu.js               百度通用翻译
 │       ├── baidu-llm.js           百度大模型翻译
+│       ├── tencent.js             腾讯云 TMT 机器翻译（TC3-HMAC-SHA256 签名）
 │       └── llm-generic.js         DeepSeek / GLM / 自定义 LLM
 ├── config/
 │   ├── default-glossary.json      默认术语表（100+ 条）
