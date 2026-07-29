@@ -507,6 +507,9 @@ async function handleClearApi(apiName) {
       delete usageData[apiName];
       await chrome.storage.local.set({ [DAILY_USAGE_KEY]: usageData });
     }
+    // v1.1.0 fix: 直接写 storage 后必须使内存缓存失效，否则 isApiQuotaReached 仍返回旧用量
+    settingsManager._dailyUsageCache = null;
+    settingsManager._monthlyUsageCache = null;
 
     // 6. 保存设置（sync + local）
     await settingsManager.saveSettings(settings);

@@ -827,23 +827,27 @@ async function translatePageMeta() {
   if (items.length === 0) return;
   dtInfo('translatePageMeta items:', items.length, 'source:', sourceLang);
 
-  // 一次性发 API（用翻译管线相同的 background 入口，自动走 cache）
+  // v1.1.0 fix: 分批发送，避免图片密集页面 items 超过 background 的 500 条上限
+  const META_BATCH_SIZE = 200;
   try {
-    const resp = await sendMessage('translateTexts', { texts: items.map(i => i.text), sourceLang });
-    if (!resp || !resp.translations || resp.error) return;
-    if (currentAbortController && currentAbortController.signal.aborted) return;
+    for (let start = 0; start < items.length; start += META_BATCH_SIZE) {
+      const batch = items.slice(start, start + META_BATCH_SIZE);
+      const resp = await sendMessage('translateTexts', { texts: batch.map(i => i.text), sourceLang });
+      if (!resp || !resp.translations || resp.error) continue; // 跳过失败批次，继续下一批
+      if (currentAbortController && currentAbortController.signal.aborted) return;
 
-    // 回写
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const r = resp.translations[i];
-      const tr = (r && r.translation) || '';
-      if (!tr) continue;
-      const preTr = applyGlossary(tr); // 术语再过一遍
-      if (item.type === 'title') {
-        document.title = preTr + ' / ' + (document.documentElement.getAttribute('data-dt-orig-title') || document.title);
-      } else if (item.type === 'alt' && item.img && item.img.isConnected) {
-        item.img.setAttribute('alt', preTr);
+      // 回写
+      for (let i = 0; i < batch.length; i++) {
+        const item = batch[i];
+        const r = resp.translations[i];
+        const tr = (r && r.translation) || '';
+        if (!tr) continue;
+        const preTr = applyGlossary(tr); // 术语再过一遍
+        if (item.type === 'title') {
+          document.title = preTr + ' / ' + (document.documentElement.getAttribute('data-dt-orig-title') || document.title);
+        } else if (item.type === 'alt' && item.img && item.img.isConnected) {
+          item.img.setAttribute('alt', preTr);
+        }
       }
     }
   } catch (e) {
