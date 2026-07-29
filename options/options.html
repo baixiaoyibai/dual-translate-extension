@@ -729,10 +729,53 @@
 
       <div class="section-card">
         <div class="section-card-header">🔧 诊断工具</div>
-        <p class="setting-desc desc-mb-sm">检查 API 密钥存储状态，排查密钥丢失问题。对比 sync storage、local storage 和 background 返回的 settings 三个来源的密钥状态。</p>
-        <button class="btn btn-primary" id="diagnoseStorageBtn">检查 Storage 状态</button>
+        <p class="setting-desc desc-mb">为开发者提供的运行时诊断工具，用于排查配置问题、检查数据一致性和查看运行日志。</p>
+
+        <!-- 诊断工具按钮区 -->
+        <div class="diag-tool-grid">
+          <button class="btn btn-primary diag-tool-btn" id="diagnoseStorageBtn">📦 检查 Storage 状态</button>
+          <button class="btn diag-tool-btn" id="diagnoseApiConfigBtn">🔑 API 配置概览</button>
+          <button class="btn diag-tool-btn" id="diagnoseApiStatusBtn">🔄 API 状态与轮转链路</button>
+          <button class="btn diag-tool-btn" id="diagnoseUsageBtn">📊 用量数据检查</button>
+          <button class="btn diag-tool-btn" id="diagnoseIntegrityBtn">✅ 设置完整性验证</button>
+          <button class="btn diag-tool-btn" id="diagnoseLogBtn">📝 运行日志查看器</button>
+        </div>
+
+        <!-- Storage 诊断结果 -->
         <div id="diagnoseResult" class="diag-result-area hidden">
           <!-- 诊断结果动态填充 -->
+        </div>
+
+        <!-- API 配置概览结果 -->
+        <div id="diagnoseApiConfigResult" class="diag-result-area hidden"></div>
+
+        <!-- API 状态与轮转链路结果 -->
+        <div id="diagnoseApiStatusResult" class="diag-result-area hidden"></div>
+
+        <!-- 用量数据检查结果 -->
+        <div id="diagnoseUsageResult" class="diag-result-area hidden"></div>
+
+        <!-- 设置完整性验证结果 -->
+        <div id="diagnoseIntegrityResult" class="diag-result-area hidden"></div>
+
+        <!-- 运行日志查看器 -->
+        <div id="diagnoseLogResult" class="diag-result-area hidden">
+          <div class="diag-log-toolbar">
+            <select id="diagLogLevelFilter" class="diag-log-filter">
+              <option value="all">全部级别</option>
+              <option value="error">仅错误</option>
+              <option value="warn">警告+</option>
+              <option value="info">信息+</option>
+              <option value="debug">调试+</option>
+            </select>
+            <button class="btn btn-sm" id="diagLogRefreshBtn">🔄 刷新</button>
+            <button class="btn btn-sm" id="diagLogClearBtn">🗑 清空日志</button>
+            <button class="btn btn-sm" id="diagLogCopyBtn">📋 复制日志</button>
+            <span class="diag-log-info" id="diagLogInfo"></span>
+          </div>
+          <div class="diag-log-list" id="diagLogList">
+            <div class="diag-log-empty">点击「刷新」加载日志</div>
+          </div>
         </div>
       </div>
     </div>

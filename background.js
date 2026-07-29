@@ -6,6 +6,42 @@ import { translationCache } from './lib/translation-cache.js';
 const LOCAL_API_KEYS_KEY = 'dual_translate_api_keys_local';
 const DAILY_USAGE_KEY = 'dual_translate_daily_usage';
 
+// v1.0.19: 运行时日志缓冲区（环形队列，最多 500 条）
+// 供设置页诊断工具中的日志查看器使用
+const LOG_BUFFER_MAX = 500;
+const logBuffer = [];
+let logSeq = 0;
+
+function _getLogLevel() {
+  return settingsManager.settings?.general?.logLevel ?? 2;
+}
+
+function _pushLog(level, args) {
+  const entry = {
+    seq: ++logSeq,
+    ts: Date.now(),
+    level, // 'error' | 'warn' | 'info' | 'debug'
+    msg: args.map(a => {
+      if (typeof a === 'string') return a;
+      try { return JSON.stringify(a); } catch { return String(a); }
+    }).join(' ')
+  };
+  logBuffer.push(entry);
+  if (logBuffer.length > LOG_BUFFER_MAX) logBuffer.shift();
+}
+
+// 覆写 console 方法，在保留原生行为的同时写入缓冲区
+['error', 'warn', 'info', 'debug', 'log'].forEach(level => {
+  const native = console[level].bind(console);
+  const mapped = level === 'log' ? 'info' : level;
+  console[level] = (...args) => {
+    native(...args);
+    const lv = _getLogLevel();
+    const priority = { error: 1, warn: 2, info: 3, debug: 4 }[mapped] || 3;
+    if (lv >= priority) _pushLog(mapped, args);
+  };
+});
+
 let initialized = false;
 let initPromise = null;
 
@@ -334,6 +370,37 @@ async function handleMessage(message, sender) {
       }
       await apiManager.reload();
       return { success: true };
+
+    case 'getLogs':
+      // v1.0.19: 供诊断工具日志查看器使用
+      // 可选参数: level (过滤级别), limit (返回条数上限), since (起始 seq)
+      {
+        const level = message.level || 'all';
+        const limit = Math.min(message.limit || 500, LOG_BUFFER_MAX);
+        const since = message.since || 0;
+        let logs = logBuffer.filter(e => e.seq > since);
+        if (level !== 'all') {
+          const priority = { error: 1, warn: 2, info: 3, debug: 4 };
+          const threshold = priority[level] || 4;
+          logs = logs.filter(e => (priority[e.level] || 3) <= threshold);
+        }
+        logs = logs.slice(-limit);
+        return { logs, total: logBuffer.length, nextSeq: logSeq };
+      }
+
+    case 'clearLogs':
+      logBuffer.length = 0;
+      logSeq = 0;
+      console.info('[dual-translate] 日志缓冲区已由诊断工具清空');
+      return { success: true, cleared: true };
+
+    case 'getLogConfig':
+      // v1.0.19: 返回当前日志配置信息
+      return {
+        logLevel: settingsManager.settings?.general?.logLevel ?? 2,
+        bufferSize: logBuffer.length,
+        maxBufferSize: LOG_BUFFER_MAX
+      };
 
     default:
       return { error: `Unknown action: ${message.action}` };

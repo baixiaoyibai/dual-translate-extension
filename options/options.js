@@ -756,6 +756,8 @@ function setupApiManagement() {
         renderApiCards();
         renderApiPriority();
         renderApiUsage();
+        // v1.0.19: 新增自定义供应商后联动刷新额度限制标签页
+        renderQuotaLimits();
         showSavedTip();
       });
     });
@@ -834,6 +836,8 @@ function _cleanupEmptyCustomProviders() {
     console.log(`[options] 清理了 ${before - settings.api.customProviders.length} 个未填写的自定义大模型`);
     saveAllSettings(settings).then(() => {
       chrome.runtime.sendMessage({ action: 'reloadApis' });
+      // v1.0.19: 清理自定义供应商后联动刷新额度限制
+      renderQuotaLimits();
     });
   }
 }
@@ -1105,6 +1109,10 @@ function renderApiCards() {
       settings.api.enabledApis[cb.dataset.api] = cb.checked;
       saveAllSettings(settings).then(() => {
         chrome.runtime.sendMessage({ action: 'reloadApis' });
+        // v1.0.19: API 启用/禁用后联动刷新额度限制和用量显示
+        renderQuotaLimits();
+        renderApiUsage();
+        renderMonthlyUsage();
         showSavedTip();
       });
     });
@@ -1610,6 +1618,10 @@ function renderApiPriority() {
         settings.api.apiPriority = newOrder;
         saveAllSettings(settings).then(() => {
           chrome.runtime.sendMessage({ action: 'reloadApis' });
+          // v1.0.19: 优先级变化后联动刷新额度限制和用量显示
+          renderQuotaLimits();
+          renderApiUsage();
+          renderMonthlyUsage();
           showSavedTip();
         });
       }
@@ -1996,8 +2008,74 @@ const DIAG_LOCAL_API_KEYS_KEY = 'dual_translate_api_keys_local';
 
 function setupDiagnostics() {
   const btn = document.getElementById('diagnoseStorageBtn');
-  if (!btn) return;
-  btn.addEventListener('click', runStorageDiagnosis);
+  if (btn) {
+    btn.addEventListener('click', () => {
+      _hideAllDiagResults('diagnoseResult');
+      runStorageDiagnosis();
+    });
+  }
+
+  // v1.0.19: 新增诊断工具绑定
+  const apiConfigBtn = document.getElementById('diagnoseApiConfigBtn');
+  if (apiConfigBtn) {
+    apiConfigBtn.addEventListener('click', () => {
+      _hideAllDiagResults('diagnoseApiConfigResult');
+      runApiConfigDiagnosis();
+    });
+  }
+
+  const apiStatusBtn = document.getElementById('diagnoseApiStatusBtn');
+  if (apiStatusBtn) {
+    apiStatusBtn.addEventListener('click', () => {
+      _hideAllDiagResults('diagnoseApiStatusResult');
+      runApiStatusDiagnosis();
+    });
+  }
+
+  const usageBtn = document.getElementById('diagnoseUsageBtn');
+  if (usageBtn) {
+    usageBtn.addEventListener('click', () => {
+      _hideAllDiagResults('diagnoseUsageResult');
+      runUsageDiagnosis();
+    });
+  }
+
+  const integrityBtn = document.getElementById('diagnoseIntegrityBtn');
+  if (integrityBtn) {
+    integrityBtn.addEventListener('click', () => {
+      _hideAllDiagResults('diagnoseIntegrityResult');
+      runSettingsIntegrityDiagnosis();
+    });
+  }
+
+  const logBtn = document.getElementById('diagnoseLogBtn');
+  if (logBtn) {
+    logBtn.addEventListener('click', () => {
+      _hideAllDiagResults('diagnoseLogResult');
+      setupLogViewer();
+      loadLogs();
+    });
+  }
+}
+
+// v1.0.19: 隐藏所有诊断结果区域，仅显示指定的那个
+function _hideAllDiagResults(exceptId) {
+  const ids = [
+    'diagnoseResult', 'diagnoseApiConfigResult', 'diagnoseApiStatusResult',
+    'diagnoseUsageResult', 'diagnoseIntegrityResult', 'diagnoseLogResult'
+  ];
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el) {
+      if (id === exceptId) {
+        el.classList.remove('hidden');
+        el.style.display = 'block';
+      } else {
+        el.classList.add('hidden');
+        el.style.display = 'none';
+      }
+    }
+  }
 }
 
 // 脱敏显示密钥：前4位 + **** + 后2位
@@ -2130,5 +2208,624 @@ async function migrateSyncToLocal() {
     runStorageDiagnosis();
   } catch (e) {
     alert('迁移失败：' + (e.message || String(e)));
+  }
+}
+
+// ============ v1.0.19: 新增诊断工具 ============
+
+// 工具2: API 配置概览
+async function runApiConfigDiagnosis() {
+  const resultDiv = document.getElementById('diagnoseApiConfigResult');
+  if (!resultDiv) return;
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = '<div class="diag-loading">正在检查 API 配置...</div>';
+
+  try {
+    const msgRes = await chrome.runtime.sendMessage({ action: 'getSettings' });
+    const s = msgRes?.settings || settings || {};
+    const priority = s.api?.apiPriority || [];
+    const apiKeys = s.api?.apiKeys || {};
+    const enabledApis = s.api?.enabledApis || {};
+    const apiEndpoints = s.api?.apiEndpoints || {};
+    const apiModels = s.api?.apiModels || {};
+    const customProviders = s.api?.customProviders || [];
+    const quotaLimits = s.api?.quotaLimits || {};
+
+    let configured = 0, enabled = 0, incomplete = 0, total = 0;
+
+    let html = '<div class="diag-section-title">API 配置概览</div>';
+
+    // 摘要
+    for (const apiName of priority) {
+      if (!API_DISPLAY_NAMES[apiName] && !apiName.startsWith('custom_')) continue;
+      total++;
+      const keys = apiKeys[apiName] || {};
+      const provider = apiName.startsWith('custom_')
+        ? customProviders.find(p => p.id === apiName.slice(7))
+        : null;
+      const { complete, missing } = checkApiCompleteness(apiName, keys, provider);
+      const hasContent = apiName.startsWith('custom_')
+        ? (provider?.apiKey || provider?.endpoint)
+        : Object.values(keys).some(v => v);
+      if (hasContent) configured++;
+      if (complete && hasContent) enabled++;
+      if (!complete && hasContent) incomplete++;
+    }
+
+    html += '<div class="diag-summary">';
+    html += `<div class="diag-summary-item"><span>总数</span><span class="diag-summary-value">${total}</span></div>`;
+    html += `<div class="diag-summary-item"><span>已配置</span><span class="diag-summary-value ok">${configured}</span></div>`;
+    html += `<div class="diag-summary-item"><span>完整可用</span><span class="diag-summary-value ok">${enabled}</span></div>`;
+    html += `<div class="diag-summary-item"><span>配置不全</span><span class="diag-summary-value ${incomplete > 0 ? 'warn' : ''}">${incomplete}</span></div>`;
+    html += '</div>';
+
+    // 详细列表
+    html += '<table class="diag-table">';
+    html += '<thead><tr><th>API</th><th>启用</th><th>密钥</th><th>模型</th><th>端点</th><th>配额限制</th><th>完整性</th></tr></thead><tbody>';
+
+    for (const apiName of priority) {
+      if (!API_DISPLAY_NAMES[apiName] && !apiName.startsWith('custom_')) continue;
+      const displayName = getApiDisplayName(apiName);
+      const keys = apiKeys[apiName] || {};
+      const provider = apiName.startsWith('custom_')
+        ? customProviders.find(p => p.id === apiName.slice(7))
+        : null;
+      const { complete, missing } = checkApiCompleteness(apiName, keys, provider);
+
+      const isEnabled = enabledApis[apiName] !== false;
+      const hasContent = apiName.startsWith('custom_')
+        ? (provider?.apiKey || provider?.endpoint)
+        : Object.values(keys).some(v => v);
+
+      const model = apiName.startsWith('custom_') ? (provider?.model || '') : (apiModels[apiName] || DEFAULT_API_MODELS[apiName] || '');
+      const endpoint = apiName.startsWith('custom_') ? (provider?.endpoint || '') : (apiEndpoints[apiName] || DEFAULT_API_ENDPOINTS[apiName] || '');
+      const quota = quotaLimits[apiName];
+
+      html += '<tr>';
+      html += `<td>${escapeAttr(displayName)}</td>`;
+      html += `<td>${isEnabled ? '<span class="diag-ok">✓</span>' : '<span class="diag-empty">✗</span>'}</td>`;
+      html += `<td class="${hasContent ? 'diag-ok' : 'diag-empty'}">${hasContent ? '已配置' : '空'}</td>`;
+      html += `<td>${escapeAttr(model || '默认')}</td>`;
+      html += `<td>${endpoint ? escapeAttr(endpoint.substring(0, 40)) + (endpoint.length > 40 ? '...' : '') : '默认'}</td>`;
+      html += `<td>${quota?.enabled ? `${quota.limit} ${quota.unit}/${quota.resetType === 'daily' ? '日' : '月'}` : '未限制'}</td>`;
+      html += `<td class="${complete ? 'diag-ok' : 'diag-empty'}">${complete ? '完整' : '缺: ' + escapeAttr(missing.join(', '))}</td>`;
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+
+    // 优先级链路
+    html += '<div class="diag-section-title">翻译优先级链路（从上到下依次尝试）</div>';
+    html += '<div class="diag-chain-container">';
+    const chainItems = priority.filter(name => API_DISPLAY_NAMES[name] || name.startsWith('custom_'));
+    chainItems.forEach((apiName, idx) => {
+      const isEnabled = enabledApis[apiName] !== false;
+      const keys = apiKeys[apiName] || {};
+      const provider = apiName.startsWith('custom_')
+        ? customProviders.find(p => p.id === apiName.slice(7))
+        : null;
+      const hasContent = apiName.startsWith('custom_')
+        ? (provider?.apiKey || provider?.endpoint)
+        : Object.values(keys).some(v => v);
+      const isActive = isEnabled && hasContent;
+      const cls = isActive ? 'diag-chain-item active' : 'diag-chain-item skipped';
+      html += `<span class="${cls}">${escapeAttr(getApiDisplayName(apiName))}</span>`;
+      if (idx < chainItems.length - 1) html += '<span class="diag-chain-arrow">→</span>';
+    });
+    html += '</div>';
+
+    resultDiv.innerHTML = html;
+  } catch (e) {
+    resultDiv.innerHTML = `<div class="diag-error">诊断失败：${escapeAttr(e.message || String(e))}</div>`;
+  }
+}
+
+// 工具3: API 状态与轮转链路
+async function runApiStatusDiagnosis() {
+  const resultDiv = document.getElementById('diagnoseApiStatusResult');
+  if (!resultDiv) return;
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = '<div class="diag-loading">正在检查 API 状态...</div>';
+
+  try {
+    const [statusRes, configRes] = await Promise.allSettled([
+      chrome.runtime.sendMessage({ action: 'getApiStatus' }),
+      chrome.runtime.sendMessage({ action: 'getSettings' })
+    ]);
+
+    const statusData = statusRes.status === 'fulfilled' ? statusRes.value : null;
+    const configData = configRes.status === 'fulfilled' ? configRes.value : null;
+    const s = configData?.settings || settings || {};
+    const priority = s.api?.apiPriority || [];
+    const enabledApis = s.api?.enabledApis || {};
+    const apiKeys = s.api?.apiKeys || {};
+    const customProviders = s.api?.customProviders || [];
+    const statusMap = statusData?.status || {};
+
+    let available = 0, exhausted = 0, errorCount = 0, disabled = 0, unconfigured = 0;
+
+    let html = '<div class="diag-section-title">API 运行状态</div>';
+
+    // 摘要
+    for (const apiName of priority) {
+      if (!API_DISPLAY_NAMES[apiName] && !apiName.startsWith('custom_')) continue;
+      const st = statusMap[apiName];
+      const isEnabled = enabledApis[apiName] !== false;
+      const keys = apiKeys[apiName] || {};
+      const provider = apiName.startsWith('custom_')
+        ? customProviders.find(p => p.id === apiName.slice(7))
+        : null;
+      const hasContent = apiName.startsWith('custom_')
+        ? (provider?.apiKey || provider?.endpoint)
+        : Object.values(keys).some(v => v);
+
+      if (!hasContent) { unconfigured++; continue; }
+      if (!isEnabled) { disabled++; continue; }
+
+      const status = st?.status || 'available';
+      if (status === 'available') available++;
+      else if (status === 'quota_exceeded') exhausted++;
+      else if (status === 'error' || status === 'auth_error') errorCount++;
+    }
+
+    html += '<div class="diag-summary">';
+    html += `<div class="diag-summary-item"><span>可用</span><span class="diag-summary-value ok">${available}</span></div>`;
+    html += `<div class="diag-summary-item"><span>配额耗尽</span><span class="diag-summary-value ${exhausted > 0 ? 'warn' : ''}">${exhausted}</span></div>`;
+    html += `<div class="diag-summary-item"><span>错误</span><span class="diag-summary-value ${errorCount > 0 ? 'err' : ''}">${errorCount}</span></div>`;
+    html += `<div class="diag-summary-item"><span>已禁用</span><span class="diag-summary-value">${disabled}</span></div>`;
+    html += `<div class="diag-summary-item"><span>未配置</span><span class="diag-summary-value">${unconfigured}</span></div>`;
+    html += '</div>';
+
+    // 详细状态表
+    html += '<table class="diag-table">';
+    html += '<thead><tr><th>API</th><th>状态</th><th>原因</th><th>上次更新</th><th>重试次数</th></tr></thead><tbody>';
+
+    for (const apiName of priority) {
+      if (!API_DISPLAY_NAMES[apiName] && !apiName.startsWith('custom_')) continue;
+      const displayName = getApiDisplayName(apiName);
+      const st = statusMap[apiName];
+      const isEnabled = enabledApis[apiName] !== false;
+      const keys = apiKeys[apiName] || {};
+      const provider = apiName.startsWith('custom_')
+        ? customProviders.find(p => p.id === apiName.slice(7))
+        : null;
+      const hasContent = apiName.startsWith('custom_')
+        ? (provider?.apiKey || provider?.endpoint)
+        : Object.values(keys).some(v => v);
+
+      let statusText, statusClass;
+      if (!hasContent) { statusText = '未配置'; statusClass = 'unconfigured'; }
+      else if (!isEnabled) { statusText = '已禁用'; statusClass = 'disabled'; }
+      else {
+        const status = st?.status || 'available';
+        if (status === 'available') { statusText = '可用'; statusClass = 'available'; }
+        else if (status === 'quota_exceeded') { statusText = '配额耗尽'; statusClass = 'exhausted'; }
+        else if (status === 'error') { statusText = '错误'; statusClass = 'error'; }
+        else if (status === 'auth_error') { statusText = '认证错误'; statusClass = 'error'; }
+        else { statusText = status; statusClass = 'unconfigured'; }
+      }
+
+      const reason = st?.reason || '-';
+      const updatedAt = st?.updatedAt ? new Date(st.updatedAt).toLocaleString('zh-CN') : '-';
+      const retryCount = st?.retryCount ?? '-';
+
+      html += '<tr>';
+      html += `<td>${escapeAttr(displayName)}</td>`;
+      html += `<td><span class="diag-status-badge ${statusClass}">${statusText}</span></td>`;
+      html += `<td>${escapeAttr(reason)}</td>`;
+      html += `<td>${updatedAt}</td>`;
+      html += `<td>${retryCount}</td>`;
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+
+    // 实际轮转链路（仅显示当前可用的 API）
+    html += '<div class="diag-section-title">当前可用轮转链路</div>';
+    const activeChain = priority.filter(apiName => {
+      if (!API_DISPLAY_NAMES[apiName] && !apiName.startsWith('custom_')) return false;
+      const isEnabled = enabledApis[apiName] !== false;
+      const keys = apiKeys[apiName] || {};
+      const provider = apiName.startsWith('custom_')
+        ? customProviders.find(p => p.id === apiName.slice(7))
+        : null;
+      const hasContent = apiName.startsWith('custom_')
+        ? (provider?.apiKey || provider?.endpoint)
+        : Object.values(keys).some(v => v);
+      const st = statusMap[apiName];
+      return isEnabled && hasContent && (!st || st.status === 'available');
+    });
+
+    if (activeChain.length === 0) {
+      html += '<div class="diag-empty-msg">当前没有可用的 API，翻译功能将无法使用</div>';
+    } else {
+      html += '<div class="diag-chain-container">';
+      activeChain.forEach((apiName, idx) => {
+        html += `<span class="diag-chain-item active">${escapeAttr(getApiDisplayName(apiName))}</span>`;
+        if (idx < activeChain.length - 1) html += '<span class="diag-chain-arrow">→</span>';
+      });
+      html += '</div>';
+    }
+
+    resultDiv.innerHTML = html;
+  } catch (e) {
+    resultDiv.innerHTML = `<div class="diag-error">诊断失败：${escapeAttr(e.message || String(e))}</div>`;
+  }
+}
+
+// 工具4: 用量数据检查
+async function runUsageDiagnosis() {
+  const resultDiv = document.getElementById('diagnoseUsageResult');
+  if (!resultDiv) return;
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = '<div class="diag-loading">正在检查用量数据...</div>';
+
+  try {
+    const [dailyRes, monthlyRes, configRes] = await Promise.allSettled([
+      chrome.runtime.sendMessage({ action: 'getDailyUsage' }),
+      chrome.runtime.sendMessage({ action: 'getMonthlyUsage' }),
+      chrome.runtime.sendMessage({ action: 'getSettings' })
+    ]);
+
+    const daily = dailyRes.status === 'fulfilled' ? dailyRes.value : {};
+    const monthly = monthlyRes.status === 'fulfilled' ? monthlyRes.value?.usage : {};
+    const s = configRes.status === 'fulfilled' ? configRes.value?.settings : settings || {};
+    const priority = s.api?.apiPriority || [];
+    const quotaLimits = s.api?.quotaLimits || {};
+
+    const today = new Date().toDateString();
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+
+    let html = '<div class="diag-section-title">用量数据检查</div>';
+
+    // 日期标记检查
+    html += '<div class="diag-config-card">';
+    html += `<div><strong>每日用量日期标记:</strong> ${escapeAttr(daily._date || '缺失')} ${daily._date === today ? '<span class="diag-ok">✓ 当天</span>' : '<span class="diag-empty">⚠ 非当天，将在下次翻译时重置</span>'}</div>`;
+    html += `<div><strong>每月用量月份标记:</strong> ${escapeAttr(monthly._month || '缺失')} ${monthly._month === currentMonth ? '<span class="diag-ok">✓ 当月</span>' : '<span class="diag-empty">⚠ 非当月，将在下次翻译时重置</span>'}</div>`;
+    html += '</div>';
+
+    // 用量明细表
+    html += '<table class="diag-table">';
+    html += '<thead><tr><th>API</th><th>今日用量</th><th>本月用量</th><th>配额限制</th><th>配额单位</th><th>重置周期</th><th>使用率</th></tr></thead><tbody>';
+
+    let totalDaily = 0, totalMonthly = 0;
+
+    for (const apiName of priority) {
+      if (!API_DISPLAY_NAMES[apiName] && !apiName.startsWith('custom_')) continue;
+      const displayName = getApiDisplayName(apiName);
+      const dCount = (daily._date === today) ? (daily[apiName] || 0) : 0;
+      const mCount = (monthly._month === currentMonth) ? (monthly[apiName] || 0) : 0;
+      totalDaily += dCount;
+      totalMonthly += mCount;
+
+      const quota = quotaLimits[apiName];
+      const limit = quota?.enabled ? quota.limit : 0;
+      const unit = quota?.unit || 'chars';
+      const resetType = quota?.resetType || 'monthly';
+
+      let usageRate = '-';
+      let usageClass = '';
+      if (limit > 0) {
+        const used = resetType === 'daily' ? dCount : mCount;
+        const pct = Math.round((used / limit) * 100);
+        usageRate = pct + '%';
+        if (pct >= 90) usageClass = 'diag-empty';
+        else if (pct >= 70) usageClass = 'diag-warn';
+      }
+
+      html += '<tr>';
+      html += `<td>${escapeAttr(displayName)}</td>`;
+      html += `<td>${dCount.toLocaleString()}</td>`;
+      html += `<td>${mCount.toLocaleString()}</td>`;
+      html += `<td>${limit > 0 ? limit.toLocaleString() : '无限制'}</td>`;
+      html += `<td>${unit === 'chars' ? '字符' : 'Token'}</td>`;
+      html += `<td>${resetType === 'daily' ? '每日' : '每月'}</td>`;
+      html += `<td class="${usageClass}">${usageRate}</td>`;
+      html += '</tr>';
+    }
+
+    // 合计行
+    html += '<tr style="font-weight:600;background:var(--bg-secondary);">';
+    html += `<td>合计</td>`;
+    html += `<td>${totalDaily.toLocaleString()}</td>`;
+    html += `<td>${totalMonthly.toLocaleString()}</td>`;
+    html += '<td colspan="4"></td>';
+    html += '</tr>';
+    html += '</tbody></table>';
+
+    // 读取本地存储中的原始 apiStatus 数据
+    html += '<div class="diag-section-title">API 状态存储详情（local storage）</div>';
+    const allLocal = await chrome.storage.local.get(null);
+    const statusKeys = Object.keys(allLocal).filter(k => k.startsWith('apiStatus_'));
+    if (statusKeys.length === 0) {
+      html += '<div class="diag-empty-msg">未发现 API 状态存储数据</div>';
+    } else {
+      html += '<table class="diag-table">';
+      html += '<thead><tr><th>存储键</th><th>状态</th><th>原因</th><th>更新时间</th></tr></thead><tbody>';
+      for (const key of statusKeys.sort()) {
+        const st = allLocal[key];
+        const apiName = key.slice(10);
+        const displayName = API_DISPLAY_NAMES[apiName] || apiName;
+        html += '<tr>';
+        html += `<td>${escapeAttr(displayName)}</td>`;
+        html += `<td>${escapeAttr(st?.status || 'unknown')}</td>`;
+        html += `<td>${escapeAttr(st?.reason || '-')}</td>`;
+        html += `<td>${st?.updatedAt ? new Date(st.updatedAt).toLocaleString('zh-CN') : '-'}</td>`;
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+    }
+
+    resultDiv.innerHTML = html;
+  } catch (e) {
+    resultDiv.innerHTML = `<div class="diag-error">诊断失败：${escapeAttr(e.message || String(e))}</div>`;
+  }
+}
+
+// 工具5: 设置完整性验证
+async function runSettingsIntegrityDiagnosis() {
+  const resultDiv = document.getElementById('diagnoseIntegrityResult');
+  if (!resultDiv) return;
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = '<div class="diag-loading">正在验证设置完整性...</div>';
+
+  try {
+    const msgRes = await chrome.runtime.sendMessage({ action: 'getSettings' });
+    const s = msgRes?.settings || settings || {};
+
+    const issues = [];
+    const warnings = [];
+
+    // 1. 检查基本结构
+    const requiredSections = ['display', 'trigger', 'api', 'advanced', 'general'];
+    for (const section of requiredSections) {
+      if (!s[section]) issues.push(`缺少配置节: ${section}`);
+    }
+
+    // 2. 检查 api 结构
+    if (s.api) {
+      if (!Array.isArray(s.api.apiPriority)) issues.push('api.apiPriority 不是数组');
+      if (typeof s.api.enabledApis !== 'object') issues.push('api.enabledApis 不是对象');
+      if (typeof s.api.apiKeys !== 'object') issues.push('api.apiKeys 不是对象');
+      if (!Array.isArray(s.api.customProviders)) issues.push('api.customProviders 不是数组');
+
+      // 3. 检查 apiPriority 中的条目是否都在已知 API 中
+      const knownNames = new Set([...Object.keys(API_DISPLAY_NAMES)]);
+      // 添加已配置的自定义供应商
+      if (Array.isArray(s.api.customProviders)) {
+        for (const p of s.api.customProviders) {
+          if (p?.id) knownNames.add('custom_' + p.id);
+        }
+      }
+      for (const name of (s.api.apiPriority || [])) {
+        if (!knownNames.has(name) && !name.startsWith('custom_')) {
+          warnings.push(`apiPriority 中存在未知 API: ${name}`);
+        }
+      }
+
+      // 4. 检查 apiKeys 中的条目是否都在 apiPriority 中
+      for (const name of Object.keys(s.api.apiKeys || {})) {
+        if (!name.startsWith('custom_') && !(s.api.apiPriority || []).includes(name)) {
+          warnings.push(`apiKeys 中有 API 不在 apiPriority 中: ${name}`);
+        }
+      }
+
+      // 5. 检查 customProviders 的完整性
+      if (Array.isArray(s.api.customProviders)) {
+        for (const p of s.api.customProviders) {
+          if (!p.id) issues.push(`自定义供应商缺少 id 字段`);
+          if (!p.name) warnings.push(`自定义供应商 ${p.id || '未知'} 缺少 name 字段`);
+          if (!p.apiKey && !p.endpoint) warnings.push(`自定义供应商 ${p.name || p.id || '未知'} 的 apiKey 和 endpoint 均为空`);
+        }
+      }
+
+      // 6. 检查 quotaLimits 结构
+      if (s.api.quotaLimits && typeof s.api.quotaLimits === 'object') {
+        for (const [name, limit] of Object.entries(s.api.quotaLimits)) {
+          if (typeof limit !== 'object') { issues.push(`quotaLimits.${name} 不是对象`); continue; }
+          if (limit.enabled && (!limit.limit || limit.limit <= 0)) {
+            warnings.push(`quotaLimits.${name} 已启用但限额为 0`);
+          }
+          if (limit.unit && !['chars', 'tokens'].includes(limit.unit)) {
+            issues.push(`quotaLimits.${name} 的 unit 值无效: ${limit.unit}`);
+          }
+          if (limit.resetType && !['daily', 'monthly'].includes(limit.resetType)) {
+            issues.push(`quotaLimits.${name} 的 resetType 值无效: ${limit.resetType}`);
+          }
+        }
+      }
+    }
+
+    // 7. 检查 general 结构
+    if (s.general) {
+      if (typeof s.general.logLevel !== 'number' || s.general.logLevel < 0 || s.general.logLevel > 4) {
+        issues.push(`general.logLevel 值无效: ${s.general.logLevel}（应为 0-4）`);
+      }
+      if (typeof s.general.translationEnabled !== 'boolean') {
+        warnings.push(`general.translationEnabled 不是布尔值: ${typeof s.general.translationEnabled}`);
+      }
+    }
+
+    // 8. 检查 advanced 结构
+    if (s.advanced) {
+      if (typeof s.advanced.batchSize !== 'number' || s.advanced.batchSize < 1 || s.advanced.batchSize > 50) {
+        warnings.push(`advanced.batchSize 值异常: ${s.advanced.batchSize}（建议 1-50）`);
+      }
+      if (typeof s.advanced.requestTimeout !== 'number' || s.advanced.requestTimeout < 1 || s.advanced.requestTimeout > 60) {
+        warnings.push(`advanced.requestTimeout 值异常: ${s.advanced.requestTimeout}（建议 1-60）`);
+      }
+    }
+
+    // 9. 检查 display 结构
+    if (s.display) {
+      const validModes = ['bilingual', 'translation-only', 'hover', 'panel'];
+      if (!validModes.includes(s.display.mode)) {
+        issues.push(`display.mode 值无效: ${s.display.mode}`);
+      }
+    }
+
+    // 10. 检查 trigger 结构
+    if (s.trigger) {
+      if (!Array.isArray(s.trigger.whitelist)) warnings.push('trigger.whitelist 不是数组');
+      if (!Array.isArray(s.trigger.blacklist)) warnings.push('trigger.blacklist 不是数组');
+      if (!['whitelist', 'blacklist'].includes(s.trigger.excludeMode)) {
+        issues.push(`trigger.excludeMode 值无效: ${s.trigger.excludeMode}`);
+      }
+    }
+
+    // 11. 检查本地存储中的 apiKeys 与 sync 中的是否一致
+    const localRes = await chrome.storage.local.get(DIAG_LOCAL_API_KEYS_KEY);
+    const localKeys = localRes[DIAG_LOCAL_API_KEYS_KEY] || {};
+    const syncApiKeys = s.api?.apiKeys || {};
+    const syncApiNames = new Set(Object.keys(syncApiKeys));
+    const localApiNames = new Set(Object.keys(localKeys));
+    for (const name of syncApiNames) {
+      if (!localApiNames.has(name)) {
+        warnings.push(`sync 中有 apiKeys.${name} 但 local 中没有（可能需要迁移）`);
+      }
+    }
+
+    let html = '<div class="diag-section-title">设置完整性验证结果</div>';
+    html += '<div class="diag-summary">';
+    html += `<div class="diag-summary-item"><span>错误</span><span class="diag-summary-value ${issues.length > 0 ? 'err' : 'ok'}">${issues.length}</span></div>`;
+    html += `<div class="diag-summary-item"><span>警告</span><span class="diag-summary-value ${warnings.length > 0 ? 'warn' : 'ok'}">${warnings.length}</span></div>`;
+    html += '</div>';
+
+    if (issues.length > 0) {
+      html += '<div class="diag-section-title">错误（需要修复）</div>';
+      html += '<div class="diag-error">';
+      for (const issue of issues) html += `<div>• ${escapeAttr(issue)}</div>`;
+      html += '</div>';
+    }
+
+    if (warnings.length > 0) {
+      html += '<div class="diag-section-title">警告（建议检查）</div>';
+      html += '<div class="diag-config-card" style="background:#fef3c7;">';
+      for (const w of warnings) html += `<div>• ${escapeAttr(w)}</div>`;
+      html += '</div>';
+    }
+
+    if (issues.length === 0 && warnings.length === 0) {
+      html += '<div class="diag-config-card" style="background:#d1fae5;color:#065f46;">';
+      html += '<div>✓ 所有设置项验证通过，未发现异常</div>';
+      html += '</div>';
+    }
+
+    // 设置概览
+    html += '<div class="diag-section-title">设置概览</div>';
+    html += '<div class="diag-config-card">';
+    html += `<div><strong>翻译模式:</strong> ${escapeAttr(s.display?.mode || '未设置')}</div>`;
+    html += `<div><strong>源语言:</strong> ${escapeAttr(s.api?.sourceLanguage || 'auto')}</div>`;
+    html += `<div><strong>日志级别:</strong> ${s.general?.logLevel ?? '未设置'}</div>`;
+    html += `<div><strong>批量大小:</strong> ${s.advanced?.batchSize ?? '未设置'} 段</div>`;
+    html += `<div><strong>超时时间:</strong> ${s.advanced?.requestTimeout ?? '未设置'} 秒</div>`;
+    html += `<div><strong>懒加载:</strong> ${s.advanced?.lazyTranslate ? '开启' : '关闭'}</div>`;
+    html += `<div><strong>翻译缓存:</strong> ${s.trigger?.translationCache ? '开启' : '关闭'}</div>`;
+    html += `<div><strong>排除模式:</strong> ${escapeAttr(s.trigger?.excludeMode || '未设置')}</div>`;
+    html += `<div><strong>白名单数量:</strong> ${s.trigger?.whitelist?.length || 0}</div>`;
+    html += `<div><strong>黑名单数量:</strong> ${s.trigger?.blacklist?.length || 0}</div>`;
+    html += `<div><strong>快捷键:</strong> ${escapeAttr(s.general?.toggleTranslateShortcut || 'Alt+T')}</div>`;
+    html += `<div><strong>自定义供应商数量:</strong> ${s.api?.customProviders?.length || 0}</div>`;
+    html += `<div><strong>配额限制数量:</strong> ${Object.keys(s.api?.quotaLimits || {}).length}</div>`;
+    html += '</div>';
+
+    resultDiv.innerHTML = html;
+  } catch (e) {
+    resultDiv.innerHTML = `<div class="diag-error">诊断失败：${escapeAttr(e.message || String(e))}</div>`;
+  }
+}
+
+// 工具6: 运行日志查看器
+let _logViewerInitialized = false;
+
+function setupLogViewer() {
+  if (_logViewerInitialized) return;
+  _logViewerInitialized = true;
+
+  const refreshBtn = document.getElementById('diagLogRefreshBtn');
+  if (refreshBtn) refreshBtn.addEventListener('click', loadLogs);
+
+  const clearBtn = document.getElementById('diagLogClearBtn');
+  if (clearBtn) clearBtn.addEventListener('click', async () => {
+    if (!confirm('确认清空所有运行日志？此操作不可撤销。')) return;
+    try {
+      await chrome.runtime.sendMessage({ action: 'clearLogs' });
+      loadLogs();
+    } catch (e) {
+      console.error('[diag] clearLogs failed:', e);
+    }
+  });
+
+  const copyBtn = document.getElementById('diagLogCopyBtn');
+  if (copyBtn) copyBtn.addEventListener('click', copyLogs);
+
+  const filterSel = document.getElementById('diagLogLevelFilter');
+  if (filterSel) filterSel.addEventListener('change', loadLogs);
+}
+
+async function loadLogs() {
+  const listEl = document.getElementById('diagLogList');
+  const infoEl = document.getElementById('diagLogInfo');
+  if (!listEl) return;
+  listEl.innerHTML = '<div class="diag-log-empty">正在加载日志...</div>';
+
+  try {
+    const filterSel = document.getElementById('diagLogLevelFilter');
+    const level = filterSel?.value || 'all';
+
+    const res = await chrome.runtime.sendMessage({ action: 'getLogs', level, limit: 500 });
+    const logs = res?.logs || [];
+    const total = res?.total ?? 0;
+
+    if (infoEl) {
+      const levelText = { 0: '静默', 1: '仅错误', 2: '警告', 3: '信息', 4: '调试' };
+      const configRes = await chrome.runtime.sendMessage({ action: 'getLogConfig' });
+      const lv = configRes?.logLevel ?? 2;
+      infoEl.textContent = `缓冲区: ${total} 条 | 日志级别: ${levelText[lv] || lv} | 显示: ${logs.length} 条`;
+    }
+
+    if (logs.length === 0) {
+      listEl.innerHTML = '<div class="diag-log-empty">暂无日志记录</div>';
+      return;
+    }
+
+    listEl.innerHTML = logs.map(entry => {
+      const time = new Date(entry.ts).toLocaleTimeString('zh-CN', { hour12: false }) +
+        '.' + String(entry.ts % 1000).padStart(3, '0');
+      const levelText = { error: 'ERROR', warn: 'WARN', info: 'INFO', debug: 'DEBUG' }[entry.level] || entry.level.toUpperCase();
+      return `<div class="diag-log-entry">`
+        + `<span class="diag-log-time">${time}</span>`
+        + `<span class="diag-log-level ${entry.level}">${levelText}</span>`
+        + `<span class="diag-log-msg">${escapeAttr(entry.msg)}</span>`
+        + `</div>`;
+    }).join('');
+
+    // 自动滚动到底部（最新日志）
+    listEl.scrollTop = listEl.scrollHeight;
+  } catch (e) {
+    listEl.innerHTML = `<div class="diag-log-empty" style="color:#f48771;">加载日志失败: ${escapeAttr(e.message || String(e))}</div>`;
+  }
+}
+
+async function copyLogs() {
+  try {
+    const filterSel = document.getElementById('diagLogLevelFilter');
+    const level = filterSel?.value || 'all';
+    const res = await chrome.runtime.sendMessage({ action: 'getLogs', level, limit: 500 });
+    const logs = res?.logs || [];
+
+    if (logs.length === 0) {
+      alert('没有日志可复制');
+      return;
+    }
+
+    const text = logs.map(entry => {
+      const time = new Date(entry.ts).toISOString();
+      return `[${time}] [${entry.level.toUpperCase()}] ${entry.msg}`;
+    }).join('\n');
+
+    await navigator.clipboard.writeText(text);
+    alert(`已复制 ${logs.length} 条日志到剪贴板`);
+  } catch (e) {
+    alert('复制失败: ' + (e.message || String(e)));
   }
 }
