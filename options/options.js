@@ -1253,13 +1253,14 @@ async function renderMonthlyUsage() {
     const monthlyRes = await chrome.runtime.sendMessage({ action: 'getMonthlyUsage' });
     const dailyRes = await chrome.runtime.sendMessage({ action: 'getDailyUsage' });
     const monthlyUsage = monthlyRes?.usage || {};
-    const dailyUsage = dailyRes || {};
+    // v1.0.10 fix: 重命名局部变量，避免遮蔽全局 dailyUsage
+    const freshDailyUsage = dailyRes || {};
     const priority = settings.api.apiPriority || [];
     const quotaLimits = settings.api.quotaLimits || {};
     const currentMonth = new Date().toISOString().slice(0, 7);
     const today = new Date().toDateString();
     const isThisMonth = monthlyUsage._month === currentMonth;
-    const isToday = dailyUsage._date === today;
+    const isToday = freshDailyUsage._date === today;
 
     const items = [];
     for (const apiName of priority) {
@@ -1267,7 +1268,7 @@ async function renderMonthlyUsage() {
       const limit = quotaLimits[apiName];
       const isDaily = limit?.resetType === 'daily';
       const count = isDaily
-        ? (isToday ? (dailyUsage[apiName] || 0) : 0)
+        ? (isToday ? (freshDailyUsage[apiName] || 0) : 0)
         : (isThisMonth ? (monthlyUsage[apiName] || 0) : 0);
       const displayName = getApiDisplayName(apiName);
       const limitInChars = limit?.enabled && limit?.limit > 0
