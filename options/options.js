@@ -987,13 +987,23 @@ function renderApiCards() {
         btn.textContent = '✓ 成功';
         btn.style.background = '#4CAF50';
         btn.style.color = '#fff';
-        // v1.0.5 hotfix: 测试成功时刷新本地 apiStatus 缓存并重渲染, 让状态 badge 立即反映新状态
-        // 否则 background 已写 status='available' (api-manager.js testApi), 但 options 页面内存里还是旧 error
+        // v1.0.10: 刷新 apiStatus 并仅更新状态标识 DOM，不重新渲染整个卡片列表
+        // （重新渲染会替换按钮 DOM，导致"✓ 成功"反馈丢失）
         try {
           const fresh = await chrome.runtime.sendMessage({ action: 'getApiStatus' });
           if (fresh && fresh.status) {
             apiStatus = fresh.status;
-            renderApiCards();
+            // 直接更新该 API 卡片的状态标识
+            const card = btn.closest('.api-card');
+            if (card) {
+              const statusEl = card.querySelector('.api-card-status');
+              if (statusEl) {
+                const newStatus = apiStatus[apiName];
+                const statusValue = newStatus?.status || 'available';
+                statusEl.className = `api-card-status ${statusValue}`;
+                statusEl.textContent = getStatusLabel(statusValue);
+              }
+            }
             renderApiUsage();
           }
         } catch {}

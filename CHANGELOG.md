@@ -15,10 +15,10 @@
 
 ## v1.0.10 — 2026-07-29
 
-> 修复火山引擎 V4 签名算法致命 bug。
+> 修复火山引擎 V4 签名算法致命 bug + 测试后状态不更新问题。
 > 签名密钥派生从错误的 hex 字符串改为正确的原始二进制字节，经官方示例值验证。
 
-### Fixed — Bug 修复（1 项）
+### Fixed — Bug 修复（3 项）
 
 - **[严重] 火山引擎机器翻译 AUTH_ERROR**
   - 根因：`_buildAuthHeaders()` 派生签名密钥时，错误地将每步 HMAC 输出的 hex 字符串作为下一轮 HMAC 的密钥，正确做法是直接使用原始二进制字节（`Uint8Array`）
@@ -26,11 +26,17 @@
   - 修复：`kDate → kRegion → kService → kSigning → signature` 链路中移除所有 `_toHex()` 中间转换，直接传递 `Uint8Array`
   - 改进错误处理：AUTH_ERROR 现在保留原始错误码和消息（如 `SignatureDoesNotMatch`），便于诊断
   - `api-manager.js` `_handleApiError` / `_translateWithTimeout` 同步更新，用 `startsWith('AUTH_ERROR')` 匹配带详情的错误消息
+- **[中等] 测试成功后状态标识不更新（显示"未配置"）**
+  - 根因：`getApiStatusSummary()` 仅遍历 `getOrderedTranslators()`（已构建翻译器），未启用或 SW 未重建的 API（如 volcano）不在其中，状态不返回给 options.js
+  - 修复：改为遍历 `apiPriority` 列表中所有 API，已构建翻译器默认 `'available'`，未构建默认 `'unconfigured'`，有缓存状态则用缓存值
+- **[中等] 测试成功后按钮反馈丢失**
+  - 根因：测试成功后调用 `renderApiCards()` 重新生成整个卡片 HTML，按钮 DOM 被替换，"✓ 成功"状态丢失
+  - 修复：改为仅更新该 API 卡片的状态标识 DOM（class + textContent），不重新渲染整个卡片列表
 
 ### 工程
 
 - 新增测试脚本验证签名算法正确性（使用官方文档示例值）
-- 修改文件：`lib/api-adapters/volcano.js` / `lib/api-manager.js`
+- 修改文件：`lib/api-adapters/volcano.js` / `lib/api-manager.js` / `options/options.js`
 
 ---
 
