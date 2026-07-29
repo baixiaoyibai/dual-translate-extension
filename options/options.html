@@ -28,6 +28,12 @@
       <button class="sidebar-tab" data-tab="api">
         <span class="tab-icon">🔌</span>API 管理
       </button>
+      <button class="sidebar-tab" data-tab="quota">
+        <span class="tab-icon">📊</span>额度限制
+      </button>
+      <button class="sidebar-tab" data-tab="tips">
+        <span class="tab-icon">💡</span>温馨提示
+      </button>
       <button class="sidebar-tab" data-tab="advanced">
         <span class="tab-icon">⚙</span>高级设置
       </button>
@@ -339,6 +345,118 @@
         <div class="section-card-header">🔢 API 使用优先级</div>
         <p class="setting-desc" style="margin-bottom:8px;">拖拽调整翻译接口的使用顺序，排在上面的优先使用</p>
         <div class="api-priority-list" id="apiPriorityList"></div>
+      </div>
+    </div>
+
+    <div id="tab-quota" class="tab-content">
+      <h2>额度限制</h2>
+      <p class="section-subtitle">为各翻译接口设置每月使用上限，达到 97% 时自动切换到下一翻译源</p>
+
+      <div class="section-card">
+        <div class="section-card-header">📊 月度额度配置</div>
+        <p class="setting-desc" style="margin-bottom:12px;">
+          开启后，插件会跟踪每个接口的月度字符使用量。当用量达到设定额度的 97% 时，自动按优先级切换到下一个翻译源，避免超额产生费用。
+          <br><small style="color:#888;">单位说明：机器翻译接口（百度/火山引擎）按字符计费，选「字符」；大模型接口按 Token 计费，选「Token」（插件按 1 Token ≈ 2 字符 估算）。</small>
+        </p>
+        <div id="quotaLimitsContainer"></div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">📈 本月用量</div>
+        <p class="setting-desc" style="margin-bottom:10px;">各接口本月已使用的字符数（每月 1 号重置）</p>
+        <div id="monthlyUsageContainer" class="api-usage-container">
+          <div class="status-loading">加载中...</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-tips" class="tab-content">
+      <h2>温馨提示</h2>
+      <p class="section-subtitle">使用前请仔细阅读以下说明</p>
+
+      <div class="section-card">
+        <div class="section-card-header">⚠ 免责声明</div>
+        <p class="setting-desc">
+          本插件仅作为翻译辅助工具，不对翻译结果的准确性、完整性或适用性负责。翻译结果由第三方翻译接口（百度、DeepSeek、智谱、火山引擎等）提供，插件不对第三方服务的可用性和翻译质量做任何保证。
+          <br><br>对于重要内容的翻译（如法律文件、医疗信息、技术规范等），请以专业人工翻译为准。使用本插件即表示您理解并接受上述免责声明。
+        </p>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">🔧 插件工作原理</div>
+        <p class="setting-desc">
+          1. <strong>扫描网页</strong>：插件在网页加载后扫描页面中的文本段落（段落、标题、列表等），跳过代码块、脚本和样式内容。
+          <br>2. <strong>语言检测</strong>：检测文本语言，仅翻译英语和日语内容（可在设置中调整）。
+          <br>3. <strong>术语替换</strong>：将文本中的游戏/MOD 术语按术语库规则预处理。
+          <br>4. <strong>调用翻译接口</strong>：将文本批量发送到已配置的翻译接口，按优先级依次尝试。首个接口失败或额度不足时自动切换到下一个。
+          <br>5. <strong>注入译文</strong>：将翻译结果按所选显示模式（双语对照/仅译文/悬停翻译/对照面板）注入回页面。
+          <br>6. <strong>缓存</strong>：已翻译的文本会缓存 3 天，再次遇到相同内容时直接使用缓存，不重复调用 API。
+        </p>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">📝 翻译效果示例</div>
+        <p class="setting-desc" style="margin-bottom:12px;">以下为「双语对照」模式下的翻译效果示例（字体大小和颜色遵循您的显示设置）：</p>
+        <div class="tips-translation-example">
+          <div class="tips-example-original">The dragon guards the ancient treasure deep within the dungeon. Players must defeat it to obtain the legendary sword.</div>
+          <div class="tips-example-translation">巨龙守护着地下城深处的远古宝藏。玩家必须击败它才能获得传说中的宝剑。</div>
+        </div>
+        <p class="setting-desc" style="margin-top:8px;">
+          <small style="color:#888;">译文颜色和大小会随「显示设置」中的配置自动调整。上方示例已按当前设置渲染。</small>
+        </p>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">📊 额度限制功能说明</div>
+        <p class="setting-desc">
+          在「额度限制」标签页中，您可以为每个翻译接口设置每月使用上限：
+          <br><br>
+          <strong>启用限制</strong>：勾选开关后，该接口的月度用量会被跟踪。
+          <br><strong>额度数值</strong>：填写每月允许使用的最大量。
+          <br><strong>计费单位</strong>：选择「字符」或「Token」。机器翻译接口（百度/火山引擎）按字符计费，大模型接口按 Token 计费。
+          <br><br>
+          当某接口用量达到设定额度的 <strong>97%</strong> 时，插件会自动按「API 管理」中的优先级排序切换到下一个翻译源，避免超额产生费用。每月 1 号自动重置用量统计。
+          <br><br>
+          <small style="color:#888;">注意：Token 用量为估算值（1 Token ≈ 2 字符），实际计费以服务商账单为准。此功能仅为辅助提醒，不保证完全避免超额。</small>
+        </p>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">📖 术语库使用说明</div>
+        <p class="setting-desc">
+          术语库用于自定义特定词汇的翻译规则，支持全局和域名专属术语：
+          <br><br>
+          <strong>全局术语</strong>：在所有网站生效。适合通用的游戏/MOD 术语，如 <code>tank → 坦克</code>。
+          <br><strong>域名专属术语</strong>：仅在指定网站生效。可在术语管理页添加域名（如 <code>*.nexusmods.com</code>），为不同社区设置不同翻译规则。
+          <br><br>
+          <strong>匹配模式</strong>：
+          <br>• 精确匹配：原文术语完全匹配时替换（推荐用于专有名词）。
+          <br>• 模糊匹配：包含原文术语时替换（适合短语）。
+          <br><br>
+          <strong>保留原文</strong>：开启后，该术语不会被翻译，保持原文显示。适合缩写如 HP、MP、NPC 等。
+          <br><br>
+          术语库支持 JSON 格式的导入导出，方便备份和迁移。
+        </p>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">🔑 密钥存储说明</div>
+        <p class="setting-desc">
+          <strong>所有 API 密钥仅保存在本地浏览器中</strong>（<code>chrome.storage.local</code>），<strong>不会跨设备同步</strong>到 Google/微软账户，也<strong>不会上传到任何服务器</strong>。
+          <br><br>
+          <strong>具体存储位置</strong>：
+          <br>• 百度 App ID / 密钥 → 本地存储
+          <br>• 百度大模型 APP ID / API Key → 本地存储
+          <br>• 火山引擎 Access Key / Secret Key → 本地存储
+          <br>• DeepSeek / 智谱 / 通义 / 零一 / 豆包 API Key → 本地存储
+          <br>• 自定义大模型 API Key → 本地存储
+          <br><br>
+          <strong>导出设置时</strong>：导出的 JSON 文件<strong>不包含</strong>任何 API 密钥，仅包含显示设置、翻译规则、术语库等非敏感数据。换机迁移后需重新填写密钥。
+          <br><br>
+          <strong>清除密钥</strong>：在「API 管理」页面，每个接口卡片右侧有「清除」按钮，可一键删除该接口的所有配置信息。
+          <br><br>
+          <small style="color:#888;">如需彻底清除所有数据，可在浏览器扩展管理页面点击「清除数据」。</small>
+        </p>
       </div>
     </div>
 

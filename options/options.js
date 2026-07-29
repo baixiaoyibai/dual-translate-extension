@@ -6,6 +6,7 @@ let apiStatus = {};
 let dailyUsage = {};
 
 const API_DISPLAY_NAMES = (typeof window !== 'undefined' && window.API_DISPLAY_NAMES) ? window.API_DISPLAY_NAMES : {};
+const API_FREE_QUOTAS = (typeof window !== 'undefined' && window.API_FREE_QUOTAS) ? window.API_FREE_QUOTAS : {};
 const API_CONFIG_FIELDS = {
   baidu: [
     { key: 'appId', label: 'App ID', type: 'text' },
@@ -20,6 +21,10 @@ const API_CONFIG_FIELDS = {
   baidu_llm: [
     { key: 'appId', label: 'APP ID', type: 'text' },
     { key: 'apiKey', label: 'API Key', type: 'password' }
+  ],
+  volcano: [
+    { key: 'accessKey', label: 'Access Key', type: 'text' },
+    { key: 'secretKey', label: 'Secret Key', type: 'password' }
   ],
   tongyi: [
     { key: 'apiKey', label: 'API Key', type: 'password' }
@@ -92,6 +97,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   try { setupRulesSettings(); } catch(e) { console.error('[options] setupRulesSettings:', e); }
   try { setupGlossaryManagement(); } catch(e) { console.error('[options] setupGlossaryManagement:', e); }
   try { setupApiManagement(); } catch(e) { console.error('[options] setupApiManagement:', e); }
+  try { setupQuotaSettings(); } catch(e) { console.error('[options] setupQuotaSettings:', e); }
+  try { setupTips(); } catch(e) { console.error('[options] setupTips:', e); }
   try { setupAdvancedSettings(); } catch(e) { console.error('[options] setupAdvancedSettings:', e); }
 
   // 如果 settings 仍为 null，在 API 区域显示错误提示
@@ -131,6 +138,8 @@ async function refreshApiSettings() {
       renderApiCards();
       renderApiPriority();
       renderApiUsage();
+      renderQuotaLimits();
+      renderMonthlyUsage();
       showSavedTip();
     } else {
       if (container) {
@@ -224,6 +233,10 @@ function setupTabSwitching() {
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
       document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      // v1.0.8: 切换到温馨提示页时，将当前显示设置应用到翻译示例
+      if (tab.dataset.tab === 'tips') {
+        setupTips();
+      }
     });
   });
 }
@@ -859,6 +872,8 @@ function renderApiCards() {
     }
 
     const statusText = getStatusLabel(status?.status);
+    const freeQuota = API_FREE_QUOTAS[apiName];
+    const freeQuotaHtml = freeQuota ? `<div class="api-free-quota">${escapeAttr(freeQuota)}</div>` : '';
 
     return `
       <div class="api-card">
@@ -876,6 +891,7 @@ function renderApiCards() {
         </div>
         <div class="api-card-body">
           ${fieldsHtml}
+          ${freeQuotaHtml}
         </div>
       </div>
     `;
@@ -1093,6 +1109,163 @@ function renderApiUsage() {
       </div>
     `;
   }).join('');
+}
+
+// v1.0.8: 额度限制设置
+function setupQuotaSettings() {
+  if (!settings) return;
+  renderQuotaLimits();
+  renderMonthlyUsage();
+}
+
+function renderQuotaLimits() {
+  const container = document.getElementById('quotaLimitsContainer');
+  if (!container || !settings) return;
+  const priority = settings.api.apiPriority || [];
+  const quotaLimits = settings.api.quotaLimits || {};
+
+  const items = priority.filter(name => API_DISPLAY_NAMES[name] || name.startsWith('custom_'));
+
+  if (items.length === 0) {
+    container.innerHTML = '<div style="padding:12px;color:#888;">暂无可配置的翻译接口</div>';
+    return;
+  }
+
+  container.innerHTML = items.map(apiName => {
+    const limit = quotaLimits[apiName] || { enabled: false, limit: 0, unit: 'chars' };
+    const displayName = getApiDisplayName(apiName);
+    const freeQuota = API_FREE_QUOTAS[apiName];
+    return `
+      <div class="quota-setting-row" data-api="${apiName}">
+        <div class="quota-setting-info">
+          <label class="toggle-switch">
+            <input type="checkbox" class="quota-enable" data-api="${apiName}" ${limit.enabled ? 'checked' : ''}>
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="quota-api-name">${escapeAttr(displayName)}</span>
+          ${freeQuota ? `<span class="quota-free-hint">${escapeAttr(freeQuota)}</span>` : ''}
+        </div>
+        <div class="quota-setting-controls">
+          <input type="number" class="quota-limit-input" data-api="${apiName}" value="${limit.limit || 0}" min="0" placeholder="0">
+          <select class="quota-unit-select" data-api="${apiName}">
+            <option value="chars" ${limit.unit === 'chars' ? 'selected' : ''}>字符</option>
+            <option value="tokens" ${limit.unit === 'tokens' ? 'selected' : ''}>Token</option>
+          </select>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // 绑定事件
+  container.querySelectorAll('.quota-enable').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const apiName = cb.dataset.api;
+      if (!settings.api.quotaLimits) settings.api.quotaLimits = {};
+      if (!settings.api.quotaLimits[apiName]) settings.api.quotaLimits[apiName] = { enabled: false, limit: 0, unit: 'chars' };
+      settings.api.quotaLimits[apiName].enabled = cb.checked;
+      saveAllSettings(settings).then(() => {
+        chrome.runtime.sendMessage({ action: 'reloadApis' });
+        showSavedTip();
+      });
+    });
+  });
+
+  container.querySelectorAll('.quota-limit-input').forEach(input => {
+    input.addEventListener('change', () => {
+      const apiName = input.dataset.api;
+      const val = parseInt(input.value) || 0;
+      if (!settings.api.quotaLimits) settings.api.quotaLimits = {};
+      if (!settings.api.quotaLimits[apiName]) settings.api.quotaLimits[apiName] = { enabled: false, limit: 0, unit: 'chars' };
+      settings.api.quotaLimits[apiName].limit = val;
+      saveAllSettings(settings).then(() => {
+        chrome.runtime.sendMessage({ action: 'reloadApis' });
+        showSavedTip();
+      });
+    });
+  });
+
+  container.querySelectorAll('.quota-unit-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const apiName = sel.dataset.api;
+      if (!settings.api.quotaLimits) settings.api.quotaLimits = {};
+      if (!settings.api.quotaLimits[apiName]) settings.api.quotaLimits[apiName] = { enabled: false, limit: 0, unit: 'chars' };
+      settings.api.quotaLimits[apiName].unit = sel.value;
+      saveAllSettings(settings).then(() => {
+        chrome.runtime.sendMessage({ action: 'reloadApis' });
+        showSavedTip();
+      });
+    });
+  });
+}
+
+async function renderMonthlyUsage() {
+  const container = document.getElementById('monthlyUsageContainer');
+  if (!container || !settings) return;
+
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'getMonthlyUsage' });
+    const usage = res?.usage || {};
+    const priority = settings.api.apiPriority || [];
+    const quotaLimits = settings.api.quotaLimits || {};
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const isThisMonth = usage._month === currentMonth;
+
+    const items = [];
+    for (const apiName of priority) {
+      if (!API_DISPLAY_NAMES[apiName] && !apiName.startsWith('custom_')) continue;
+      const count = isThisMonth ? (usage[apiName] || 0) : 0;
+      const displayName = getApiDisplayName(apiName);
+      const limit = quotaLimits[apiName];
+      const limitInChars = limit?.enabled && limit?.limit > 0
+        ? (limit.unit === 'tokens' ? limit.limit * 2 : limit.limit)
+        : 0;
+      const pct = limitInChars > 0 ? Math.min(100, Math.round((count / limitInChars) * 100)) : 0;
+      items.push({ name: apiName, displayName, count, limit: limitInChars, pct, enabled: limit?.enabled });
+    }
+
+    if (items.length === 0) {
+      container.innerHTML = '<div class="api-usage-empty">暂无用量数据</div>';
+      return;
+    }
+
+    container.innerHTML = items.map(item => {
+      const limitText = item.enabled && item.limit > 0
+        ? ` / ${item.limit.toLocaleString()} (${item.pct}%)`
+        : '';
+      const barColor = item.pct >= 97 ? '#f44336' : (item.pct >= 80 ? '#ff9800' : 'var(--primary-color)');
+      return `
+        <div class="api-usage-item">
+          <span class="api-usage-name">${escapeAttr(item.displayName)}</span>
+          <div class="api-usage-bar"><div class="api-usage-bar-fill" style="width:${item.pct || (item.count > 0 ? 5 : 0)}%;background:${barColor}"></div></div>
+          <span class="api-usage-count">${item.count.toLocaleString()} 字符${escapeAttr(limitText)}</span>
+        </div>
+      `;
+    }).join('');
+  } catch(e) {
+    container.innerHTML = '<div class="api-usage-empty">加载失败</div>';
+  }
+}
+
+// v1.0.8: 温馨提示设置
+function setupTips() {
+  // 将当前显示设置应用到翻译示例
+  const translationEl = document.querySelector('.tips-example-translation');
+  const originalEl = document.querySelector('.tips-example-original');
+  if (!translationEl || !originalEl || !settings) return;
+
+  const d = settings.display;
+  if (d.translationColor) {
+    translationEl.style.color = d.translationColor;
+  }
+  if (d.translationSize) {
+    translationEl.style.fontSize = d.translationSize;
+  }
+  if (d.translationFont) {
+    translationEl.style.fontFamily = d.translationFont;
+  }
+  if (d.translationSpacing) {
+    translationEl.style.marginTop = d.translationSpacing;
+  }
 }
 
 function setupAdvancedSettings() {

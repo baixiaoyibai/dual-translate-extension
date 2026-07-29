@@ -162,6 +162,9 @@ async function handleMessage(message, sender) {
     case 'getDailyUsage':
       return await settingsManager.getDailyUsage();
 
+    case 'getMonthlyUsage':
+      return { usage: await settingsManager.getMonthlyUsage() };
+
     case 'getGlossary':
       return { glossary: await settingsManager.getGlossary() };
 

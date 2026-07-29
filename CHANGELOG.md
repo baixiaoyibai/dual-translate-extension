@@ -13,6 +13,60 @@
 
 ---
 
+## v1.0.8 — 2026-07-29
+
+> 火山引擎机器翻译接口 + 自定义额度限制 + 免费额度标注 + 温馨提示页。
+> 新增 1 个翻译接口、2 个设置页标签页、月度用量追踪系统。
+
+### Added — 新功能（4 项）
+
+- **火山引擎机器翻译接口**
+  - 新增 `lib/api-adapters/volcano.js` 适配器，实现 V4 签名（HMAC-SHA256）认证
+  - 使用 Web Crypto API（`crypto.subtle`）实现 SHA-256 和 HMAC-SHA256，无需第三方库
+  - 支持批量翻译（单次最多 16 条文本，总字符不超过 5000，自动拆分批次）
+  - 用户在 API 管理页填写 Access Key 和 Secret Key 即可使用
+  - 免费额度：200 万字符/月，每月 1 号重置
+  - 集成到 `api-manager.js`（`_buildTranslators` / `testApi`）、`api-metadata.js`、`settings-manager.js`（`DEFAULT_SETTINGS` / `MONTHLY_RESET_APIS`）
+- **自定义月度额度限制**
+  - 新增「额度限制」设置页标签页，可为每个翻译接口设置月度使用上限
+  - 单位可选：字符（机器翻译接口）或 Token（大模型接口，1 Token ≈ 2 字符估算）
+  - 用量达到设定额度的 **97%** 时，自动按 API 优先级切换到下一翻译源
+  - 新增 `settings-manager.js` 月度用量追踪：`getMonthlyUsage()` / `addMonthlyUsage()` / `isApiQuotaReached()` / `getApiUsagePercentage()`
+  - `api-manager.js` `translate()` 方法在每次翻译前检查额度限制
+  - 用量条形图在 80% 显示橙色、97% 显示红色
+  - `background.js` 新增 `getMonthlyUsage` 消息处理器
+- **免费额度小字标注**
+  - API 管理页每个接口卡片底部显示该接口的免费额度信息
+  - 额度限制页每个接口旁也显示免费额度提示
+  - `api-metadata.js` 新增 `API_FREE_QUOTAS` 常量，集中管理各接口免费额度信息
+- **温馨提示设置页**
+  - 新增「温馨提示」标签页，包含 6 个信息区块：
+    - 免责声明：翻译结果由第三方接口提供，插件不对准确性负责
+    - 插件工作原理：6 步流程说明（扫描→检测→术语→翻译→注入→缓存）
+    - 翻译效果示例：双语对照示例，字体大小/颜色/间距自动跟随显示设置
+    - 额度限制功能说明：97% 自动切换机制、单位选择、月度重置
+    - 术语库使用说明：全局/域名专属术语、匹配模式、保留原文
+    - 密钥存储说明：所有密钥仅存本地，不同步不上传，导出不含密钥
+
+### Changed — 行为变更（3 项）
+
+- **百度翻译更名为百度机器翻译**
+  - `api-metadata.js` `API_DISPLAY_NAMES.baidu` 由 `'百度翻译'` 改为 `'百度机器翻译'`
+  - `README.md` 同步更新接口名称
+- **预置供应商数量 8 → 9**
+  - 新增火山引擎机器翻译，预置供应商总数从 8 个增加到 9 个
+  - `DEFAULT_SETTINGS.api.apiPriority` 新增 `'volcano'`（排在 `baidu_llm` 之后）
+- **设置页标签页 5 → 7**
+  - 新增「额度限制」和「温馨提示」两个标签页
+
+### 工程
+
+- `npm run check`（14 个 `node --check`）全部通过
+- 新增文件：`lib/api-adapters/volcano.js`
+- 修改文件：`manifest.json` / `README.md` / `background.js` / `lib/api-metadata.js` / `lib/settings-manager.js` / `lib/api-manager.js` / `options/options.html` / `options/options.js` / `options/options.css` / `package.json`
+
+---
+
 ## v1.0.7 — 2026-07-29
 
 > API 管理重构 + 安全加固批。聚焦设置页 API 显示可靠性、自定义供应商 UX、密钥隔离安全。
