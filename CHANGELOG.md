@@ -13,6 +13,27 @@
 
 ---
 
+## v1.0.10 — 2026-07-29
+
+> 修复火山引擎 V4 签名算法致命 bug。
+> 签名密钥派生从错误的 hex 字符串改为正确的原始二进制字节，经官方示例值验证。
+
+### Fixed — Bug 修复（1 项）
+
+- **[严重] 火山引擎机器翻译 AUTH_ERROR**
+  - 根因：`_buildAuthHeaders()` 派生签名密钥时，错误地将每步 HMAC 输出的 hex 字符串作为下一轮 HMAC 的密钥，正确做法是直接使用原始二进制字节（`Uint8Array`）
+  - 用官方文档示例值编写测试脚本验证：Method 1（hex 字符串）全部 FAIL，Method 2（原始字节）全部 PASS
+  - 修复：`kDate → kRegion → kService → kSigning → signature` 链路中移除所有 `_toHex()` 中间转换，直接传递 `Uint8Array`
+  - 改进错误处理：AUTH_ERROR 现在保留原始错误码和消息（如 `SignatureDoesNotMatch`），便于诊断
+  - `api-manager.js` `_handleApiError` / `_translateWithTimeout` 同步更新，用 `startsWith('AUTH_ERROR')` 匹配带详情的错误消息
+
+### 工程
+
+- 新增测试脚本验证签名算法正确性（使用官方文档示例值）
+- 修改文件：`lib/api-adapters/volcano.js` / `lib/api-manager.js`
+
+---
+
 ## v1.0.9 — 2026-07-29
 
 > 额度限制支持每日重置 + 温馨提示新增 API 管理页说明。
