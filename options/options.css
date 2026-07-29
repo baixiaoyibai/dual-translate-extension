@@ -429,8 +429,8 @@ select {
   width: auto;
   min-width: 180px;
   cursor: pointer;
-  appearance: none;
   -webkit-appearance: none;
+  appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.937 10.825 4z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
@@ -753,8 +753,8 @@ input:checked + .toggle-slider:before {
   font-size: 12.5px;
   background: transparent;
   cursor: pointer;
-  appearance: none;
   -webkit-appearance: none;
+  appearance: none;
   min-width: 90px;
   background-position: right 6px center;
   background-size: 10px;
@@ -1143,8 +1143,8 @@ input:checked + .toggle-slider:before {
   font-size: 12.5px;
   background: var(--bg-white);
   cursor: pointer;
-  appearance: none;
   -webkit-appearance: none;
+  appearance: none;
   background-position: right 6px center;
   background-size: 10px;
   min-width: auto;
@@ -1523,8 +1523,8 @@ input:checked + .toggle-slider:before {
   cursor: not-allowed !important;
   color: #555;
   -webkit-text-fill-color: #555;
-  user-select: none;
   -webkit-user-select: none;
+  user-select: none;
 }
 
 .api-field.locked::selection { 
@@ -1536,8 +1536,8 @@ input:checked + .toggle-slider:before {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(15, 23, 42, 0.6);
-  backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
   z-index: 10000;
   display: flex;
   align-items: center;
@@ -1863,7 +1863,7 @@ input:checked + .toggle-slider:before {
  *    会导致内容区被过度压缩）
  * 2. Win10 及更早系统：字体栈包含 'Segoe UI'（非 Variable 变体）
  * 3. macOS：scrollbar-gutter 防滚动条跳动，-webkit-user-select 前缀
- * 4. 高分屏（Retina/4K）：@media (min-device-pixel-ratio: 2) 边框降级为 1px
+ * 4. 高分屏（Retina/4K）：@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) 边框降级为 1px
  * 5. 多浏览器：chrome.storage 按浏览器隔离，互不干扰（见 settings-manager.js）
  * 6. 海外 Win 编码：所有 HTML 均声明 <meta charset="UTF-8">，Fetch API 默认 UTF-8
  *

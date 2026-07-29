@@ -86,8 +86,8 @@
   -webkit-user-select: none;
   user-select: none;
   border: 1px solid var(--dt-border-light);
-  backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
 }
 
 .dual-translate-loading-overlay.hiding {
