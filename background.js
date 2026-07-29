@@ -97,6 +97,10 @@ async function handleMessage(message, sender) {
       return await handleTranslateTexts(message);
 
     case 'getSettings':
+      // v1.0.6 fix: 确保返回的 settings 包含 local storage 中的最新 apiKeys
+      // 场景：SW 重启后 settingsManager.settings 可能未正确合并 apiKeys，
+      //       导致设置页 API 卡片密钥为空，但 popup（走 apiManager）仍正常
+      await settingsManager.reloadApiKeys();
       return { settings: settingsManager.settings };
 
     case 'updateSettings':
