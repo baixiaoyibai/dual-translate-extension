@@ -755,7 +755,10 @@ function renderApiCards() {
   }
 
   // 确保 apiPriority 包含所有已配置密钥的 API（防止 priority 列表遗漏已配置的 API）
+  // v1.0.7: 仅补充已知 API 名称，过滤已废弃的 API（如 tencent）
+  const knownApiNames = new Set([...Object.keys(API_DISPLAY_NAMES), ...(settings.api.apiPriority || [])]);
   const configuredApis = Object.keys(apiKeys).filter(name => {
+    if (!name.startsWith('custom_') && !knownApiNames.has(name)) return false;
     const obj = apiKeys[name];
     return obj && typeof obj === 'object' && Object.values(obj).some(v => typeof v === 'string' && v.length > 0);
   });
