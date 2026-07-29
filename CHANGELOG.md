@@ -13,6 +13,42 @@
 
 ---
 
+## v1.0.12 — 2026-07-29
+
+> 风险修复批：安全加固 + 死代码清理 + 错误处理增强。
+> 修复风险评估报告中的 R1（高风险）+ R2/R3/R4（中等风险），3 个子代理并行实施，主代理审核通过。
+
+### Security — 安全修复（1 项）
+
+- **[高风险] `getSettings` 向 content script 暴露 API 密钥**
+  - 根因：`background.js` `case 'getSettings'` 直接返回完整 `settingsManager.settings`（含全部 apiKeys）给任何 sender，无身份校验
+  - 修复：通过 `sender.url.startsWith('chrome-extension://')` 区分扩展页面与 content script。扩展页面（popup/options）返回完整 settings；content script 返回深拷贝并将 `apiKeys` 置为 `{}`
+  - 深拷贝（`JSON.parse(JSON.stringify(...))`）防止原对象被修改，block scope `{}` 避免 switch 词法声明问题
+  - content.js 实际不使用 apiKeys（翻译请求走 background 的 apiManager），功能不受影响
+
+### Changed — 架构优化（2 项）
+
+- **[中等] 移除 `API_REGISTRY.custom` 死代码**
+  - 根因：`api-registry.js` 中 `API_REGISTRY.custom` 注册条目（23 行）从未被调用 —— `enabledApis` 和 `apiKeys` 默认值均无 `custom` 条目，`_buildTranslators()` 两道 guard 均跳过它，真正的自定义供应商走 `custom_*` 前缀 + `createCustomProviderTranslator()`
+  - 修复：删除 `API_REGISTRY.custom` 条目，消除维护混淆
+- **[中等] `LLM_PROVIDERS` 元数据一致性标注**
+  - 根因：`api-registry.js` 的 `LLM_PROVIDERS` 与 `api-metadata.js` 的 `API_DISPLAY_NAMES` / `API_MODELS_DEFAULT` 存储相同信息（6 个 LLM 供应商的 displayName + model），未来修改可能遗漏同步
+  - 修复：交叉验证 6 个供应商数据全部一致，在 `LLM_PROVIDERS` 上方新增注释标注需与 `api-metadata.js` 保持一致，说明无法 import 的原因（IIFE vs ES module）
+
+### Fixed — Bug 修复（1 项）
+
+- **[中等] `_handleHttpError` 对非 JSON 响应静默吞错**
+  - 根因：`base.js` `_handleHttpError()` 在 401/403 时盲目调用 `response.json()`，遇到 HTML 错误页（Cloudflare 拦截、nginx 502 等）会抛异常被空 `catch {}` 吞掉，`detail` 保持空字符串，用户只看到无信息的 `AUTH_ERROR`
+  - 修复：先检查 `response.headers.get('content-type')` 是否包含 `application/json`。JSON 响应走原有逻辑（兼容火山引擎/OpenAI/百度三种格式）；非 JSON 响应调用 `response.text()` 截取前 200 字符，格式化为 `AUTH_ERROR: HTTP {status} - {text片段}`
+
+### 工程
+
+- `npm run check`（15 个 `node --check`）全部通过
+- 3 个子代理并行实施（R1 / R2+R3 / R4），主代理审核全部通过，无遗漏，0 轮迭代
+- 修改文件：`background.js` / `lib/api-registry.js` / `lib/api-adapters/base.js`
+
+---
+
 ## v1.0.11 — 2026-07-29
 
 > 架构重构：提取 BaseTranslator 基类 + API 注册表工厂，消除适配器重复代码和条件分支。

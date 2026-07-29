@@ -2,7 +2,7 @@
 
 一个给 Edge / Chrome 浏览器用的翻译扩展（Manifest V3）。浏览英文或日文网页时，自动帮你翻译成简体中文，支持 4 种显示方式，内置 4 个免费翻译接口自动轮换，针对游戏攻略 / MOD 社区做了术语优化。
 
-> **版本变更历史请见 [CHANGELOG.md](./CHANGELOG.md)**，当前版本：**v1.0.11**
+> **版本变更历史请见 [CHANGELOG.md](./CHANGELOG.md)**，当前版本：**v1.0.12**
 
 ## 有什么用
 
@@ -216,6 +216,12 @@ dual-translate-extension/
 
 ### 代码审查状态
 
+v1.0.12 风险修复：
+
+- **安全**：`getSettings` 增加 sender 身份校验，content script 不再接收 apiKeys
+- **清理**：移除 `API_REGISTRY.custom` 死代码（23 行），消除维护混淆
+- **错误处理**：`_handleHttpError` 增加 Content-Type 检查，非 JSON 响应 fallback 到 text() 并截取错误片段
+
 v1.0.11 架构重构：
 
 - **基类提取**：创建 `BaseTranslator` 基类，4 个适配器继承，消除重复 HTTP 错误处理和语言映射代码
@@ -238,12 +244,10 @@ v1.0.6 期间做了 5 次全项目代码审查（子代理并发审核），已�
 
 历史审查报告归档在 `docs/archive/`。剩余已知风险（留待后续版本）：
 
-- `getSettings` 返回 API 密钥给 content script（需 sender 校验重构）
 - `translation-cache` 并发 `_load()` 丢数据（需 promise 缓存重构）
 - `testApi` 无超时保护（用户可关闭弹窗，影响可控）
 - 多 tab 并发翻译时 `statusCache` 可能互相覆盖（需加锁或改为 storage 单 key 写）
-- v1.0.11 新增 `api-registry.js` 的 `custom` 注册条目与 `custom_*` 前缀供应商走不同代码路径，新增供应商时需同时维护两处（需统一为单一入口）
-- `BaseTranslator._handleHttpError()` 的 `response.json()` 在非 JSON 响应时会抛异常被静默 catch，错误详情可能丢失（需增加 Content-Type 判断）
+- `api-registry.js` 的 `LLM_PROVIDERS` 与 `api-metadata.js` 的 `API_DISPLAY_NAMES` / `API_MODELS_DEFAULT` 仍为两份独立维护的数据（IIFE vs ES module 不兼容无法 import，已加注释标注同步要求）
 
 ## 注意事项
 

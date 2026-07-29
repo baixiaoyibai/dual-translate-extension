@@ -101,12 +101,26 @@ async function handleMessage(message, sender) {
     case 'translateTexts':
       return await handleTranslateTexts(message);
 
-    case 'getSettings':
+    case 'getSettings': {
       // v1.0.6 fix: 确保返回的 settings 包含 local storage 中的最新 apiKeys
       // 场景：SW 重启后 settingsManager.settings 可能未正确合并 apiKeys，
       //       导致设置页 API 卡片密钥为空，但 popup（走 apiManager）仍正常
       await settingsManager.reloadApiKeys();
-      return { settings: settingsManager.settings };
+      // 安全修复：区分 sender 来源，避免向 content script 暴露 apiKeys
+      // 扩展自身页面（popup/options，sender.url 以 chrome-extension:// 开头）返回完整 settings（含 apiKeys）
+      // content script（sender.tab 存在，sender.url 为网页地址）返回不含 apiKeys 的精简 settings
+      const senderUrl = sender && typeof sender.url === 'string' ? sender.url : '';
+      const isExtensionPage = senderUrl.startsWith('chrome-extension://');
+      if (isExtensionPage) {
+        return { settings: settingsManager.settings };
+      }
+      // 非 extension 页面（content script 等）：深拷贝并将 apiKeys 置空，防止密钥泄露给网页
+      const safeSettings = JSON.parse(JSON.stringify(settingsManager.settings));
+      if (safeSettings && safeSettings.api) {
+        safeSettings.api.apiKeys = {};
+      }
+      return { settings: safeSettings };
+    }
 
     case 'updateSettings':
       if (message.path === 'general.toggleTranslateShortcut' && typeof message.value === 'string') {
