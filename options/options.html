@@ -350,20 +350,21 @@
 
     <div id="tab-quota" class="tab-content">
       <h2>额度限制</h2>
-      <p class="section-subtitle">为各翻译接口设置每月使用上限，达到 97% 时自动切换到下一翻译源</p>
+      <p class="section-subtitle">为各翻译接口设置每日或每月使用上限，达到 97% 时自动切换到下一翻译源</p>
 
       <div class="section-card">
-        <div class="section-card-header">📊 月度额度配置</div>
+        <div class="section-card-header">📊 额度配置</div>
         <p class="setting-desc" style="margin-bottom:12px;">
-          开启后，插件会跟踪每个接口的月度字符使用量。当用量达到设定额度的 97% 时，自动按优先级切换到下一个翻译源，避免超额产生费用。
+          开启后，插件会跟踪每个接口的字符使用量。当用量达到设定额度的 97% 时，自动按优先级切换到下一个翻译源，避免超额产生费用。
           <br><small style="color:#888;">单位说明：机器翻译接口（百度/火山引擎）按字符计费，选「字符」；大模型接口按 Token 计费，选「Token」（插件按 1 Token ≈ 2 字符 估算）。</small>
+          <br><small style="color:#888;">重置周期：选「每日」则每天 0 点重置用量；选「每月」则每月 1 号重置用量。</small>
         </p>
         <div id="quotaLimitsContainer"></div>
       </div>
 
       <div class="section-card">
-        <div class="section-card-header">📈 本月用量</div>
-        <p class="setting-desc" style="margin-bottom:10px;">各接口本月已使用的字符数（每月 1 号重置）</p>
+        <div class="section-card-header">📈 当前用量</div>
+        <p class="setting-desc" style="margin-bottom:10px;">各接口当前周期已使用的字符数（按设定的重置周期自动归零）</p>
         <div id="monthlyUsageContainer" class="api-usage-container">
           <div class="status-loading">加载中...</div>
         </div>
@@ -407,15 +408,41 @@
       </div>
 
       <div class="section-card">
+        <div class="section-card-header">🗃 API 管理页说明</div>
+        <p class="setting-desc">
+          「API 管理」标签页是插件的核心配置区域，统一管理所有翻译接口。页面包含两类接口：
+          <br><br>
+          <strong>一、机器翻译接口</strong>（按字符计费）
+          <br>• <strong>百度机器翻译</strong>：通用文本翻译，需填写 App ID + 密钥
+          <br>• <strong>百度大模型翻译</strong>：百度基于大模型的翻译接口，需填写 APP ID + API Key
+          <br>• <strong>火山引擎机器翻译</strong>：火山引擎旗下机器翻译服务，需填写 Access Key + Secret Key
+          <br><br>
+          <strong>二、大模型翻译接口</strong>（按 Token 计费）
+          <br>• <strong>DeepSeek</strong> / <strong>智谱 GLM</strong>（免费版）/ <strong>通义千问</strong> / <strong>智谱 GLM</strong>（付费版）/ <strong>零一万物</strong> / <strong>豆包</strong>：均通过 OpenAI 兼容 API 接入，需填写 API Key，部分可自定义模型名称和接口端点
+          <br>• <strong>自定义大模型</strong>：任何兼容 OpenAI 格式的接口均可接入，需填写 baseURL + API Key + 模型名称
+          <br><br>
+          <strong>页面功能</strong>：
+          <br>• <strong>启用/关闭</strong>：每个接口卡片可单独开关，关闭后不会被调用
+          <br>• <strong>测试按钮</strong>：填写密钥后可点击「测试」验证连通性
+          <br>• <strong>清除按钮</strong>：一键清除某个接口的所有配置信息
+          <br>• <strong>优先级排序</strong>：拖拽列表调整接口使用顺序，排在前面的优先使用
+          <br>• <strong>免费额度标注</strong>：每个接口旁显示该服务的免费额度信息
+          <br><br>
+          <small style="color:#888;">提示：机器翻译接口翻译速度快、成本低，适合日常浏览；大模型接口翻译质量更高，适合对翻译准确性要求较高的场景。建议两者搭配使用。</small>
+        </p>
+      </div>
+
+      <div class="section-card">
         <div class="section-card-header">📊 额度限制功能说明</div>
         <p class="setting-desc">
-          在「额度限制」标签页中，您可以为每个翻译接口设置每月使用上限：
+          在「额度限制」标签页中，您可以为每个翻译接口设置每日或每月使用上限：
           <br><br>
-          <strong>启用限制</strong>：勾选开关后，该接口的月度用量会被跟踪。
-          <br><strong>额度数值</strong>：填写每月允许使用的最大量。
+          <strong>启用限制</strong>：勾选开关后，该接口的用量会被跟踪。
+          <br><strong>额度数值</strong>：填写允许使用的最大量。
           <br><strong>计费单位</strong>：选择「字符」或「Token」。机器翻译接口（百度/火山引擎）按字符计费，大模型接口按 Token 计费。
+          <br><strong>重置周期</strong>：选择「每日」则每天 0 点重置用量统计；选择「每月」则每月 1 号重置。可根据接口的计费周期灵活选择。
           <br><br>
-          当某接口用量达到设定额度的 <strong>97%</strong> 时，插件会自动按「API 管理」中的优先级排序切换到下一个翻译源，避免超额产生费用。每月 1 号自动重置用量统计。
+          当某接口用量达到设定额度的 <strong>97%</strong> 时，插件会自动按「API 管理」中的优先级排序切换到下一个翻译源，避免超额产生费用。
           <br><br>
           <small style="color:#888;">注意：Token 用量为估算值（1 Token ≈ 2 字符），实际计费以服务商账单为准。此功能仅为辅助提醒，不保证完全避免超额。</small>
         </p>

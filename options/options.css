@@ -887,6 +887,14 @@ input:checked + .toggle-slider:before {
   background: var(--bg-white);
 }
 
+.quota-reset-select {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+  background: var(--bg-white);
+}
+
 /* =温馨提示翻译示例 ============ */
 .tips-translation-example {
   padding: 12px 14px;

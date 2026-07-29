@@ -13,6 +13,36 @@
 
 ---
 
+## v1.0.9 — 2026-07-29
+
+> 额度限制支持每日重置 + 温馨提示新增 API 管理页说明。
+> 额度限制从仅月度扩展为每日/每月可选，温馨提示页新增 API 管理页解释栏目。
+
+### Added — 新功能（1 项）
+
+- **温馨提示新增「API 管理页说明」栏目**
+  - 解释 API 管理页统一管理两类接口：机器翻译接口（百度机器翻译/百度大模型翻译/火山引擎机器翻译，按字符计费）和大模型翻译接口（DeepSeek/智谱 GLM/通义千问/零一万物/豆包/自定义，按 Token 计费）
+  - 说明页面功能：启用/关闭、测试按钮、清除按钮、优先级排序、免费额度标注
+  - 提供机器翻译与大模型接口的搭配使用建议
+
+### Changed — 行为变更（2 项）
+
+- **额度限制支持每日重置周期**
+  - `quotaLimits` 配置新增 `resetType` 字段，可选 `'daily'`（每日 0 点重置）或 `'monthly'`（每月 1 号重置，默认）
+  - `settings-manager.js` `isApiQuotaReached()` / `getApiUsagePercentage()` 根据 `resetType` 分别查询 `getDailyUsage()` 或 `getMonthlyUsage()`
+  - `options.js` `renderQuotaLimits()` 新增重置周期下拉选择器（每月/每日）
+  - `options.js` `renderMonthlyUsage()` 同时获取日用量和月用量，按各接口的 `resetType` 显示对应周期数据（标注「今日」或「本月」）
+  - `options.html` 额度限制页标题从「月度额度配置」改为「额度配置」，用量区域从「本月用量」改为「当前用量」
+- **温馨提示额度限制说明更新**
+  - 加入重置周期选项的说明文字
+
+### 工程
+
+- `npm run check` 全部通过
+- 修改文件：`manifest.json` / `README.md` / `lib/settings-manager.js` / `options/options.html` / `options/options.js` / `options/options.css`
+
+---
+
 ## v1.0.8 — 2026-07-29
 
 > 火山引擎机器翻译接口 + 自定义额度限制 + 免费额度标注 + 温馨提示页。

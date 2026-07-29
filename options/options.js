@@ -1132,7 +1132,7 @@ function renderQuotaLimits() {
   }
 
   container.innerHTML = items.map(apiName => {
-    const limit = quotaLimits[apiName] || { enabled: false, limit: 0, unit: 'chars' };
+    const limit = quotaLimits[apiName] || { enabled: false, limit: 0, unit: 'chars', resetType: 'monthly' };
     const displayName = getApiDisplayName(apiName);
     const freeQuota = API_FREE_QUOTAS[apiName];
     return `
@@ -1151,6 +1151,10 @@ function renderQuotaLimits() {
             <option value="chars" ${limit.unit === 'chars' ? 'selected' : ''}>字符</option>
             <option value="tokens" ${limit.unit === 'tokens' ? 'selected' : ''}>Token</option>
           </select>
+          <select class="quota-reset-select" data-api="${apiName}">
+            <option value="monthly" ${limit.resetType !== 'daily' ? 'selected' : ''}>每月</option>
+            <option value="daily" ${limit.resetType === 'daily' ? 'selected' : ''}>每日</option>
+          </select>
         </div>
       </div>
     `;
@@ -1161,7 +1165,7 @@ function renderQuotaLimits() {
     cb.addEventListener('change', () => {
       const apiName = cb.dataset.api;
       if (!settings.api.quotaLimits) settings.api.quotaLimits = {};
-      if (!settings.api.quotaLimits[apiName]) settings.api.quotaLimits[apiName] = { enabled: false, limit: 0, unit: 'chars' };
+      if (!settings.api.quotaLimits[apiName]) settings.api.quotaLimits[apiName] = { enabled: false, limit: 0, unit: 'chars', resetType: 'monthly' };
       settings.api.quotaLimits[apiName].enabled = cb.checked;
       saveAllSettings(settings).then(() => {
         chrome.runtime.sendMessage({ action: 'reloadApis' });
@@ -1175,7 +1179,7 @@ function renderQuotaLimits() {
       const apiName = input.dataset.api;
       const val = parseInt(input.value) || 0;
       if (!settings.api.quotaLimits) settings.api.quotaLimits = {};
-      if (!settings.api.quotaLimits[apiName]) settings.api.quotaLimits[apiName] = { enabled: false, limit: 0, unit: 'chars' };
+      if (!settings.api.quotaLimits[apiName]) settings.api.quotaLimits[apiName] = { enabled: false, limit: 0, unit: 'chars', resetType: 'monthly' };
       settings.api.quotaLimits[apiName].limit = val;
       saveAllSettings(settings).then(() => {
         chrome.runtime.sendMessage({ action: 'reloadApis' });
@@ -1188,10 +1192,24 @@ function renderQuotaLimits() {
     sel.addEventListener('change', () => {
       const apiName = sel.dataset.api;
       if (!settings.api.quotaLimits) settings.api.quotaLimits = {};
-      if (!settings.api.quotaLimits[apiName]) settings.api.quotaLimits[apiName] = { enabled: false, limit: 0, unit: 'chars' };
+      if (!settings.api.quotaLimits[apiName]) settings.api.quotaLimits[apiName] = { enabled: false, limit: 0, unit: 'chars', resetType: 'monthly' };
       settings.api.quotaLimits[apiName].unit = sel.value;
       saveAllSettings(settings).then(() => {
         chrome.runtime.sendMessage({ action: 'reloadApis' });
+        showSavedTip();
+      });
+    });
+  });
+
+  container.querySelectorAll('.quota-reset-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const apiName = sel.dataset.api;
+      if (!settings.api.quotaLimits) settings.api.quotaLimits = {};
+      if (!settings.api.quotaLimits[apiName]) settings.api.quotaLimits[apiName] = { enabled: false, limit: 0, unit: 'chars', resetType: 'monthly' };
+      settings.api.quotaLimits[apiName].resetType = sel.value;
+      saveAllSettings(settings).then(() => {
+        chrome.runtime.sendMessage({ action: 'reloadApis' });
+        renderMonthlyUsage();
         showSavedTip();
       });
     });
@@ -1203,24 +1221,32 @@ async function renderMonthlyUsage() {
   if (!container || !settings) return;
 
   try {
-    const res = await chrome.runtime.sendMessage({ action: 'getMonthlyUsage' });
-    const usage = res?.usage || {};
+    const monthlyRes = await chrome.runtime.sendMessage({ action: 'getMonthlyUsage' });
+    const dailyRes = await chrome.runtime.sendMessage({ action: 'getDailyUsage' });
+    const monthlyUsage = monthlyRes?.usage || {};
+    const dailyUsage = dailyRes || {};
     const priority = settings.api.apiPriority || [];
     const quotaLimits = settings.api.quotaLimits || {};
     const currentMonth = new Date().toISOString().slice(0, 7);
-    const isThisMonth = usage._month === currentMonth;
+    const today = new Date().toDateString();
+    const isThisMonth = monthlyUsage._month === currentMonth;
+    const isToday = dailyUsage._date === today;
 
     const items = [];
     for (const apiName of priority) {
       if (!API_DISPLAY_NAMES[apiName] && !apiName.startsWith('custom_')) continue;
-      const count = isThisMonth ? (usage[apiName] || 0) : 0;
-      const displayName = getApiDisplayName(apiName);
       const limit = quotaLimits[apiName];
+      const isDaily = limit?.resetType === 'daily';
+      const count = isDaily
+        ? (isToday ? (dailyUsage[apiName] || 0) : 0)
+        : (isThisMonth ? (monthlyUsage[apiName] || 0) : 0);
+      const displayName = getApiDisplayName(apiName);
       const limitInChars = limit?.enabled && limit?.limit > 0
         ? (limit.unit === 'tokens' ? limit.limit * 2 : limit.limit)
         : 0;
       const pct = limitInChars > 0 ? Math.min(100, Math.round((count / limitInChars) * 100)) : 0;
-      items.push({ name: apiName, displayName, count, limit: limitInChars, pct, enabled: limit?.enabled });
+      const periodLabel = isDaily ? '今日' : '本月';
+      items.push({ name: apiName, displayName, count, limit: limitInChars, pct, enabled: limit?.enabled, periodLabel });
     }
 
     if (items.length === 0) {
@@ -1237,7 +1263,7 @@ async function renderMonthlyUsage() {
         <div class="api-usage-item">
           <span class="api-usage-name">${escapeAttr(item.displayName)}</span>
           <div class="api-usage-bar"><div class="api-usage-bar-fill" style="width:${item.pct || (item.count > 0 ? 5 : 0)}%;background:${barColor}"></div></div>
-          <span class="api-usage-count">${item.count.toLocaleString()} 字符${escapeAttr(limitText)}</span>
+          <span class="api-usage-count">${escapeAttr(item.periodLabel)} ${item.count.toLocaleString()} 字符${escapeAttr(limitText)}</span>
         </div>
       `;
     }).join('');
