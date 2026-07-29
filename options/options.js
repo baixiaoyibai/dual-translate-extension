@@ -43,17 +43,38 @@ const DEFAULT_API_ENDPOINTS = (typeof window !== 'undefined' && window.API_ENDPO
 const DEFAULT_API_MODELS = (typeof window !== 'undefined' && window.API_MODELS_DEFAULT) ? window.API_MODELS_DEFAULT : {};
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // 全局错误捕获：确保任何未捕获的异常都能被记录
+  window.addEventListener('error', (e) => {
+    console.error('[options] 全局错误:', e.message, e.filename + ':' + e.lineno);
+  });
+
+  // 诊断工具提前初始化（不依赖 settings 数据，确保一定能用）
+  try { setupDiagnostics(); } catch(e) { console.error('[options] setupDiagnostics 失败:', e); }
+
   // 预热 background 的 API 缓存（fire-and-forget，失败不影响设置页加载）
-  // reloadApis 只读取 storage 刷新 background 内存缓存，不修改 settings，不会与 loadAllData 产生竞态
   chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
-  await loadAllData();
-  setupTabSwitching();
-  setupDisplaySettings();
-  setupRulesSettings();
-  setupGlossaryManagement();
-  setupApiManagement();
-  setupAdvancedSettings();
-  setupDiagnostics();
+
+  try {
+    await loadAllData();
+  } catch(e) {
+    console.error('[options] loadAllData 失败:', e);
+  }
+
+  // 每个 setup 独立 try-catch：一个失败不影响其他
+  try { setupTabSwitching(); } catch(e) { console.error('[options] setupTabSwitching:', e); }
+  try { setupDisplaySettings(); } catch(e) { console.error('[options] setupDisplaySettings:', e); }
+  try { setupRulesSettings(); } catch(e) { console.error('[options] setupRulesSettings:', e); }
+  try { setupGlossaryManagement(); } catch(e) { console.error('[options] setupGlossaryManagement:', e); }
+  try { setupApiManagement(); } catch(e) { console.error('[options] setupApiManagement:', e); }
+  try { setupAdvancedSettings(); } catch(e) { console.error('[options] setupAdvancedSettings:', e); }
+
+  // 如果 settings 仍为 null，在 API 区域显示错误提示
+  if (!settings) {
+    const container = document.getElementById('apiCardsContainer');
+    if (container) {
+      container.innerHTML = '<div style="padding:20px;color:#f44336;">⚠ 无法加载设置数据。请尝试刷新页面，或检查扩展 Service Worker 是否正常。</div>';
+    }
+  }
 });
 
 function showSavedTip() {
@@ -71,6 +92,14 @@ async function loadAllData() {
     chrome.runtime.sendMessage({ action: 'getDailyUsage' })
   ]);
 
+  // 调试日志：帮助定位数据加载问题
+  console.log('[options] loadAllData results:', results.map((r, i) => ({
+    idx: i,
+    status: r.status,
+    hasValue: r.status === 'fulfilled' && r.value != null,
+    error: r.status === 'rejected' ? r.reason?.message : undefined
+  })));
+
   const res = results[0].status === 'fulfilled' ? results[0].value : null;
   const glossaryRes = results[1].status === 'fulfilled' ? results[1].value : null;
   const apiRes = results[2].status === 'fulfilled' ? results[2].value : null;
@@ -78,6 +107,24 @@ async function loadAllData() {
 
   if (res && res.settings) {
     settings = res.settings;
+    // 调试日志：检查 apiKeys 是否被正确加载
+    const apiKeys = settings.api?.apiKeys || {};
+    const keySummary = {};
+    for (const [name, obj] of Object.entries(apiKeys)) {
+      if (obj && typeof obj === 'object') {
+        keySummary[name] = {};
+        for (const [field, val] of Object.entries(obj)) {
+          keySummary[name][field] = (typeof val === 'string' && val.length > 0) ? '有值' : '空';
+        }
+      }
+    }
+    console.log('[options] settings.api 摘要:', {
+      apiPriority: settings.api?.apiPriority,
+      enabledApis: settings.api?.enabledApis,
+      apiKeysSummary: keySummary
+    });
+  } else {
+    console.error('[options] getSettings 返回无效:', res);
   }
   if (glossaryRes && glossaryRes.glossary) {
     glossaryByDomain = glossaryRes.glossary;
@@ -536,6 +583,11 @@ function renderApiCards() {
   const priority = settings.api.apiPriority || [];
   const enabledApis = settings.api.enabledApis || {};
   const apiKeys = settings.api.apiKeys || {};
+
+  if (priority.length === 0) {
+    container.innerHTML = '<div style="padding:20px;color:#888;">API 优先级列表为空，请检查设置数据。</div>';
+    return;
+  }
 
   container.innerHTML = priority.map(apiName => {
       const enabled = enabledApis[apiName] !== false;
