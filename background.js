@@ -4,7 +4,6 @@ import { translationCache } from './lib/translation-cache.js';
 
 // v1.0.7: storage key 常量（与 settings-manager.js 保持一致）
 const LOCAL_API_KEYS_KEY = 'dual_translate_api_keys_local';
-const API_STATUS_KEY = 'dual_translate_api_status';
 const DAILY_USAGE_KEY = 'dual_translate_daily_usage';
 
 let initialized = false;
@@ -105,14 +104,11 @@ function _isExtensionSender(sender) {
 
 async function handleMessage(message, sender) {
   await init();
-  // v1.0.7 perf: flush 防抖缓存写入，确保 SW 休眠前脏数据已落盘
-  try { await translationCache.flush(); } catch {}
 
   // 安全修复：写操作仅允许扩展自身页面调用，content script 调用时拒绝
   const WRITE_ACTIONS = new Set([
     'updateSettings', 'saveSettings', 'importAllSettings', 'reloadApis', 'clearApi',
-    'hasPin', 'setupPin', 'verifyPin', 'resetPin',
-    'exportAllSettings'
+    'setupPin', 'resetPin'
   ]);
   if (WRITE_ACTIONS.has(message.action) && !_isExtensionSender(sender)) {
     return { error: 'Permission denied' };
@@ -120,7 +116,8 @@ async function handleMessage(message, sender) {
 
   switch (message.action) {
     case 'translateTexts':
-      return await handleTranslateTexts(message);
+      try { await translationCache.flush(); } catch {}
+      return await handleTranslateTexts(message, sender);
 
     case 'getSettings': {
       // v1.0.6 fix: 确保返回的 settings 包含 local storage 中的最新 apiKeys
@@ -196,6 +193,7 @@ async function handleMessage(message, sender) {
       };
 
     case 'testApi':
+      try { await translationCache.flush(); } catch {}
       return await apiManager.testApi(message.apiName, message.apiConfig);
 
     case 'getDailyUsage':
@@ -289,12 +287,9 @@ async function handleMessage(message, sender) {
       return { success: true };
 
     case 'cancelTranslation':
-      try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab && tab.id) {
-          await chrome.tabs.sendMessage(tab.id, { action: 'cancelTranslation' });
-        }
-      } catch {}
+      if (sender?.tab?.id) {
+        chrome.tabs.sendMessage(sender.tab.id, { action: 'cancelTranslation' }).catch(() => {});
+      }
       return { success: true };
 
     case 'exportAllSettings': {
@@ -384,12 +379,7 @@ async function handleClearApi(apiName) {
     }
 
     // 4. 清除 API 状态
-    const statusStored = await chrome.storage.local.get(API_STATUS_KEY);
-    const statusData = statusStored[API_STATUS_KEY] || {};
-    if (statusData[apiName]) {
-      delete statusData[apiName];
-      await chrome.storage.local.set({ [API_STATUS_KEY]: statusData });
-    }
+    await settingsManager.deleteApiStatus(apiName);
 
     // 5. 清除用量数据
     const usageStored = await chrome.storage.local.get(DAILY_USAGE_KEY);
@@ -413,7 +403,7 @@ async function handleClearApi(apiName) {
   }
 }
 
-async function handleTranslateTexts(message) {
+async function handleTranslateTexts(message, sender) {
   try {
     // v1.0.6 perf: 不再每批 reload——reload 会读 storage + fetch prompt + 重建全部 translator
     // 仅在 init() 和 updateSettings/reloadApis 时 reload，翻译批次直接复用已构建的实例
@@ -462,7 +452,8 @@ async function handleTranslateTexts(message) {
     try { await translationCache.flush(); } catch {}
     return { translations };
   } catch (error) {
-    return { error: error.message, translations: [] };
+    const isExtSender = _isExtensionSender(sender);
+    return { error: isExtSender ? (error.message || '翻译失败') : '翻译失败，请重试', translations: [] };
   }
 }
 
@@ -513,4 +504,4 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
 // MV3 Service Worker 会在空闲约30秒后休眠，setInterval 会被清除，因此改为在 init() 中执行定期维护
 
-init();
+init().catch(e => console.error('[dual-translate] init failed:', e));

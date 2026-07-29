@@ -13,6 +13,57 @@
 
 ---
 
+## v1.0.15 — 2026-07-30
+
+> 第二轮全面 bug 审查修复：API 错误码修正 + 并发安全 + PIN持久化 + 存储竞态消除。
+> 3 个探索代理审查 + 3 个子代理并行修复 + 主代理审核，覆盖 12 个文件，+249/-132 行变更。
+
+### Fixed — Bug 修复（15 项）
+
+- **百度 54001 错误码误判**：签名错误被当作 `QUOTA_EXCEEDED`，导致 API 被禁用至下月 1 日。改为 `AUTH_ERROR`
+- **百度大模型 54003/54005 误判**：频率受限被当作 `QUOTA_EXCEEDED`，一次限流即禁用一个月。仅 54004（余额不足）才抛 `QUOTA_EXCEEDED`
+- **火山引擎译文合并丢失分隔符**：拆分翻译合并时直接拼接，段落结构丢失。改为插入 `\n` 分隔符
+- **cleanupAllInjections 崩溃中断清理**：`el.parentNode` 为 null 时 `replaceChild` 抛错，后续清理全部跳过。增加 null 检查 + 外层 try-catch
+- **startTranslation 未 catch**：onMessage 中 fire-and-forget 调用，同步抛错变为 unhandled rejection。增加 `.catch()`
+- **MutationObserver quietTimer 泄漏**：局部变量无法被 resetAll 清除，reset 后 300ms 可能触发意外重翻译。提升为模块级变量
+- **cancelTranslation 路由错误**：background 操作活跃标签页而非发送者标签页；popup 发给 background 而非直接发给 content script。两处均修正
+- **init() 顶层未 catch**：`init()` 失败产生未处理 Promise 拒绝。增加 `.catch()`
+- **_translateWithTimeout 非 Error 对象崩溃**：`error.message.startsWith` 对非 Error 抛 TypeError。增加安全取值
+- **testApi 定时器泄漏**：Promise.race 中的 setTimeout 永不清除。改为单一定时器 + finally 清除
+- **_buildTranslators null 崩溃**：settings 为 null 时访问 `.api` 崩溃。增加可选链防御
+- **getOrderedTranslators null 崩溃**：apiPriority 缺失时 for...of 崩溃。增加默认值 `[]`
+- **checkAllApiCompleteness 阻塞初始化**：alert 在 DOMContentLoaded 期间阻塞所有 setup 函数。改为 setTimeout 延迟执行
+- **loadLlmPrompt 未 await**：用户快速点保存可能存入空 prompt。完成前禁用保存按钮
+- **TranslationList 条目 null 崩溃**：volcano.js 中 `item.Translation` 未防 null。增加 `(item && item.Translation)`
+
+### Security — 安全修复（5 项）
+
+- **PIN 暴力破解防护持久化**：`_pinFailCount`/`_pinCooldownUntil` 为内存变量，SW 休眠后失效。改为持久化到 `chrome.storage.local`
+- **translateTexts 错误消息泄露**：API 错误详情（端点 URL、HTTP 响应体）通过 sendResponse 泄露给任意网页。对 content script 返回脱敏消息
+- **getGlossaryForDomain 原型链访问**：`all[domain]` 可访问原型属性。改用 `Object.hasOwn()`
+- **applyImportedSettings schema 验证**：导入数据无类型校验，可注入非法结构。增加关键字段类型检查
+- **WRITE_ACTIONS 误分类**：`exportAllSettings`/`hasPin`/`verifyPin` 是读操作被归为写操作。从集合中移除
+
+### Changed — 架构改进（8 项）
+
+- **saveApiStatus 改为 per-API key 存储**：原来整体读-改-写存在竞态。改为每个 API 独立 key（`apiStatus_${name}`），消除 read-modify-write 竞态
+- **getApiStatus 增加内存缓存**：避免每次翻译都读存储。`_apiStatusCache` 与 saveApiStatus/deleteApiStatus 同步维护
+- **resetApiQuotaIfNeeded 原子写入**：原来分 3 次写入存储，SW 中断会导致状态不一致。改为一次 `chrome.storage.local.set` 原子写入
+- **statusCache 局部更新**：原来整体替换 `this.statusCache = allStatus`，并发时覆盖。成功路径改为 `this.statusCache[name] = updated`，错误路径改为 `{ ...this.statusCache, ...allStatus }` 合并
+- **translation-cache _markDirty 异常捕获**：定时器中 `_save()` 抛异常产生未处理拒绝。增加 try-catch
+- **translation-cache clear() 清理资源**：未清理 `_saveTimer`/`_savePromise`。增加清理逻辑
+- **translation-cache lookup 去重**：重复文本被多次传给 API。增加 misses 去重
+- **llm-generic max_tokens 动态计算**：固定 4096 可能截断批量翻译。改为 `Math.min(8192, Math.max(4096, totalInputLength * 3))`
+- **自定义供应商 enabled 向后兼容**：`!provider.enabled` 把缺失字段误判为禁用。改为 `provider.enabled === false`
+
+### Fixed — UI/UX 修复（3 项）
+
+- **updateToggleButton null 防御**：querySelector 链式调用未判空。增加 `if (icon)` / `if (text)` 检查
+- **loadApiStatus null 防御**：container 不存在时崩溃。增加 `if (!container) return`
+- **PIN 冷却 setTimeout 检查对话框状态**：冷却结束后操作已关闭对话框的元素。增加 `dialog.style.display !== 'none'` 检查
+
+---
+
 ## v1.0.14 — 2026-07-30
 
 > 全面 bug 审查修复：安全加固 + 并发竞态 + 错误处理 + 缓存可靠性。

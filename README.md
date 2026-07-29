@@ -2,7 +2,7 @@
 
 一个给 Edge / Chrome 浏览器用的翻译扩展（Manifest V3）。浏览英文或日文网页时，自动帮你翻译成简体中文，支持 4 种显示方式，内置 4 个免费翻译接口自动轮换，支持专业术语自定义。
 
-> **版本变更历史请见 [CHANGELOG.md](./CHANGELOG.md)**，当前版本：**v1.0.14**
+> **版本变更历史请见 [CHANGELOG.md](./CHANGELOG.md)**，当前版本：**v1.0.15**
 
 ## 有什么用
 
@@ -213,10 +213,18 @@ dual-translate-extension/
 - **缓存策略**：翻译结果持久化到 `chrome.storage.local`，3 天 TTL 自动过期，最多 10000 条 LRU 淘汰；防抖写入（5 秒合并）；服务重启后缓存仍在
 - **错误恢复**：API 配额耗尽时标记 `quota_exceeded`，密钥错误时标记 `auth_error`，冷却期内不重试；超时后 AbortController 中止 fetch 节省 API 额度
 - **国际化**：当前全中文硬编码（如果计划开源给国际用户，需要抽到 `_locales/`）
-- **代码质量**：经 16 轮迭代，含性能优化 20 项（charCodeAt 热路径、事件委托、防抖写入、Promise.all 并行化等），累计修复 13 项严重 bug + 35 项中等风险问题 + 清理 220+ 行死代码/冗余。v1.0.11 架构重构提取 BaseTranslator 基类 + API 注册表工厂，消除适配器重复代码 ~113 行。v1.0.14 全面 bug 审查修复 35 项（安全 4 + bug 18 + 可靠性 8 + UI/UX 5）。全项目通过 `npm run check`（15 项语法检查）
+- **代码质量**：经 17 轮迭代，含性能优化 20 项（charCodeAt 热路径、事件委托、防抖写入、Promise.all 并行化等），累计修复 13 项严重 bug + 70 项中等风险问题 + 清理 220+ 行死代码/冗余。v1.0.11 架构重构提取 BaseTranslator 基类 + API 注册表工厂，消除适配器重复代码 ~113 行。v1.0.14-15 两轮全面 bug 审查修复 70 项（安全 9 + bug 33 + 可靠性 16 + UI/UX 8 + 架构 4）。全项目通过 `npm run check`（15 项语法检查）
 - **密钥安全**：所有 API 密钥（含自定义供应商）存储在 `chrome.storage.local`，**不随 sync 同步**；`saveSettings` 合并而非覆盖密钥，防止单次保存丢失其他 API 配置；v1.0.13 新增 PIN 码保护（SHA-256 + 盐值哈希），设置页密钥掩码显示，导出时自动清除所有密钥
 
 ### 代码审查状态
+
+v1.0.15 第二轮全面 bug 审查修复：
+
+- **API 错误码**：百度 54001 改为 AUTH_ERROR（原误判为 QUOTA_EXCEEDED）、百度大模型 54003/54005 不再禁用一个月
+- **安全**：PIN 暴力破解防护持久化到 storage（SW 重启后仍生效）、翻译错误消息对 content script 脱敏、原型链访问防护、导入 schema 验证
+- **并发**：saveApiStatus 改为 per-API key 存储（消除 read-modify-write 竞态）、resetApiQuotaIfNeeded 原子写入、statusCache 局部更新
+- **可靠性**：cleanupAllInjections 防崩兜底、quietTimer 模块级管理、testApi 定时器泄漏修复、llm-generic max_tokens 动态计算
+- **存储格式变更**：API 状态从单键聚合改为 per-API 独立键（`apiStatus_${name}`），旧数据自动忽略并在翻译过程中自然重建
 
 v1.0.14 全面 bug 审查修复：
 

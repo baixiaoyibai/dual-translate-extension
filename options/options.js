@@ -254,7 +254,8 @@ async function loadAllData() {
   window.__currentSettings = settings;
 
   // 检查所有 API 完整性，首次进入时警告1次
-  checkAllApiCompleteness();
+  // v1.0.7 fix: 用 setTimeout 延迟执行，避免 alert 阻塞 DOMContentLoaded 期间的 setup 函数
+  setTimeout(() => checkAllApiCompleteness(), 100);
 }
 
 async function saveSetting(path, value) {
@@ -1448,9 +1449,13 @@ async function handlePinConfirm() {
           setTimeout(() => {
             pinFailCount = 0;
             pinCooldownUntil = 0;
-            const btn = document.getElementById('pinConfirmBtn');
-            if (btn) btn.disabled = false;
-            error.style.display = 'none';
+            const dialog = document.getElementById('pinDialog');
+            if (dialog && dialog.style.display !== 'none') {
+              const btn = document.getElementById('pinConfirmBtn');
+              if (btn) btn.disabled = false;
+              const error = document.getElementById('pinError');
+              if (error) error.style.display = 'none';
+            }
           }, 30000);
         } else {
           error.textContent = `PIN 错误，还剩 ${3 - pinFailCount} 次机会`;
@@ -1824,7 +1829,10 @@ function setupAdvancedSettings() {
     });
   }
 
-  loadLlmPrompt();
+  // v1.0.7 fix: loadLlmPrompt 完成前禁用保存按钮，防止用户快速点击存入空值
+  const saveLlmPromptBtn = document.getElementById('saveLlmPromptBtn');
+  if (saveLlmPromptBtn) saveLlmPromptBtn.disabled = true;
+  loadLlmPrompt().finally(() => { if (saveLlmPromptBtn) saveLlmPromptBtn.disabled = false; });
 
   document.getElementById('saveLlmPromptBtn').addEventListener('click', async () => {
     const prompt = document.getElementById('llmPrompt').value;

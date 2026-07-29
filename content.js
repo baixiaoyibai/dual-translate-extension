@@ -72,6 +72,9 @@ let hoverClickRegistered = false;
 let mutationObserver = null;
 let observerPaused = false;
 let translationCompletedOnce = false;
+// v1.0.7 fix: 将 setupMutationObserver 的 quietTimer 提升为模块级变量，
+// 供 resetAll 清除，避免页面重翻译后残留定时器触发意外重翻译
+let mutationQuietTimer = null;
 const textCache = new Map();
 const TEXT_CACHE_MAX_SIZE = 5000;
 let lastRetranslateTime = 0;
@@ -462,41 +465,49 @@ function shouldTranslateWithSource(detectedLang) {
 }
 
 function cleanupAllInjections() {
-  // Restore hidden original text
-  document.querySelectorAll('.dual-translate-original-hidden').forEach(el => {
-    const originalText = el.dataset.original || '';
-    const textNode = document.createTextNode(originalText);
-    el.parentNode.replaceChild(textNode, el);
-  });
-  
-  // Reset segment hidden flags
-  segments.forEach(seg => {
-    seg._originalHidden = false;
-  });
-  
-  hideLoading();
-  hideErrorBanner();
-  hoverCleanupHandlers.forEach(fn=>{try{fn()}catch{}});
-  hoverCleanupHandlers=[];
-  globalCleanupHandlers.forEach(fn=>{try{fn()}catch{}});
-  globalCleanupHandlers=[];
-  hoverClickRegistered=false;
-  // v1.0.7 fix: 同步清除增量渲染追踪状态，避免重翻译时 HOVER/PANEL 模式失效
-  hoverDelegationRegistered=false;
-  hoverRegisteredSegIds.clear();
-  hoverTranslations.clear();
-  panelRenderedSegIds.clear();
-  document.querySelectorAll('[data-dt-hover-id]').forEach(el=>{el.removeAttribute('data-dt-hover-id');});
-  document.querySelectorAll('.dual-translate-hover,.dual-translate-panel,.dual-translate-translation,.dual-translate-placeholder,.dual-translate-spinner').forEach(el=>el.remove());
-  document.body.style.marginRight='';
-  document.body.style.marginBottom='';
-  document.body.style.userSelect='';
+  // 外层 try-catch 兜底，防止任意一步抛错中断整个清理流程
+  try {
+    // Restore hidden original text
+    document.querySelectorAll('.dual-translate-original-hidden').forEach(el => {
+      const originalText = el.dataset.original || '';
+      const textNode = document.createTextNode(originalText);
+      if (el.parentNode) {
+        el.parentNode.replaceChild(textNode, el);
+      } else {
+        el.remove();
+      }
+    });
+
+    // Reset segment hidden flags
+    segments.forEach(seg => {
+      seg._originalHidden = false;
+    });
+
+    hideLoading();
+    hideErrorBanner();
+    hoverCleanupHandlers.forEach(fn=>{try{fn()}catch{}});
+    hoverCleanupHandlers=[];
+    globalCleanupHandlers.forEach(fn=>{try{fn()}catch{}});
+    globalCleanupHandlers=[];
+    hoverClickRegistered=false;
+    // v1.0.7 fix: 同步清除增量渲染追踪状态，避免重翻译时 HOVER/PANEL 模式失效
+    hoverDelegationRegistered=false;
+    hoverRegisteredSegIds.clear();
+    hoverTranslations.clear();
+    panelRenderedSegIds.clear();
+    document.querySelectorAll('[data-dt-hover-id]').forEach(el=>{el.removeAttribute('data-dt-hover-id');});
+    document.querySelectorAll('.dual-translate-hover,.dual-translate-panel,.dual-translate-translation,.dual-translate-placeholder,.dual-translate-spinner').forEach(el=>el.remove());
+    document.body.style.marginRight='';
+    document.body.style.marginBottom='';
+    document.body.style.userSelect='';
+  } catch (e) {
+    dtError('cleanupAllInjections error:', e);
+  }
 }
 
 function setupMutationObserver() {
   if (mutationObserver) mutationObserver.disconnect();
   let addedSinceLastCheck = 0;
-  let quietTimer = null;
   const QUIET_PERIOD = 300;
 
   mutationObserver = new MutationObserver((mutations) => {
@@ -530,8 +541,8 @@ function setupMutationObserver() {
     if (batchAdded > 2) {
       addedSinceLastCheck += batchAdded;
 
-      clearTimeout(quietTimer);
-      quietTimer = setTimeout(() => {
+      clearTimeout(mutationQuietTimer);
+      mutationQuietTimer = setTimeout(() => {
         if (addedSinceLastCheck > 0 && !isTranslating) {
           const now = Date.now();
           // 防止频繁重新翻译
@@ -541,6 +552,7 @@ function setupMutationObserver() {
           }
         }
         addedSinceLastCheck = 0;
+        mutationQuietTimer = null;
       }, QUIET_PERIOD);
     }
   });
@@ -1217,6 +1229,8 @@ function resetAll() {
     currentAbortController = null;
   }
   if (mutationObserver) { mutationObserver.disconnect(); mutationObserver = null; }
+  // v1.0.7 fix: 清除 setupMutationObserver 残留的 quietTimer，避免重翻译后旧定时器意外触发
+  if (mutationQuietTimer) { clearTimeout(mutationQuietTimer); mutationQuietTimer = null; }
   // v1.0.3: 清理懒加载 observer（§3.4）
   teardownLazyObserver();
   observerPaused = false;
@@ -1266,12 +1280,19 @@ chrome.runtime.onMessage.addListener((m,s,resp)=>{
     switch(m.action){
       case'checkAndTranslate':await checkAndTranslate(m.url);resp({success:true});break;
       case'toggleTranslate':toggleTranslation();resp({success:true});break;
-      case'startTranslation':startTranslation();resp({success:true});break;
+      case'startTranslation':
+        startTranslation().catch(e => console.warn('[content] startTranslation error:', e));
+        resp({success:true});
+        break;
       case'switchMode':switchMode(m.mode);resp({success:true});break;
       case'getStatus':resp({mode:currentMode,translating:isTranslating,segmentCount:segments.length});break;
       case'showSelectionTranslation':showSelectionTranslation(m.original,m.translation);resp({success:true});break;
       case'restoreAll':resetAll();resp({success:true});break;
-      case'retranslateWithSource':resetAll();startTranslation();resp({success:true});break;
+      case'retranslateWithSource':
+        resetAll();
+        startTranslation({silent:true}).catch(e => console.warn('[content] retranslate error:', e));
+        resp({success:true});
+        break;
       case'cancelTranslation':
         if (currentAbortController) {
           currentAbortController.abort();

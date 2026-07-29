@@ -42,14 +42,16 @@ async function loadState() {
 
 function updateToggleButton() {
   const btn = document.getElementById('toggleBtn');
+  const icon = btn.querySelector('.toggle-icon');
+  const text = btn.querySelector('.toggle-text');
   if (translationEnabled) {
     btn.className = 'toggle-btn active';
-    btn.querySelector('.toggle-icon').textContent = '⏸';
-    btn.querySelector('.toggle-text').textContent = '关闭翻译';
+    if (icon) icon.textContent = '⏸';
+    if (text) text.textContent = '关闭翻译';
   } else {
     btn.className = 'toggle-btn inactive';
-    btn.querySelector('.toggle-icon').textContent = '▶';
-    btn.querySelector('.toggle-text').textContent = '开启翻译';
+    if (icon) icon.textContent = '▶';
+    if (text) text.textContent = '开启翻译';
   }
 }
 
@@ -111,6 +113,7 @@ async function loadSourceLanguage() {
 
 async function loadApiStatus() {
   const container = document.getElementById('apiStatus');
+  if (!container) return;
   try {
     const res = await chrome.runtime.sendMessage({ action: 'getApiStatus' });
     if (!res || res.error) {
@@ -281,7 +284,10 @@ function setupEventListeners() {
       }
     }, 5000);
     try {
-      await chrome.runtime.sendMessage({ action: 'cancelTranslation' });
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab) {
+        try { await chrome.tabs.sendMessage(tab.id, { action: 'cancelTranslation' }); } catch {}
+      }
       recovered = true;
       clearTimeout(timeoutId);
       restoreCancelBtn();
