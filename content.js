@@ -63,7 +63,7 @@ function applyGlossary(text) {
   if (!glossaryCompiled.length || !text) return text;
   let out = text;
   for (const { re, target } of glossaryCompiled) {
-    out = out.replace(re, target);
+    out = out.replace(re, () => target);
   }
   return out;
 }
@@ -390,8 +390,8 @@ function shouldAutoTranslate(hostname) {
   return mode==='blacklist'?!matched:matched;
 }
 function detectPageLanguage(forceLanguage) {
-  // 如果传入了 forceLanguage 且不为 'auto'，直接返回该语言
-  if (forceLanguage && forceLanguage !== 'auto') {
+  // 如果传入了 forceLanguage 且不为 'auto'/'all'，直接返回该语言
+  if (forceLanguage && forceLanguage !== 'auto' && forceLanguage !== 'all') {
     return forceLanguage;
   }
 
@@ -537,7 +537,7 @@ function setupMutationObserver() {
           // 防止频繁重新翻译
           if (now - lastRetranslateTime > 2000) {
             lastRetranslateTime = now;
-            startTranslation();
+            startTranslation({ silent: true });
           }
         }
         addedSinceLastCheck = 0;
@@ -801,6 +801,7 @@ async function translatePageMeta() {
   try {
     const resp = await sendMessage('translateTexts', { texts: items.map(i => i.text), sourceLang });
     if (!resp || !resp.translations || resp.error) return;
+    if (currentAbortController && currentAbortController.signal.aborted) return;
 
     // 回写
     for (let i = 0; i < items.length; i++) {
@@ -1142,7 +1143,7 @@ function updatePanel(segSubset) {
     ct.className='dual-translate-panel-content';
     let collapsed=false;
     hd.querySelector('.panel-toggle-btn').addEventListener('click',()=>{collapsed=!collapsed;panel.style.transform=collapsed?(pos==='right'?'translateX(calc(100% - 30px))':'translateY(calc(100% - 30px))'):'translate(0)';hd.querySelector('.panel-toggle-btn').textContent=collapsed?'▶':'◀';});
-    hd.querySelector('.panel-close-btn').addEventListener('click',()=>{panel.remove();panelInstance=null;document.body.style.marginRight='';document.body.style.marginBottom='';if(panelCleanup){try{panelCleanup()}catch{}const idx=globalCleanupHandlers.indexOf(panelCleanup);if(idx>=0)globalCleanupHandlers.splice(idx,1);panelCleanup=null;}});
+    hd.querySelector('.panel-close-btn').addEventListener('click',()=>{panel.remove();panelInstance=null;panelRenderedSegIds.clear();document.body.style.marginRight='';document.body.style.marginBottom='';if(panelCleanup){try{panelCleanup()}catch{}const idx=globalCleanupHandlers.indexOf(panelCleanup);if(idx>=0)globalCleanupHandlers.splice(idx,1);panelCleanup=null;}});
     let isDragging=false,sX,sY,sW,sH;
     const mdh=e=>{if(e.target.tagName==='BUTTON')return;isDragging=true;sX=e.clientX;sY=e.clientY;const r=panel.getBoundingClientRect();sW=r.width;sH=r.height;document.body.style.userSelect='none';};
     const mmh=e=>{if(!isDragging)return;if(pos==='right')panel.style.width=Math.max(200,Math.min(800,sW-(e.clientX-sX)))+'px';else panel.style.height=Math.max(150,Math.min(600,sH-(e.clientY-sY)))+'px';};
@@ -1181,6 +1182,7 @@ function toggleTranslation() {
   }
 }
 function switchMode(nm) {
+  if (!nm || !['bilingual', 'translation-only', 'hover', 'panel'].includes(nm)) return;
   if(nm===currentMode)return;
   currentMode=nm;
   if(settings){settings.general.lastMode=nm;settings.display.defaultMode=nm;}
@@ -1209,6 +1211,7 @@ function switchMode(nm) {
   }
 }
 function resetAll() {
+  isTranslating = false;
   if (currentAbortController) {
     currentAbortController.abort();
     currentAbortController = null;
@@ -1272,6 +1275,7 @@ chrome.runtime.onMessage.addListener((m,s,resp)=>{
       case'cancelTranslation':
         if (currentAbortController) {
           currentAbortController.abort();
+          currentAbortController = null;
         }
         resp({ success: true });
         break;

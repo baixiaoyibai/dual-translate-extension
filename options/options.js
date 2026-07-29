@@ -51,6 +51,7 @@ const DEFAULT_API_MODELS = (typeof window !== 'undefined' && window.API_MODELS_D
 let apiUnlocked = false;          // 解锁状态（页面级，刷新后重置为 false）
 let pinFailCount = 0;             // PIN 失败计数
 let pinCooldownUntil = 0;         // PIN 冷却结束时间戳
+let pinDialogMode = null;         // 当前 PIN 对话框模式：'verify' | 'setup' | 'reset'
 const INCOMPLETE_WARN_KEY = 'dual_translate_incomplete_warned'; // sessionStorage 键
 
 // 掩码函数：密钥中间部分用 • 替换
@@ -190,6 +191,7 @@ async function refreshApiSettings() {
 
 function showSavedTip() {
   const tip = document.getElementById('savedTip');
+  if (!tip) return;
   tip.classList.add('show');
   setTimeout(() => tip.classList.remove('show'), 1500);
 }
@@ -460,6 +462,7 @@ function renderExcludeList() {
 }
 
 document.getElementById('addExcludeBtn')?.addEventListener('click', () => {
+  if (!settings) { alert('设置正在加载中，请稍候...'); return; }
   const input = document.getElementById('newExcludeDomain');
   const domain = input.value.trim();
   if (!domain) return;
@@ -892,44 +895,44 @@ function renderApiCards() {
       // 显示名称（非密钥，锁定时 readonly，值保持明文）
       const nameValue = escapeAttr(provider.name);
       const nameInput = apiUnlocked
-        ? `<input type="text" class="api-field" data-api="${apiName}" data-field="name" value="${nameValue}">`
-        : `<input type="text" class="api-field locked" ${lockAttrs} data-api="${apiName}" data-field="name" value="${nameValue}">`;
+        ? `<input type="text" class="api-field" data-api="${escapeAttr(apiName)}" data-field="name" value="${nameValue}">`
+        : `<input type="text" class="api-field locked" ${lockAttrs} data-api="${escapeAttr(apiName)}" data-field="name" value="${nameValue}">`;
 
       // API Key（密钥，锁定时掩码 + readonly）
       const apiKeyValue = apiUnlocked ? escapeAttr(provider.apiKey) : escapeAttr(maskKey(provider.apiKey));
       const apiKeyInput = apiUnlocked
-        ? `<input type="password" class="api-field" data-api="${apiName}" data-field="apiKey" value="${apiKeyValue}"><span class="api-field-toggle" data-api="${apiName}" data-field="apiKey">👁</span>`
-        : `<input type="text" class="api-field locked" ${lockAttrs} data-api="${apiName}" data-field="apiKey" value="${apiKeyValue}">`;
+        ? `<input type="password" class="api-field" data-api="${escapeAttr(apiName)}" data-field="apiKey" value="${apiKeyValue}"><span class="api-field-toggle" data-api="${escapeAttr(apiName)}" data-field="apiKey">👁</span>`
+        : `<input type="text" class="api-field locked" ${lockAttrs} data-api="${escapeAttr(apiName)}" data-field="apiKey" value="${apiKeyValue}">`;
 
       // Endpoint（非密钥，锁定时 readonly）
       const endpointValue = escapeAttr(provider.endpoint);
       const endpointInput = apiUnlocked
-        ? `<input type="text" class="api-field" data-api="${apiName}" data-field="endpoint" value="${endpointValue}">`
-        : `<input type="text" class="api-field locked" ${lockAttrs} data-api="${apiName}" data-field="endpoint" value="${endpointValue}">`;
+        ? `<input type="text" class="api-field" data-api="${escapeAttr(apiName)}" data-field="endpoint" value="${endpointValue}">`
+        : `<input type="text" class="api-field locked" ${lockAttrs} data-api="${escapeAttr(apiName)}" data-field="endpoint" value="${endpointValue}">`;
 
       // 模型（非密钥，锁定时 readonly）
       const modelValue = escapeAttr(provider.model);
       const modelInput = apiUnlocked
-        ? `<input type="text" class="api-field" data-api="${apiName}" data-field="model" value="${modelValue}">`
-        : `<input type="text" class="api-field locked" ${lockAttrs} data-api="${apiName}" data-field="model" value="${modelValue}">`;
+        ? `<input type="text" class="api-field" data-api="${escapeAttr(apiName)}" data-field="model" value="${modelValue}">`
+        : `<input type="text" class="api-field locked" ${lockAttrs} data-api="${escapeAttr(apiName)}" data-field="model" value="${modelValue}">`;
 
       // 自定义供应商内部启用开关（锁定时禁用）
       const toggleDisabled = apiUnlocked ? '' : 'disabled';
 
       return `
-        <div class="api-card" data-api="${apiName}">
+        <div class="api-card" data-api="${escapeAttr(apiName)}">
           <div class="api-card-header">
             <span class="api-card-name">
               <label class="toggle-switch" style="vertical-align:middle;margin-right:8px;">
-                <input type="checkbox" class="api-enable" data-api="${apiName}" ${enableAttr} ${enableDisabled}>
+                <input type="checkbox" class="api-enable" data-api="${escapeAttr(apiName)}" ${enableAttr} ${enableDisabled}>
                 <span class="toggle-slider"></span>
               </label>
               ${escapeAttr(provider.name)}
             </span>
             <span class="api-card-status ${statusClass}">${getStatusLabel(status?.status)}</span>
             ${incompleteTag}
-            <button class="btn btn-sm api-test-btn" data-api="${apiName}">测试</button>
-            <button class="btn btn-sm btn-danger api-clear-btn" data-api="${apiName}">清除</button>
+            <button class="btn btn-sm api-test-btn" data-api="${escapeAttr(apiName)}">测试</button>
+            <button class="btn btn-sm btn-danger api-clear-btn" data-api="${escapeAttr(apiName)}">清除</button>
           </div>
           ${warningHtml}
           <div class="api-card-body">
@@ -951,7 +954,7 @@ function renderApiCards() {
             </div>
             <div class="api-field-group">
               <label class="toggle-switch" style="vertical-align:middle;">
-                <input type="checkbox" class="api-toggle" data-api="${apiName}" data-field="enabled" ${provider.enabled ? 'checked' : ''} ${toggleDisabled}>
+                <input type="checkbox" class="api-toggle" data-api="${escapeAttr(apiName)}" data-field="enabled" ${provider.enabled ? 'checked' : ''} ${toggleDisabled}>
                 <span class="toggle-slider"></span>
               </label>
               <span style="margin-left:8px;">启用</span>
@@ -977,12 +980,12 @@ function renderApiCards() {
           : `type="text" class="api-field locked" ${lockAttrs}`;
         // 解锁状态下，密钥字段旁边显示可见性切换按钮
         const toggleBtn = (apiUnlocked && isSensitive)
-          ? `<span class="api-field-toggle" data-api="${apiName}" data-field="${f.key}">👁</span>`
+          ? `<span class="api-field-toggle" data-api="${escapeAttr(apiName)}" data-field="${f.key}">👁</span>`
           : '';
         return `
           <div class="api-field-group">
             <span class="api-field-label">${escapeAttr(f.label)}</span>
-            <input ${inputAttrs} data-api="${apiName}" data-field="${f.key}"
+            <input ${inputAttrs} data-api="${escapeAttr(apiName)}" data-field="${f.key}"
               value="${fieldValue}" placeholder="${escapeAttr(f.default || '')}">
             ${toggleBtn}
           </div>
@@ -994,11 +997,11 @@ function renderApiCards() {
       const inputAttrs = apiUnlocked
         ? `type="password" class="api-field"`
         : `type="text" class="api-field locked" ${lockAttrs}`;
-      const toggleBtn = apiUnlocked ? `<span class="api-field-toggle" data-api="${apiName}" data-field="apiKey">👁</span>` : '';
+      const toggleBtn = apiUnlocked ? `<span class="api-field-toggle" data-api="${escapeAttr(apiName)}" data-field="apiKey">👁</span>` : '';
       fieldsHtml = `
         <div class="api-field-group">
           <span class="api-field-label">API Key</span>
-          <input ${inputAttrs} data-api="${apiName}" data-field="apiKey" value="${fieldValue}">
+          <input ${inputAttrs} data-api="${escapeAttr(apiName)}" data-field="apiKey" value="${fieldValue}">
           ${toggleBtn}
         </div>
       `;
@@ -1014,11 +1017,11 @@ function renderApiCards() {
       fieldsHtml += `
         <div class="api-field-group">
           <span class="api-field-label">Endpoint</span>
-          <input ${epAttrs} data-api="${apiName}" data-field="endpoint" value="${endpointValue}">
+          <input ${epAttrs} data-api="${escapeAttr(apiName)}" data-field="endpoint" value="${endpointValue}">
         </div>
         <div class="api-field-group">
           <span class="api-field-label">模型</span>
-          <input ${epAttrs} data-api="${apiName}" data-field="model" value="${modelValue}">
+          <input ${epAttrs} data-api="${escapeAttr(apiName)}" data-field="model" value="${modelValue}">
         </div>
       `;
     }
@@ -1035,19 +1038,19 @@ function renderApiCards() {
     const warningHtml = complete ? '' : `<div class="api-incomplete-warning"><strong>⚠ 填写不全</strong>：缺少 ${missing.join('、')}。已保存当前内容，但该接口不会启用。</div>`;
 
     return `
-      <div class="api-card" data-api="${apiName}">
+      <div class="api-card" data-api="${escapeAttr(apiName)}">
         <div class="api-card-header">
           <span class="api-card-name">
             <label class="toggle-switch" style="vertical-align:middle;margin-right:8px;">
-              <input type="checkbox" class="api-enable" data-api="${apiName}" ${enableAttr} ${enableDisabled}>
+              <input type="checkbox" class="api-enable" data-api="${escapeAttr(apiName)}" ${enableAttr} ${enableDisabled}>
               <span class="toggle-slider"></span>
             </label>
             ${escapeAttr(getApiDisplayName(apiName))}
           </span>
           <span class="api-card-status ${statusClass}">${statusText}</span>
           ${incompleteTag}
-          <button class="btn btn-sm api-test-btn" data-api="${apiName}">测试</button>
-          <button class="btn btn-sm btn-danger api-clear-btn" data-api="${apiName}">清除</button>
+          <button class="btn btn-sm api-test-btn" data-api="${escapeAttr(apiName)}">测试</button>
+          <button class="btn btn-sm btn-danger api-clear-btn" data-api="${escapeAttr(apiName)}">清除</button>
         </div>
         ${warningHtml}
         <div class="api-card-body">
@@ -1097,7 +1100,15 @@ function renderApiCards() {
             settings.api.enabledApis[apiName] = false;
             await saveAllSettings(settings);
           }
-          renderApiCards();
+          // 只更新当前卡片状态，不全量重渲染
+          const card = input.closest('.api-card');
+          if (card) {
+            const cb = card.querySelector('.api-enable');
+            if (cb) {
+              if (!complete) { cb.checked = false; cb.disabled = true; }
+              else { cb.disabled = false; }
+            }
+          }
           renderApiPriority();
         });
         return;
@@ -1152,6 +1163,7 @@ function renderApiCards() {
       }
       btn.textContent = '测试中...';
       btn.disabled = true;
+      try {
       let config = settings.api.apiKeys?.[apiName] || {};
 
       // 处理自定义供应商的测试配置
@@ -1168,7 +1180,6 @@ function renderApiCards() {
       }
 
       const res = await chrome.runtime.sendMessage({ action: 'testApi', apiName, apiConfig: config });
-      btn.disabled = false;
       if (res && res.success) {
         btn.textContent = '✓ 成功';
         btn.style.background = '#4CAF50';
@@ -1220,6 +1231,15 @@ function renderApiCards() {
         alert('测试失败：' + ((res && res.error) || '未知错误'));
         btn._testRestoreTimer = setTimeout(() => { btn.textContent = '测试'; btn.style.background = ''; btn.style.color = ''; btn._testRestoreTimer = null; }, 2000);
       }
+      } catch(e) {
+        btn.textContent = '✗ 错误';
+        btn.style.background = '#f44336';
+        btn.style.color = '#fff';
+        alert('测试出错：' + (e.message || '未知错误'));
+        btn._testRestoreTimer = setTimeout(() => { btn.textContent = '测试'; btn.style.background = ''; btn.style.color = ''; btn._testRestoreTimer = null; }, 2000);
+      } finally {
+        btn.disabled = false;
+      }
     });
   });
 
@@ -1240,7 +1260,7 @@ function renderApiCards() {
           alert('清除失败：' + ((res && res.error) || '未知错误'));
         }
       } catch(e) {
-        alert('清除失败：' + escapeAttr(e.message || '未知错误'));
+        alert('清除失败：' + (e.message || '未知错误'));
       }
     });
   });
@@ -1287,6 +1307,7 @@ function hideIncompleteWarning(card) {
 
 function showPinDialog(mode) {
   // mode: 'verify' | 'setup' | 'reset'
+  pinDialogMode = mode;
   const dialog = document.getElementById('pinDialog');
   const title = document.getElementById('pinDialogTitle');
   const desc = document.getElementById('pinDialogDesc');
@@ -1354,7 +1375,7 @@ async function handlePinConfirm() {
   // 防止异步操作期间重复提交
   if (confirmBtn?.disabled) return;
 
-  if (title.textContent.includes('设置')) {
+  if (pinDialogMode === 'setup') {
     // setup 模式：需要校验 PIN 格式
     if (!/^\d{6}$/.test(pin)) {
       error.textContent = '请输入 6 位数字 PIN 码';
@@ -1377,7 +1398,7 @@ async function handlePinConfirm() {
     } finally {
       if (confirmBtn) confirmBtn.disabled = false;
     }
-  } else if (title.textContent.includes('重置')) {
+  } else if (pinDialogMode === 'reset') {
     // reset 模式：不校验 PIN，直接执行重置
     if (confirmBtn) confirmBtn.disabled = true;
     try {
@@ -1519,7 +1540,7 @@ function renderApiPriority() {
   const priority = settings.api.apiPriority || [];
 
   container.innerHTML = priority.map(apiName => `
-    <div class="api-priority-item" data-api="${apiName}">
+    <div class="api-priority-item" data-api="${escapeAttr(apiName)}">
       <span class="drag-handle">☰</span>
       <span>${escapeAttr(getApiDisplayName(apiName))}</span>
     </div>

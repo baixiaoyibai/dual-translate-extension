@@ -13,6 +13,64 @@
 
 ---
 
+## v1.0.14 — 2026-07-30
+
+> 全面 bug 审查修复：安全加固 + 并发竞态 + 错误处理 + 缓存可靠性。
+> 两轮子代理修复 + 主代理审核，覆盖 11 个文件，+260/-95 行变更。
+
+### Security — 安全修复（4 项）
+
+- **[高风险] 原型污染防护**：`_deepMerge` 和 `applyImportedSettings` 未过滤 `__proto__`/`constructor`/`prototype` 键，恶意导入数据可注入原型链。现增加键名过滤
+- **PIN 码暴力破解防护**：`verifyPin` 无失败次数限制和冷却期。现增加 5 次失败后 60 秒冷却 + 常量时间比较（`_constantTimeCompare`）防时序攻击
+- **XSS 防护强化**：`options.js` 中 `data-api` 属性使用未转义的 `apiName`，自定义供应商名称含特殊字符时可注入 HTML。所有 `data-api` 改用 `escapeAttr()` 转义
+- **写操作权限校验**：`background.js` 对 `saveSettings`/`updateSettings`/`importAllSettings`/PIN 操作等写操作增加 sender 身份校验，content script 调用时拒绝
+
+### Fixed — Bug 修复（18 项）
+
+- **init() 失败后无法重试**：`initPromise` 在异常时未重置为 null，导致 SW 重启后永远无法初始化。现 catch 中重置 `initPromise = null`
+- **右键菜单翻译时 SW 未初始化**：`contextMenus.onClicked` 未 await `init()`，冷启动时首次右键翻译失败
+- **sendMessage 未捕获 Promise 拒绝**：`background.js` 中多处 `chrome.tabs.sendMessage` 无 `.catch()`，目标页关闭时产生未处理拒绝。全部增加 `.catch(() => {})`
+- **applyGlossary 正则注入**：`out.replace(re, target)` 中 target 含 `$` 时被解释为替换模式。改用 `() => target` 函数替换
+- **detectPageLanguage 未处理 'all'**：`forceLanguage === 'all'` 时直接返回 'all' 而非进行检测。增加 `'all'` 排除
+- **MutationObserver 自动重翻译弹 alert**：动态内容触发重翻译时调用 `startTranslation()` 可能弹错误提示。改用 `startTranslation({ silent: true })`
+- **translatePageMeta 未检查 abort**：异步翻译返回后未检查 `currentAbortController.signal.aborted`，取消后仍注入结果
+- **面板关闭后 panelRenderedSegIds 未清空**：再次打开面板时增量渲染逻辑误判已渲染段。关闭时清空 `panelRenderedSegIds`
+- **switchMode 未校验输入**：传入无效模式名导致状态混乱。增加白名单校验
+- **resetAll 未清除 isTranslating**：取消翻译后 `isTranslating` 仍为 true，无法重新启动翻译
+- **cancelTranslation 未清除 currentAbortController**：abort 后引用未置 null，影响后续判断
+- **popup loadApiStatus 未检查 null**：`res` 为 null 时 `res.error` 抛异常。增加 null 检查
+- **popup 模式切换失败未回滚设置**：切换失败时仅恢复 UI 按钮，未回滚持久化设置。增加 `updateSettings` 回滚
+- **百度额度错误码判断错误**：`54003`/`54004` 是临时限流而非额度耗尽，被错误标记为 `QUOTA_EXCEEDED`。改为 `54001`/`54002`/`58002`
+- **月度配额重置时间错误**：`_handleApiError` 对百度/火山等月度 API 使用 `_getNextMidnight()` 而非下月 1 日。增加 `_getNextMonthStart()`
+- **testApi 无超时保护**：API 测试请求可能无限挂起。增加 `AbortController` + `Promise.race` 超时保护
+- **saveSettings 后 API 未重载**：保存设置后 `apiManager` 未 reload，新配置不生效。增加 `await apiManager.reload()`
+- **PIN setupPin 未校验格式**：`setupPin` 接受任意字符串。增加 6 位数字校验
+
+### Changed — 可靠性改进（8 项）
+
+- **translation-cache 并发 _load() 竞态修复**：多个并发 `_load()` 各自触发 `chrome.storage.local.get` 并互相覆盖。增加 `_loadPromise` 缓存
+- **translation-cache _save() 并发序列化**：`_save()` 无 promise 追踪，并发保存可能丢数据。增加 `_savePromise` 序列化
+- **translation-cache flush() 等待进行中的保存**：`flush()` 仅检查 timer，未等待正在执行的 `_save()`。增加 `_savePromise` 等待
+- **translation-cache TTL 改用创建时间**：`a` 字段既是访问时间又用于 TTL，频繁访问的条目永不过期。新增 `c`（创建时间）字段用于 TTL，`a` 保留用于 LRU
+- **translation-cache sweep/getStats 处理损坏条目**：未校验 `entry.t` 和 `entry.a` 类型，损坏数据导致崩溃。增加类型检查和清理
+- **statusCache 并发竞态修复**：`saveApiStatus` 传入 `this.statusCache` 快照，并发时覆盖最新状态。改为不传快照，从存储读取最新值
+- **addDailyUsage/addMonthlyUsage 跨期逻辑修复**：跨日/跨月时仅重置 `_date`/`_month` 但保留旧 API 用量数据。改为创建全新对象
+- **resetApiQuotaIfNeeded 月份格式统一**：UTC `toISOString().slice(0,7)` 与本地时区不一致。改用本地时间 `${year}-${month.padStart(2,'0')}`
+
+### Fixed — UI/UX 修复（5 项）
+
+- **API 测试按钮异常后永久禁用**：`testApi` 无 try-catch-finally，异常时 `btn.disabled` 永远为 true。增加完整异常处理
+- **自定义供应商保存后全量重渲染**：保存后 `renderApiCards()` 导致输入框失焦。改为仅更新当前卡片状态
+- **showSavedTip 空指针**：`document.getElementById('savedTip')` 可能为 null。增加 null 检查
+- **addExcludeBtn 设置未加载时崩溃**：`settings` 为 null 时访问 `settings.general` 崩溃。增加 null 检查
+- **PIN 对话框模式判断依赖文本**：`title.textContent.includes('设置')` 在文本变更时易出错。改用 `pinDialogMode` 变量
+
+### Changed — 文案通用化
+
+- **术语管理页文案更新**：移除「游戏和 MOD 社区」限定，改为「专业术语和自定义翻译规则」；工作原理中「游戏/MOD 术语」改为「专业术语」；域名示例从 `*.nexusmods.com` 改为 `*.example.com`
+
+---
+
 ## v1.0.13 — 2026-07-30
 
 > API 密钥安全管理：PIN 码保护 + 掩码显示 + 交互逻辑修复。

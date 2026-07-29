@@ -14,28 +14,33 @@ async function init() {
   if (initialized) return;
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    await settingsManager.loadSettings();
-    await apiManager.init();
-    try { await translationCache.sweep(); } catch {}
-    setupContextMenu();
-    setupCommands();
-    // 定期维护：重置API配额 + 清理缓存
-    await settingsManager.resetApiQuotaIfNeeded();
     try {
-      const s = settingsManager.settings.general?.toggleTranslateShortcut;
-      if (s && s !== 'Alt+T') {
-        await chrome.commands.update({ name: 'toggle-translate', shortcut: s });
-      }
-    } catch (e) {
-      // v1.0.6 hotfix6: 失败回滚 storage，避免下次启动重复失败并产生噪音
-      console.warn('[dual-translate] update shortcut failed, rolling back to Alt+T:', e.message);
+      await settingsManager.loadSettings();
+      await apiManager.init();
+      try { await translationCache.sweep(); } catch {}
+      setupContextMenu();
+      setupCommands();
+      // 定期维护：重置API配额 + 清理缓存
+      await settingsManager.resetApiQuotaIfNeeded();
       try {
-        await settingsManager.updateSetting('general.toggleTranslateShortcut', 'Alt+T');
-      } catch (e2) {
-        console.warn('[dual-translate] rollback also failed:', e2.message);
+        const s = settingsManager.settings.general?.toggleTranslateShortcut;
+        if (s && s !== 'Alt+T') {
+          await chrome.commands.update({ name: 'toggle-translate', shortcut: s });
+        }
+      } catch (e) {
+        // v1.0.6 hotfix6: 失败回滚 storage，避免下次启动重复失败并产生噪音
+        console.warn('[dual-translate] update shortcut failed, rolling back to Alt+T:', e.message);
+        try {
+          await settingsManager.updateSetting('general.toggleTranslateShortcut', 'Alt+T');
+        } catch (e2) {
+          console.warn('[dual-translate] rollback also failed:', e2.message);
+        }
       }
+      initialized = true;
+    } catch(e) {
+      initPromise = null; // 允许重试
+      throw e;
     }
-    initialized = true;
   })();
   return initPromise;
 }
@@ -52,6 +57,7 @@ function setupContextMenu() {
 }
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  await init();
   if (info.menuItemId === 'translate-selection' && info.selectionText) {
     try {
       if (!apiManager.translators || apiManager.translators.size === 0) {
@@ -63,13 +69,13 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         action: 'showSelectionTranslation',
         original: info.selectionText,
         translation: translation
-      });
+      }).catch(() => {});
     } catch (error) {
       chrome.tabs.sendMessage(tab.id, {
         action: 'showSelectionTranslation',
         original: info.selectionText,
         translation: '翻译失败: ' + error.message
-      });
+      }).catch(() => {});
     }
   }
 });
@@ -79,7 +85,7 @@ function setupCommands() {
     if (command === 'toggle-translate') {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab) {
-        chrome.tabs.sendMessage(tab.id, { action: 'toggleTranslate' });
+        chrome.tabs.sendMessage(tab.id, { action: 'toggleTranslate' }).catch(() => {});
       }
     }
   });
@@ -87,15 +93,30 @@ function setupCommands() {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handleMessage(message, sender).then(sendResponse).catch(err => {
-    sendResponse({ error: err.message });
+    sendResponse({ error: err?.message || String(err) });
   });
   return true;
 });
+
+function _isExtensionSender(sender) {
+  const url = sender && typeof sender.url === 'string' ? sender.url : '';
+  return url.startsWith('chrome-extension://');
+}
 
 async function handleMessage(message, sender) {
   await init();
   // v1.0.7 perf: flush 防抖缓存写入，确保 SW 休眠前脏数据已落盘
   try { await translationCache.flush(); } catch {}
+
+  // 安全修复：写操作仅允许扩展自身页面调用，content script 调用时拒绝
+  const WRITE_ACTIONS = new Set([
+    'updateSettings', 'saveSettings', 'importAllSettings', 'reloadApis', 'clearApi',
+    'hasPin', 'setupPin', 'verifyPin', 'resetPin',
+    'exportAllSettings'
+  ]);
+  if (WRITE_ACTIONS.has(message.action) && !_isExtensionSender(sender)) {
+    return { error: 'Permission denied' };
+  }
 
   switch (message.action) {
     case 'translateTexts':
@@ -118,6 +139,9 @@ async function handleMessage(message, sender) {
       const safeSettings = JSON.parse(JSON.stringify(settingsManager.settings));
       if (safeSettings && safeSettings.api) {
         safeSettings.api.apiKeys = {};
+        if (Array.isArray(safeSettings.api.customProviders)) {
+          for (const p of safeSettings.api.customProviders) { if (p) p.apiKey = ''; }
+        }
       }
       return { settings: safeSettings };
     }
@@ -153,6 +177,7 @@ async function handleMessage(message, sender) {
 
     case 'saveSettings':
       await settingsManager.saveSettings(message.settings);
+      await apiManager.reload();
       return { success: true };
 
     case 'getApiStatus':
@@ -297,6 +322,12 @@ async function handleMessage(message, sender) {
     }
 
     case 'importAllSettings':
+      if (!message.data || typeof message.data !== 'object') {
+        return { success: false, error: '导入数据格式无效' };
+      }
+      if (!message.data.settings || typeof message.data.settings !== 'object') {
+        return { success: false, error: '导入的设置数据无效' };
+      }
       await settingsManager.applyImportedSettings(message.data.settings);
       if (message.data.glossary) await settingsManager.saveGlossary(message.data.glossary);
       if (typeof message.data.customPrompt === 'string') {

@@ -286,7 +286,7 @@
 
     <div id="tab-glossary" class="tab-content">
       <h2>术语管理</h2>
-      <p class="section-subtitle">管理游戏和 MOD 社区的专业术语翻译规则</p>
+      <p class="section-subtitle">管理专业术语和自定义翻译规则，支持全局与域名专属术语</p>
 
       <div class="section-card">
         <div class="glossary-actions">
@@ -395,7 +395,7 @@
         <p class="setting-desc">
           1. <strong>扫描网页</strong>：插件在网页加载后扫描页面中的文本段落（段落、标题、列表等），跳过代码块、脚本和样式内容。
           <br>2. <strong>语言检测</strong>：检测文本语言，仅翻译英语和日语内容（可在设置中调整）。
-          <br>3. <strong>术语替换</strong>：将文本中的游戏/MOD 术语按术语库规则预处理。
+          <br>3. <strong>术语替换</strong>：将文本中的专业术语按术语库规则预处理。
           <br>4. <strong>调用翻译接口</strong>：将文本批量发送到已配置的翻译接口，按优先级依次尝试。首个接口失败或额度不足时自动切换到下一个。
           <br>5. <strong>注入译文</strong>：将翻译结果按所选显示模式（双语对照/仅译文/悬停翻译/对照面板）注入回页面。
           <br>6. <strong>缓存</strong>：已翻译的文本会缓存 3 天，再次遇到相同内容时直接使用缓存，不重复调用 API。
@@ -460,8 +460,8 @@
         <p class="setting-desc">
           术语库用于自定义特定词汇的翻译规则，支持全局和域名专属术语：
           <br><br>
-          <strong>全局术语</strong>：在所有网站生效。适合通用的游戏/MOD 术语，如 <code>tank → 坦克</code>。
-          <br><strong>域名专属术语</strong>：仅在指定网站生效。可在术语管理页添加域名（如 <code>*.nexusmods.com</code>），为不同社区设置不同翻译规则。
+          <strong>全局术语</strong>：在所有网站生效。适合通用的专业术语，如 <code>tank → 坦克</code>。
+          <br><strong>域名专属术语</strong>：仅在指定网站生效。可在术语管理页添加域名（如 <code>*.example.com</code>），为不同网站设置不同翻译规则。
           <br><br>
           <strong>匹配模式</strong>：
           <br>• 精确匹配：原文术语完全匹配时替换（推荐用于专有名词）。

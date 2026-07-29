@@ -113,11 +113,11 @@ async function loadApiStatus() {
   const container = document.getElementById('apiStatus');
   try {
     const res = await chrome.runtime.sendMessage({ action: 'getApiStatus' });
-    if (res.error) {
+    if (!res || res.error) {
       container.innerHTML = '<div class="no-api-warning">请先在设置中配置至少一个翻译 API</div>';
       return;
     }
-    if (!res.status || Object.keys(res.status).length === 0) {
+    if (!res || !res.status || Object.keys(res.status).length === 0) {
       container.innerHTML = '<div class="no-api-warning">未检测到已配置的 API，请前往设置页面配置</div>';
       return;
     }
@@ -174,6 +174,8 @@ function setupEventListeners() {
         try {
           if (translationEnabled) {
             await chrome.tabs.sendMessage(tab.id, { action: 'startTranslation' });
+            updateCancelButton(true);
+            startCancelButtonPolling(tab.id);
           } else {
             await chrome.tabs.sendMessage(tab.id, { action: 'restoreAll' });
           }
@@ -206,12 +208,16 @@ function setupEventListeners() {
         } catch (e) {
           currentMode = prevMode;
           updateModeButtons();
+          chrome.runtime.sendMessage({ action: 'updateSettings', path: 'general.lastMode', value: prevMode });
+          chrome.runtime.sendMessage({ action: 'updateSettings', path: 'display.defaultMode', value: prevMode });
           alert('切换显示模式失败，请在普通网页上重试');
         }
       }
     } catch (e) {
       currentMode = prevMode;
       updateModeButtons();
+      chrome.runtime.sendMessage({ action: 'updateSettings', path: 'general.lastMode', value: prevMode });
+      chrome.runtime.sendMessage({ action: 'updateSettings', path: 'display.defaultMode', value: prevMode });
     }
   });
 
