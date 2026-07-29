@@ -54,10 +54,36 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 预热 background 的 API 缓存（fire-and-forget，失败不影响设置页加载）
   chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
 
-  try {
-    await loadAllData();
-  } catch(e) {
-    console.error('[options] loadAllData 失败:', e);
+  // v1.0.7 fix: 带重试的 loadAllData —— SW 冷启动时首批消息可能超时
+  let loadSuccess = false;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await loadAllData();
+      loadSuccess = true;
+      break;
+    } catch(e) {
+      console.error(`[options] loadAllData 第 ${attempt} 次失败:`, e);
+      if (attempt < 3) await new Promise(r => setTimeout(r, 500 * attempt));
+    }
+  }
+
+  // v1.0.7 fix: 即使 loadAllData 成功，也要验证 apiKeys 是否真正加载
+  // 场景：getSettings 返回了 settings 但 apiKeys 为空（SW 刚醒，reloadApiKeys 尚未完成）
+  if (loadSuccess && settings) {
+    const hasApiKeys = _hasNonEmptyApiKeys(settings.api?.apiKeys);
+    if (!hasApiKeys) {
+      console.warn('[options] settings 已加载但 apiKeys 为空，尝试直接重新获取...');
+      try {
+        const retryRes = await chrome.runtime.sendMessage({ action: 'getSettings' });
+        if (retryRes && retryRes.settings) {
+          settings = retryRes.settings;
+          console.log('[options] 重新获取 settings 成功，apiKeys 数量:',
+            Object.keys(settings.api?.apiKeys || {}).length);
+        }
+      } catch(e) {
+        console.error('[options] 重新获取 settings 失败:', e);
+      }
+    }
   }
 
   // 每个 setup 独立 try-catch：一个失败不影响其他
@@ -72,10 +98,54 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (!settings) {
     const container = document.getElementById('apiCardsContainer');
     if (container) {
-      container.innerHTML = '<div style="padding:20px;color:#f44336;">⚠ 无法加载设置数据。请尝试刷新页面，或检查扩展 Service Worker 是否正常。</div>';
+      container.innerHTML = '<div style="padding:20px;color:#f44336;">⚠ 无法加载设置数据。请尝试刷新页面，或点击上方"刷新API配置"按钮。</div>';
     }
+    updateApiDebugStatus();
   }
 });
+
+// v1.0.7: 检查 apiKeys 是否包含至少一个非空值
+function _hasNonEmptyApiKeys(apiKeys) {
+  if (!apiKeys || typeof apiKeys !== 'object') return false;
+  return Object.values(apiKeys).some(k =>
+    k && typeof k === 'object' &&
+    Object.values(k).some(v => typeof v === 'string' && v.length > 0)
+  );
+}
+
+// v1.0.7: 手动刷新 API 配置（用户点击"刷新API配置"按钮时调用）
+async function refreshApiSettings() {
+  const container = document.getElementById('apiCardsContainer');
+  const statusEl = document.getElementById('apiDebugStatus');
+  if (container) {
+    container.innerHTML = '<div style="padding:20px;color:#888;">正在重新加载 API 配置...</div>';
+  }
+  if (statusEl) { statusEl.textContent = '正在刷新...'; statusEl.style.color = '#888'; }
+  try {
+    const res = await chrome.runtime.sendMessage({ action: 'getSettings' });
+    if (res && res.settings) {
+      settings = res.settings;
+      const keyCount = Object.keys(settings.api?.apiKeys || {}).length;
+      const hasKeys = _hasNonEmptyApiKeys(settings.api?.apiKeys);
+      console.log('[options] refreshApiSettings: 成功, apiKeys 数量:', keyCount, '有非空值:', hasKeys);
+      renderApiCards();
+      renderApiPriority();
+      renderApiUsage();
+      showSavedTip();
+    } else {
+      if (container) {
+        container.innerHTML = '<div style="padding:20px;color:#f44336;">⚠ 刷新失败：未收到有效数据。</div>';
+      }
+      if (statusEl) { statusEl.textContent = '⚠ 刷新失败'; statusEl.style.color = '#f44336'; }
+    }
+  } catch(e) {
+    console.error('[options] refreshApiSettings 失败:', e);
+    if (container) {
+      container.innerHTML = `<div style="padding:20px;color:#f44336;">⚠ 刷新失败：${escapeAttr(e.message || '未知错误')}</div>`;
+    }
+    if (statusEl) { statusEl.textContent = '⚠ 刷新失败: ' + escapeAttr(e.message || '未知错误'); statusEl.style.color = '#f44336'; }
+  }
+}
 
 function showSavedTip() {
   const tip = document.getElementById('savedTip');
@@ -560,18 +630,105 @@ const API_STATUS_LABELS = { available: '可用', quota_exceeded: '额度不足',
 function getStatusLabel(status) { return API_STATUS_LABELS[status] || '未配置'; }
 
 function setupApiManagement() {
+  // v1.0.7: 绑定刷新按钮（即使 settings 为 null 也允许刷新）
+  const refreshBtn = document.getElementById('refreshApiBtn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', refreshApiSettings);
+  }
+
+  // v1.0.7: 绑定添加自定义大模型按钮
+  const addBtn = document.getElementById('addCustomProviderBtn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => {
+      if (!settings) return;
+      const providers = settings.api.customProviders || [];
+      const newProvider = {
+        id: 'provider_' + Date.now(),
+        name: '新大模型',
+        apiKey: '',
+        endpoint: '',
+        model: '',
+        enabled: true
+      };
+      providers.push(newProvider);
+      settings.api.customProviders = providers;
+
+      // 将 'custom_' + newProvider.id 加入 apiPriority
+      const idx = settings.api.apiPriority.indexOf('custom');
+      if (idx >= 0) {
+        settings.api.apiPriority.splice(idx + 1, 0, 'custom_' + newProvider.id);
+      } else {
+        settings.api.apiPriority.push('custom_' + newProvider.id);
+      }
+
+      saveAllSettings(settings).then(() => {
+        chrome.runtime.sendMessage({ action: 'reloadApis' });
+        renderApiCards();
+        renderApiPriority();
+        renderApiUsage();
+        showSavedTip();
+      });
+    });
+  }
+
   if (!settings) return;
+  // v1.0.7: 加载时自动清除未填写的自定义大模型
+  _cleanupEmptyCustomProviders();
   renderApiCards();
-  renderCustomProviders();
   renderApiPriority();
   renderApiUsage();
 }
 
+// v1.0.7: 清除未填写的自定义供应商（apiKey 和 endpoint 均为空）
+function _cleanupEmptyCustomProviders() {
+  if (!settings?.api?.customProviders) return;
+  const before = settings.api.customProviders.length;
+  settings.api.customProviders = settings.api.customProviders.filter(p => {
+    const hasContent = (p.apiKey && p.apiKey.length > 0) || (p.endpoint && p.endpoint.length > 0);
+    return hasContent;
+  });
+  if (settings.api.customProviders.length < before) {
+    // 同步清理 apiPriority 中失效的 custom_xxx
+    const validIds = new Set(settings.api.customProviders.map(p => 'custom_' + p.id));
+    settings.api.apiPriority = settings.api.apiPriority.filter(name => {
+      if (name.startsWith('custom_')) return validIds.has(name);
+      return true;
+    });
+    console.log(`[options] 清理了 ${before - settings.api.customProviders.length} 个未填写的自定义大模型`);
+    saveAllSettings(settings).then(() => {
+      chrome.runtime.sendMessage({ action: 'reloadApis' });
+    });
+  }
+}
+
+// v1.0.7: 更新 API 调试状态指示器
+function updateApiDebugStatus() {
+  const statusEl = document.getElementById('apiDebugStatus');
+  if (!statusEl) return;
+  if (!settings) {
+    statusEl.textContent = '⚠ 设置未加载';
+    statusEl.style.color = '#f44336';
+    return;
+  }
+  const apiKeys = settings.api?.apiKeys || {};
+  const allNames = Object.keys(apiKeys);
+  const configuredNames = allNames.filter(name => {
+    const obj = apiKeys[name];
+    return obj && typeof obj === 'object' &&
+      Object.values(obj).some(v => typeof v === 'string' && v.length > 0);
+  });
+  const priority = settings.api?.apiPriority || [];
+  statusEl.textContent = `已加载 ${configuredNames.length}/${allNames.length} 个 API 密钥，优先级列表 ${priority.length} 项`;
+  statusEl.style.color = configuredNames.length > 0 ? '#4caf50' : '#f44336';
+}
+
 function getApiDisplayName(apiName) {
-  if (typeof window.getApiDisplayName === 'function') return window.getApiDisplayName(apiName, settings?.api?.customProviders);
+  // v1.0.7 fix: 不能调用 window.getApiDisplayName —— 本函数以普通 <script> 加载，
+  // function 声明会覆盖 api-metadata.js 设置的 window.getApiDisplayName，导致无限递归。
+  // API_DISPLAY_NAMES 已在文件头部从 window.API_DISPLAY_NAMES 拷贝，直接用即可。
   if (API_DISPLAY_NAMES[apiName]) return API_DISPLAY_NAMES[apiName];
   if (apiName.startsWith('custom_')) {
-    const provider = (settings.api.customProviders || []).find(p => p.id === apiName.slice(7));
+    const provider = (settings?.api?.customProviders || []).find(p => p.id === apiName.slice(7));
     return provider ? provider.name : apiName;
   }
   return apiName;
@@ -584,9 +741,29 @@ function renderApiCards() {
   const enabledApis = settings.api.enabledApis || {};
   const apiKeys = settings.api.apiKeys || {};
 
+  // 调试日志：渲染前的数据状态
+  console.log('[options] renderApiCards 开始渲染:', {
+    priorityLength: priority.length,
+    priority: priority,
+    apiKeysNames: Object.keys(apiKeys),
+    enabledApis: enabledApis
+  });
+
   if (priority.length === 0) {
     container.innerHTML = '<div style="padding:20px;color:#888;">API 优先级列表为空，请检查设置数据。</div>';
     return;
+  }
+
+  // 确保 apiPriority 包含所有已配置密钥的 API（防止 priority 列表遗漏已配置的 API）
+  const configuredApis = Object.keys(apiKeys).filter(name => {
+    const obj = apiKeys[name];
+    return obj && typeof obj === 'object' && Object.values(obj).some(v => typeof v === 'string' && v.length > 0);
+  });
+  for (const apiName of configuredApis) {
+    if (!priority.includes(apiName)) {
+      priority.push(apiName);
+      console.log('[options] renderApiCards: 补充遗漏的已配置 API 到 priority:', apiName);
+    }
   }
 
   container.innerHTML = priority.map(apiName => {
@@ -613,6 +790,7 @@ function renderApiCards() {
             </span>
             <span class="api-card-status ${statusClass}">${getStatusLabel(status?.status)}</span>
             <button class="btn btn-sm api-test-btn" data-api="${apiName}">测试</button>
+            <button class="btn btn-sm btn-danger api-clear-btn" data-api="${apiName}">清除</button>
           </div>
           <div class="api-card-body">
             <div class="api-field-group">
@@ -644,7 +822,8 @@ function renderApiCards() {
     }
 
     let fieldsHtml = '';
-    if (['baidu', 'baidu_llm'].includes(apiName)) {
+    // 有自定义字段配置的 API（baidu, baidu_llm 等）按字段列表渲染
+    if (fields.length > 0) {
       fieldsHtml = fields.map(f => `
         <div class="api-field-group">
           <span class="api-field-label">${escapeAttr(f.label)}</span>
@@ -690,6 +869,7 @@ function renderApiCards() {
           </span>
           <span class="api-card-status ${statusClass}">${statusText}</span>
           <button class="btn btn-sm api-test-btn" data-api="${apiName}">测试</button>
+          <button class="btn btn-sm btn-danger api-clear-btn" data-api="${apiName}">清除</button>
         </div>
         <div class="api-card-body">
           ${fieldsHtml}
@@ -697,6 +877,9 @@ function renderApiCards() {
       </div>
     `;
   }).join('');
+
+  // v1.0.7: 渲染后更新调试状态指示器
+  updateApiDebugStatus();
 
   container.querySelectorAll('.api-enable').forEach(cb => {
     cb.addEventListener('change', () => {
@@ -728,7 +911,6 @@ function renderApiCards() {
         saveAllSettings(settings).then(() => {
           chrome.runtime.sendMessage({ action: 'reloadApis' });
           showSavedTip();
-          renderCustomProviders();
           renderApiCards();
           renderApiPriority();
         });
@@ -806,6 +988,28 @@ function renderApiCards() {
       }
     });
   });
+
+  // v1.0.7: 一键清除按钮 —— 清除该 API 的密钥、模型、接入点等所有信息
+  container.querySelectorAll('.api-clear-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const apiName = btn.dataset.api;
+      const displayName = getApiDisplayName(apiName);
+      if (!confirm(`确定清除「${displayName}」的所有配置信息？\n\n这将删除：密钥、模型、接入点等数据，且不可恢复。`)) return;
+
+      try {
+        const res = await chrome.runtime.sendMessage({ action: 'clearApi', apiName });
+        if (res && res.success) {
+          showSavedTip();
+          // 重新从后台加载最新设置，确保 UI 与存储一致
+          await refreshApiSettings();
+        } else {
+          alert('清除失败：' + ((res && res.error) || '未知错误'));
+        }
+      } catch(e) {
+        alert('清除失败：' + escapeAttr(e.message || '未知错误'));
+      }
+    });
+  });
 }
 
 function renderApiPriority() {
@@ -852,156 +1056,7 @@ function renderApiPriority() {
   });
 }
 
-function renderCustomProviders() {
-  const container = document.getElementById('customProvidersContainer');
-  if (!container) return;
-  if (!settings) return;
-  
-  const providers = settings.api.customProviders || [];
-  
-  container.innerHTML = providers.map(provider => {
-    const apiName = `custom_${provider.id}`;
-    const status = apiStatus[apiName];
-    const statusClass = status?.status || 'unconfigured';
-    const statusText = getStatusLabel(status?.status);
-    
-    return `
-      <div class="custom-provider-card">
-        <div class="custom-provider-header">
-          <span class="custom-provider-name">${escapeAttr(provider.name)}</span>
-          <span class="custom-provider-status ${statusClass}">${statusText}</span>
-          <button class="btn btn-sm custom-provider-test-btn" data-api="${apiName}">测试</button>
-          <button class="btn btn-sm btn-danger custom-provider-delete-btn" data-id="${escapeAttr(provider.id)}">删除</button>
-        </div>
-        <div class="custom-provider-body">
-          <div class="api-field-group">
-            <span class="api-field-label">显示名称</span>
-            <input type="text" class="custom-provider-field" data-provider-id="${escapeAttr(provider.id)}" data-field="name" value="${escapeAttr(provider.name)}">
-          </div>
-          <div class="api-field-group">
-            <span class="api-field-label">API Key</span>
-            <input type="password" class="custom-provider-field" data-provider-id="${escapeAttr(provider.id)}" data-field="apiKey" value="${escapeAttr(provider.apiKey)}">
-          </div>
-          <div class="api-field-group">
-            <span class="api-field-label">Endpoint</span>
-            <input type="text" class="custom-provider-field" data-provider-id="${escapeAttr(provider.id)}" data-field="endpoint" value="${escapeAttr(provider.endpoint)}">
-          </div>
-          <div class="api-field-group">
-            <span class="api-field-label">模型</span>
-            <input type="text" class="custom-provider-field" data-provider-id="${escapeAttr(provider.id)}" data-field="model" value="${escapeAttr(provider.model)}">
-          </div>
-          <div class="api-field-group">
-            <label class="toggle-switch" style="vertical-align:middle;">
-              <input type="checkbox" class="custom-provider-toggle" data-provider-id="${escapeAttr(provider.id)}" data-field="enabled" ${provider.enabled ? 'checked' : ''}>
-              <span class="toggle-slider"></span>
-            </label>
-            <span style="margin-left:8px;">启用</span>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
-  
-  // 绑定字段修改事件
-  container.querySelectorAll('.custom-provider-field').forEach(input => {
-    input.addEventListener('change', () => {
-      const providerId = input.dataset.providerId;
-      const field = input.dataset.field;
-      const provider = (settings.api.customProviders || []).find(p => p.id === providerId);
-      if (!provider) return;
-      if (field === 'endpoint' && !validateEndpointInput(input, provider.endpoint)) return;
-      provider[field] = input.value;
-      saveAllSettings(settings).then(() => {
-        chrome.runtime.sendMessage({ action: 'reloadApis' });
-        showSavedTip();
-        renderCustomProviders();
-        renderApiCards();
-        renderApiPriority();
-      });
-    });
-  });
-  
-  // 绑定开关事件
-  container.querySelectorAll('.custom-provider-toggle').forEach(toggle => {
-    toggle.addEventListener('change', () => {
-      const providerId = toggle.dataset.providerId;
-      const field = toggle.dataset.field;
-      const provider = (settings.api.customProviders || []).find(p => p.id === providerId);
-      if (!provider) return;
-      
-      provider[field] = toggle.checked;
-      saveAllSettings(settings).then(() => {
-        chrome.runtime.sendMessage({ action: 'reloadApis' });
-        showSavedTip();
-        renderCustomProviders();
-        renderApiCards();
-        renderApiPriority();
-      });
-    });
-  });
-  
-  // 绑定测试按钮事件
-  container.querySelectorAll('.custom-provider-test-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const apiName = btn.dataset.api;
-      const providerId = apiName.slice(7);
-      const provider = (settings.api.customProviders || []).find(p => p.id === providerId);
-      if (!provider) return;
-      
-      btn.textContent = '测试中...';
-      btn.disabled = true;
-      const config = {
-        apiKey: provider.apiKey,
-        displayName: provider.name
-      };
-      const res = await chrome.runtime.sendMessage({ action: 'testApi', apiName, apiConfig: config });
-      btn.disabled = false;
-      if (res && res.success) {
-        btn.textContent = '✓ 成功';
-        btn.style.background = '#4CAF50';
-        btn.style.color = '#fff';
-        // v1.0.5 hotfix: 自定义供应商测试成功时也刷新 status + 重渲染
-        try {
-          const fresh = await chrome.runtime.sendMessage({ action: 'getApiStatus' });
-          if (fresh && fresh.status) {
-            apiStatus = fresh.status;
-            renderApiCards();
-            renderApiUsage();
-          }
-        } catch {}
-        btn._testRestoreTimer = setTimeout(() => { btn.textContent = '测试'; btn.style.background = ''; btn.style.color = ''; btn._testRestoreTimer = null; }, 2000);
-      } else {
-        btn.textContent = '✗ 失败';
-        btn.style.background = '#f44336';
-        btn.style.color = '#fff';
-        alert('测试失败：' + ((res && res.error) || '未知错误'));
-        btn._testRestoreTimer = setTimeout(() => { btn.textContent = '测试'; btn.style.background = ''; btn.style.color = ''; btn._testRestoreTimer = null; }, 2000);
-      }
-    });
-  });
-  
-  // 绑定删除按钮事件
-  container.querySelectorAll('.custom-provider-delete-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const providerId = btn.dataset.id;
-      if (!confirm('确定删除此自定义供应商？')) return;
-      
-      // 从 customProviders 中删除
-      settings.api.customProviders = (settings.api.customProviders || []).filter(p => p.id !== providerId);
-      
-      // 从 apiPriority 中删除对应的 custom_xxx
-      settings.api.apiPriority = settings.api.apiPriority.filter(name => name !== `custom_${providerId}`);
-      
-      saveAllSettings(settings).then(() => {
-        chrome.runtime.sendMessage({ action: 'reloadApis' });
-        showSavedTip();
-        renderCustomProviders();
-        renderApiCards();
-        renderApiPriority();
-      });
-    });
-  });
-}
+// v1.0.7: renderCustomProviders 已移除 —— 自定义供应商现在统一在 renderApiCards 中渲染
 
 function renderApiUsage() {
   const container = document.getElementById('apiUsageContainer');
@@ -1163,39 +1218,7 @@ async function loadLlmPrompt() {
   }
 }
 
-// 添加自定义供应商
-(() => {
-  document.getElementById('addCustomProviderBtn')?.addEventListener('click', () => {
-    const providers = settings.api.customProviders || [];
-    const newProvider = {
-      id: 'provider_' + Date.now(),
-      name: '新供应商',
-      apiKey: '',
-      endpoint: '',
-      model: '',
-      enabled: true
-    };
-    providers.push(newProvider);
-    settings.api.customProviders = providers;
-
-    // 将 'custom_' + newProvider.id 加入 apiPriority（排在 custom 后面）
-    const idx = settings.api.apiPriority.indexOf('custom');
-    if (idx >= 0) {
-      settings.api.apiPriority.splice(idx + 1, 0, 'custom_' + newProvider.id);
-    } else {
-      settings.api.apiPriority.push('custom_' + newProvider.id);
-    }
-
-    saveAllSettings(settings).then(() => {
-      chrome.runtime.sendMessage({ action: 'reloadApis' });
-      renderCustomProviders();
-      renderApiCards();
-      renderApiPriority();
-      renderApiUsage();
-      showSavedTip();
-    });
-  });
-})();
+// v1.0.7: addCustomProviderBtn 的事件绑定已移至 setupApiManagement 中
 
 function isValidEndpointUrl(url) {
   if (!url || typeof url !== 'string') return false;

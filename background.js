@@ -2,6 +2,11 @@ import { settingsManager } from './lib/settings-manager.js';
 import { apiManager } from './lib/api-manager.js';
 import { translationCache } from './lib/translation-cache.js';
 
+// v1.0.7: storage key 常量（与 settings-manager.js 保持一致）
+const LOCAL_API_KEYS_KEY = 'dual_translate_api_keys_local';
+const API_STATUS_KEY = 'dual_translate_api_status';
+const DAILY_USAGE_KEY = 'dual_translate_daily_usage';
+
 let initialized = false;
 let initPromise = null;
 
@@ -189,6 +194,10 @@ async function handleMessage(message, sender) {
         status: apiManager.getApiStatusSummary()
       };
 
+    case 'clearApi':
+      // v1.0.7: 一键清除单个 API 的所有配置信息
+      return await handleClearApi(message.apiName);
+
     case 'getCacheStats':
       return await translationCache.getStats();
 
@@ -253,6 +262,74 @@ async function handleMessage(message, sender) {
 
     default:
       return { error: `Unknown action: ${message.action}` };
+  }
+}
+
+// v1.0.7: 一键清除单个 API 的所有配置（密钥/模型/接入点/状态/用量）
+async function handleClearApi(apiName) {
+  if (!apiName) return { success: false, error: '缺少 apiName' };
+  try {
+    const settings = settingsManager.settings;
+
+    // 1. 自定义供应商：从 customProviders 和 apiPriority 中彻底删除
+    if (apiName.startsWith('custom_')) {
+      const providerId = apiName.slice(7);
+      if (settings.api.customProviders) {
+        settings.api.customProviders = settings.api.customProviders.filter(p => p.id !== providerId);
+      }
+      settings.api.apiPriority = settings.api.apiPriority.filter(n => n !== apiName);
+    } else {
+      // 2. 常规 API：清除密钥、模型、接入点
+      if (settings.api.apiKeys && settings.api.apiKeys[apiName]) {
+        delete settings.api.apiKeys[apiName];
+      }
+      if (settings.api.apiEndpoints) {
+        delete settings.api.apiEndpoints[apiName];
+      }
+      if (settings.api.apiModels) {
+        delete settings.api.apiModels[apiName];
+      }
+      // 禁用该 API
+      if (settings.api.enabledApis) {
+        settings.api.enabledApis[apiName] = false;
+      }
+    }
+
+    // 3. 清除本地存储中的密钥
+    const stored = await chrome.storage.local.get(LOCAL_API_KEYS_KEY);
+    const localKeys = stored[LOCAL_API_KEYS_KEY] || {};
+    if (localKeys[apiName]) {
+      delete localKeys[apiName];
+      await chrome.storage.local.set({ [LOCAL_API_KEYS_KEY]: localKeys });
+    }
+
+    // 4. 清除 API 状态
+    const statusStored = await chrome.storage.local.get(API_STATUS_KEY);
+    const statusData = statusStored[API_STATUS_KEY] || {};
+    if (statusData[apiName]) {
+      delete statusData[apiName];
+      await chrome.storage.local.set({ [API_STATUS_KEY]: statusData });
+    }
+
+    // 5. 清除用量数据
+    const usageStored = await chrome.storage.local.get(DAILY_USAGE_KEY);
+    const usageData = usageStored[DAILY_USAGE_KEY] || {};
+    if (usageData[apiName]) {
+      delete usageData[apiName];
+      await chrome.storage.local.set({ [DAILY_USAGE_KEY]: usageData });
+    }
+
+    // 6. 保存设置（sync + local）
+    await settingsManager.saveSettings(settings);
+
+    // 7. 重新加载 API 管理器
+    await apiManager.reload();
+
+    console.info(`[background] clearApi: 已清除 ${apiName} 的所有配置`);
+    return { success: true };
+  } catch (error) {
+    console.error('[background] clearApi error:', error);
+    return { success: false, error: error.message };
   }
 }
 

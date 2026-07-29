@@ -320,14 +320,12 @@
     <div id="tab-api" class="tab-content">
       <h2>API 管理</h2>
       <p class="section-subtitle">配置和管理翻译接口</p>
-      <div id="apiCardsContainer"></div>
-
-      <div class="section-card">
-        <div class="section-card-header">🧩 自定义大模型供应商</div>
-        <p class="setting-desc" style="margin-bottom:10px;">添加你自己的 LLM API 供应商（兼容 OpenAI 接口格式）</p>
-        <div id="customProvidersContainer"></div>
-        <button class="btn btn-primary" id="addCustomProviderBtn" style="margin-top:10px;">+ 添加供应商</button>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+        <button class="btn btn-sm" id="refreshApiBtn" title="重新从后台加载 API 配置">🔄 刷新API配置</button>
+        <span id="apiDebugStatus" style="font-size:12px;color:#888;"></span>
       </div>
+      <div id="apiCardsContainer"></div>
+      <button class="btn btn-primary" id="addCustomProviderBtn" style="margin:10px 0;">+ 添加自定义大模型</button>
 
       <div class="section-card">
         <div class="section-card-header">📊 今日用量统计</div>

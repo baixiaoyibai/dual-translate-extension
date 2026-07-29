@@ -13,6 +13,78 @@
 
 ---
 
+## v1.0.7 — 2026-07-29
+
+> API 管理重构 + 安全加固批。聚焦设置页 API 显示可靠性、自定义供应商 UX、密钥隔离安全。
+> 6 文件，+370/-203。
+
+### Added — 新功能（2 项）
+
+- **一键清除 API 配置**
+  - `background.js` 新增 `case 'clearApi'` + `handleClearApi()` 处理器，清除指定 API 的密钥/模型/接入点/状态/用量全部数据
+  - `options/options.js` 在每个 API 卡片渲染「清除」按钮，confirm 后调用 `clearApi`，成功后 `refreshApiSettings()` 刷新 UI
+  - 自定义供应商清除时从 `customProviders` 和 `apiPriority` 中彻底删除；常规 API 清除后自动禁用
+- **API 配置刷新按钮 + 状态指示器**
+  - `options/options.html` 在 API 管理页顶部新增「🔄 刷新API配置」按钮 + `#apiDebugStatus` 状态文本
+  - `options/options.js` 新增 `refreshApiSettings()` 手动从后台重新加载设置并重渲染；`updateApiDebugStatus()` 显示已加载密钥数/优先级项数
+
+### Fixed — Bug 修复（5 项）
+
+- **[严重] 设置页 API 密钥显示丢失**
+  - 根因 1：Service Worker 冷启动时首批 `getSettings` 消息可能超时 → `loadAllData` 增加 3 次重试（间隔递增 500ms/1000ms/1500ms）
+  - 根因 2：`getSettings` 返回 settings 但 apiKeys 为空（SW 刚醒，`reloadApiKeys` 尚未完成）→ 加载后验证 apiKeys 非空，空则自动重新获取
+  - 根因 3：`saveSettings()` 中 `chrome.storage.local.set` 直接覆盖已有密钥 → 改为**合而非覆盖**：先读 local 已有密钥，只用 incoming 非空值覆盖对应字段
+  - 根因 4：`_mergeKeysIntoApi()` 只填充空字段，阻止 local 端真实密钥覆盖 sync 残留 → 改为**强制覆盖**
+- **[严重] `getApiDisplayName` 无限递归导致「Maximum call stack size exceeded」**
+  - `options.js` 中 `getApiDisplayName` 调用 `window.getApiDisplayName`，但本文件以普通 `<script>` 加载，function 声明会覆盖 `api-metadata.js` 设置的 `window.getApiDisplayName`，形成无限递归
+  - 修：移除 `window.getApiDisplayName` 调用，直接使用文件头部已拷贝的 `API_DISPLAY_NAMES` 常量
+- **[中等] 自定义供应商区域重复渲染**
+  - 原先 `renderApiCards()` 和 `renderCustomProviders()` 各渲染一份自定义供应商 UI，设置页出现多个重复交互区域
+  - 修：删除 `renderCustomProviders()` 函数（-155 行），自定义供应商统一在 `renderApiCards()` 中渲染，单一入口
+- **[中等] 每个 setup 函数异常会阻断后续 setup**
+  - `DOMContentLoaded` 中任一 setup 抛异常会中断后续所有 setup 调用
+  - 修：每个 setup 函数独立 try-catch，`setupDiagnostics()` 提前到最前执行
+- **[中等] `renderApiCards` 字段渲染条件过窄**
+  - 原仅 `['baidu', 'baidu_llm'].includes(apiName)` 走字段列表渲染，其他有字段配置的 API 不走
+  - 修：改为 `fields.length > 0` 判断，所有有字段配置的 API 统一走字段列表渲染
+
+### Changed — 行为变更（4 项）
+
+- **自定义供应商 UX 重构**
+  - `options/options.html` 移除独立的「自定义大模型供应商」section card，自定义供应商卡片直接在 `#apiCardsContainer` 中渲染
+  - 「+ 添加供应商」按钮改为「+ 添加自定义大模型」，移至 API 卡片列表底部
+  - 新增 `_cleanupEmptyCustomProviders()`：每次加载设置页时自动清除 apiKey 和 endpoint 均为空的自定义供应商，同步清理 `apiPriority` 中失效的 `custom_xxx`
+- **设置页始终先查询本地设置再显示**
+  - `DOMContentLoaded` 流程：`loadAllData()` → 验证 apiKeys 非空 → 各 setup 函数渲染
+  - `refreshApiSettings()` 提供手动刷新入口，确保 UI 与存储一致
+  - `renderApiCards()` 渲染前自动补充遗漏的已配置 API 到 `apiPriority` 列表
+- **`saveSettings` 合并而非覆盖 API 密钥**
+  - `lib/settings-manager.js` `saveSettings()` 中，local storage 写入从直接 `set` 改为先读已有 → 合并非空值 → 写入，避免保存单个 API 配置时丢失其他 API 的密钥
+- **README 更新**
+  - 版本号更新至 v1.0.7
+  - 翻译接口部分移除腾讯翻译，更新预置供应商列表
+
+### Security — 安全修复（1 项）
+
+- **自定义供应商 API 密钥隔离到 local storage**
+  - `lib/settings-manager.js` `saveSettings()` 中，`customProviders` 的 `apiKey` 被提取到 `chrome.storage.local`（key: `custom_{provider.id}`），从 sync 数据中移除（置空），防止随 `chrome.storage.sync` 同步到 Google 账户导致密钥泄漏
+  - `_loadApiKeysFromLocal()` 和 `reloadApiKeys()` 中增加 customProviders apiKey 恢复逻辑：从 local storage 读取并填充到内存中的 `customProviders`，仅在内存中 apiKey 为空时恢复（避免覆盖用户刚输入的值）
+
+### Removed — 删除（1 项）
+
+- **腾讯翻译 API 完全移除**
+  - 清理 `lib/api-metadata.js` 中 tencent 相关元数据
+  - 清理 `options/options.js` 中 tencent 字段配置
+  - 确保全项目无 tencent 残留引用
+
+### 工程
+
+- `npm run check`（12 个 `node --check`）全部通过
+- 6 文件变更：`manifest.json` / `README.md` / `background.js` / `lib/settings-manager.js` / `options/options.html` / `options/options.js`
+- 净 +167 行（+370/-203），其中 `renderCustomProviders` 删除 -155 行
+
+---
+
 ## v1.0.6 — 2026-07-28
 
 > P0/P1 缺口修复批（10 项功能补齐）。`manifest.json` 版本号未变更（hotfix 风格）。

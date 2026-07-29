@@ -2,7 +2,7 @@
 
 一个给 Edge / Chrome 浏览器用的翻译扩展（Manifest V3）。浏览英文或日文网页时，自动帮你翻译成简体中文，支持 4 种显示方式，内置 4 个免费翻译接口自动轮换，针对游戏攻略 / MOD 社区做了术语优化。
 
-> **版本变更历史请见 [CHANGELOG.md](./CHANGELOG.md)**，当前版本：**v1.0.6**（含 13 轮 hotfix）
+> **版本变更历史请见 [CHANGELOG.md](./CHANGELOG.md)**，当前版本：**v1.0.7**
 
 ## 有什么用
 
@@ -203,9 +203,16 @@ dual-translate-extension/
 - **缓存策略**：翻译结果持久化到 `chrome.storage.local`，3 天 TTL 自动过期，最多 10000 条 LRU 淘汰；防抖写入（5 秒合并）；服务重启后缓存仍在
 - **错误恢复**：API 配额耗尽时标记 `quota_exceeded`，密钥错误时标记 `auth_error`，冷却期内不重试；超时后 AbortController 中止 fetch 节省 API 额度
 - **国际化**：当前全中文硬编码（如果计划开源给国际用户，需要抽到 `_locales/`）
-- **代码质量**：经 13 轮 hotfix 迭代，含性能优化 20 项（charCodeAt 热路径、事件委托、防抖写入、Promise.all 并行化等），累计修复 8 项严重 bug + 13 项中等风险问题 + 清理 202 行死代码/冗余。全项目通过 `npm run check` 语法检查
+- **代码质量**：经 14 轮迭代，含性能优化 20 项（charCodeAt 热路径、事件委托、防抖写入、Promise.all 并行化等），累计修复 13 项严重 bug + 17 项中等风险问题 + 清理 220+ 行死代码/冗余。全项目通过 `npm run check` 语法检查
+- **密钥安全**：所有 API 密钥（含自定义供应商）存储在 `chrome.storage.local`，**不随 sync 同步**；`saveSettings` 合并而非覆盖密钥，防止单次保存丢失其他 API 配置
 
 ### 代码审查状态
+
+v1.0.7 新增修复：
+
+- **严重**：设置页 API 密钥显示丢失（SW 冷启动 + saveSettings 覆盖 + _mergeKeysIntoApi 不覆盖）、`getApiDisplayName` 无限递归
+- **安全**：自定义供应商 apiKey 从 sync 剥离到 local，防止跨设备同步泄漏
+- **UX**：自定义供应商重复渲染消除、一键清除按钮、自动清理空供应商、设置加载重试
 
 v1.0.6 期间做了 5 次全项目代码审查（子代理并发审核），已修复的问题包括：
 
