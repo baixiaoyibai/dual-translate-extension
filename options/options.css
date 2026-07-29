@@ -231,10 +231,10 @@ body {
   position: relative;
 }
 
-/* Subtle ambient gradient */
+/* Subtle ambient gradient - positioned relative to main-content */
 .main-content::before {
   content: '';
-  position: fixed;
+  position: absolute;
   top: 0;
   right: 0;
   width: 600px;
@@ -249,9 +249,11 @@ body {
 .tab-content {
   display: none;
   padding: 44px 52px;
-  max-width: 920px;
+  max-width: min(1200px, calc(100vw - 260px - 48px));
+  width: 100%;
   position: relative;
   z-index: 1;
+  margin: 0 auto;
 }
 
 .tab-content.active {
@@ -314,6 +316,7 @@ body {
   padding: 14px 20px;
   border-bottom: 1px solid var(--border);
   background: rgba(249, 115, 22, 0.04);
+  border-radius: var(--radius) var(--radius) 0 0;
 }
 
 /* ==========================================================================
@@ -326,7 +329,8 @@ body {
   justify-content: space-between;
   padding: 14px 20px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  gap: 24px;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .setting-row:last-child {
@@ -335,7 +339,7 @@ body {
 
 .setting-info {
   flex: 1;
-  min-width: 0;
+  min-width: 200px;
 }
 
 .setting-label {
@@ -381,10 +385,14 @@ body {
 }
 
 .setting-control {
-  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+}
+
+.setting-row > .setting-control:last-child:only-child {
+  flex-shrink: 1;
 }
 
 .warning-callout {
@@ -419,7 +427,7 @@ textarea {
   outline: none;
   transition: border-color var(--dur) var(--ease),
               box-shadow var(--dur) var(--ease);
-  min-width: 80px;
+  max-width: 100%;
 }
 
 select:focus,
@@ -457,10 +465,12 @@ input[type="color"]:focus {
 
 input[type="number"] {
   width: 80px;
+  max-width: 100%;
 }
 
 input[type="text"] {
   width: 220px;
+  max-width: 100%;
 }
 
 textarea {
@@ -751,7 +761,8 @@ textarea {
   align-items: center;
   padding: 14px 18px;
   border-bottom: 1px solid var(--border);
-  gap: 12px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .api-card-name {
@@ -759,6 +770,10 @@ textarea {
   font-weight: 600;
   color: var(--text-heading);
   flex: 1;
+  min-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .api-card-free-badge {
@@ -835,7 +850,7 @@ textarea {
 }
 
 .api-field-label {
-  width: 90px;
+  width: 100px;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -969,6 +984,9 @@ textarea {
   font-weight: 500;
   color: var(--text-primary);
   flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .api-usage-bar {
@@ -999,9 +1017,10 @@ textarea {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-secondary);
-  width: 100px;
+  width: 150px;
   text-align: right;
   flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .api-usage-empty {
@@ -1078,6 +1097,10 @@ textarea {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .api-priority-drag {
@@ -1088,8 +1111,9 @@ textarea {
 
 .add-provider-btn {
   width: 100%;
-  margin-bottom: 20px;
+  margin: 0 20px 20px;
   padding: 12px;
+  box-sizing: border-box;
 }
 
 .status-loading {
@@ -1150,6 +1174,7 @@ textarea {
 
 .glossary-table {
   width: 100%;
+  min-width: 640px;
   border-collapse: collapse;
   font-size: 12.5px;
 }
@@ -1164,6 +1189,7 @@ textarea {
   border-bottom: 1px solid var(--border);
   font-weight: 600;
   background: var(--bg-header);
+  white-space: nowrap;
 }
 
 .glossary-table td {
@@ -1182,6 +1208,12 @@ textarea {
   width: 100%;
   font-size: 12px;
   padding: 6px 8px;
+  min-width: 0;
+}
+
+.glossary-table .col-toggle {
+  width: 56px;
+  text-align: center;
 }
 
 .glossary-table .col-action {
@@ -1256,7 +1288,8 @@ textarea {
   display: flex;
   gap: 8px;
   align-items: center;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  flex-wrap: wrap;
 }
 
 .quota-limit-input {
@@ -1322,6 +1355,8 @@ textarea {
   margin: 0 20px 14px;
   line-height: 1.8;
   color: var(--text-secondary);
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 #clearCacheBtn {
@@ -1330,7 +1365,7 @@ textarea {
 
 .prompt-editor {
   margin: 0 20px;
-  width: calc(100% - 40px);
+  width: auto;
 }
 
 .prompt-editor + .btn-row {
@@ -1364,7 +1399,8 @@ textarea {
   max-height: 500px;
   overflow-y: auto;
   white-space: pre-wrap;
-  word-break: break-all;
+  overflow-wrap: break-word;
+  word-break: normal;
   color: var(--text-secondary);
   border-radius: var(--radius);
 }
@@ -1385,7 +1421,8 @@ textarea {
   border: 1px solid rgba(239, 68, 68, 0.3);
   border-left: 3px solid var(--error);
   font-family: var(--font-mono);
-  word-break: break-all;
+  overflow-wrap: break-word;
+  word-break: normal;
   border-radius: 0 var(--radius) var(--radius) 0;
   margin: 8px 0;
 }
@@ -1454,7 +1491,8 @@ textarea {
   padding: 7px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   vertical-align: top;
-  word-break: break-all;
+  overflow-wrap: break-word;
+  word-break: normal;
   color: var(--text-secondary);
 }
 
@@ -1568,6 +1606,7 @@ textarea {
   color: var(--text-muted);
   font-size: 14px;
   font-weight: bold;
+  flex-shrink: 0;
 }
 
 .diag-config-card {
@@ -1720,9 +1759,11 @@ textarea {
 .diag-log-msg {
   font-size: 11px;
   color: var(--text-secondary);
-  word-break: break-all;
+  overflow-wrap: break-word;
+  word-break: normal;
   flex: 1;
   font-family: var(--font-mono);
+  min-width: 0;
 }
 
 .diag-log-entry.error .diag-log-msg {
@@ -1744,7 +1785,9 @@ textarea {
   font-size: 10.5px;
   color: var(--text-muted);
   font-family: var(--font-mono);
-  margin-left: auto;
+  flex: 1;
+  text-align: right;
+  white-space: nowrap;
 }
 
 /* ==========================================================================
@@ -1943,6 +1986,12 @@ textarea {
   margin-bottom: 40px;
 }
 
+@media (max-width: 560px) {
+  .welcome-overlay-features {
+    grid-template-columns: 1fr;
+  }
+}
+
 .welcome-overlay-feature {
   background: var(--bg-card);
   padding: 18px;
@@ -2084,4 +2133,131 @@ textarea {
 ::selection {
   background: rgba(249, 115, 22, 0.3);
   color: var(--text-heading);
+}
+
+/* ==========================================================================
+   Responsive Breakpoints
+   ========================================================================== */
+
+/* Narrow windows / small screens - collapse sidebar to icon-only */
+@media (max-width: 900px) {
+  .sidebar {
+    width: 64px;
+    min-width: 64px;
+  }
+
+  .sidebar-header-text,
+  .sidebar-header-sub,
+  .sidebar-footer-hint {
+    display: none;
+  }
+
+  .sidebar-header {
+    justify-content: center;
+    padding: 20px 12px;
+  }
+
+  .sidebar-tab {
+    justify-content: center;
+    padding: 12px 0;
+    border-left: 3px solid transparent;
+    font-size: 0;
+    gap: 0;
+  }
+
+  .sidebar-tab .tab-icon {
+    font-size: 18px;
+  }
+
+  .sidebar-tab.active {
+    border-left-color: var(--accent);
+  }
+
+  .sidebar-footer {
+    text-align: center;
+    padding: 12px 8px;
+    font-size: 0;
+  }
+
+  .sidebar-footer::before {
+    content: 'v';
+    font-size: 14px;
+    opacity: 0.5;
+  }
+
+  .tab-content {
+    padding: 32px 28px;
+    max-width: 100%;
+  }
+
+  .tab-content h2 {
+    font-size: 22px;
+  }
+}
+
+/* Very narrow windows */
+@media (max-width: 600px) {
+  .tab-content {
+    padding: 24px 16px;
+  }
+
+  .api-usage-count {
+    width: 120px;
+    font-size: 10px;
+  }
+
+  .api-usage-name {
+    width: 80px;
+    font-size: 11px;
+  }
+
+  .api-field-label {
+    width: 80px;
+    font-size: 10px;
+  }
+
+  .diag-tool-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pin-dialog {
+    padding: 24px 20px;
+  }
+}
+
+/* HiDPI / Retina displays - sharper borders */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .section-card,
+  .api-card,
+  .diag-summary,
+  .diag-chain-container,
+  .diag-config-card,
+  .cache-stats,
+  .tips-translation-example,
+  .api-security-bar {
+    border-width: 0.5px;
+  }
+}
+
+/* Ultra-wide screens - cap content width for readability */
+@media (min-width: 1800px) {
+  .tab-content {
+    max-width: 1400px;
+  }
+}
+
+/* Print styles (unlikely but safe) */
+@media print {
+  .sidebar,
+  .popup-footer,
+  .btn,
+  .toggle-switch,
+  .saved-tip {
+    display: none !important;
+  }
+
+  .main-content {
+    overflow: visible;
+    height: auto;
+  }
 }
