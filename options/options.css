@@ -946,3 +946,136 @@ input:checked + .toggle-slider:before {
     gap: 8px;
   }
 }
+
+/* === API 密钥安全锁 === */
+.api-security-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  transition: background 0.2s, border-color 0.2s;
+}
+.api-security-bar.locked {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+}
+.api-security-bar.unlocked {
+  background: #d4edda;
+  border: 1px solid #28a745;
+}
+.api-security-bar .security-icon { font-size: 18px; }
+.api-security-bar .security-text { font-weight: 600; font-size: 14px; }
+.api-security-bar .security-hint {
+  flex: 1;
+  font-size: 12px;
+  color: #666;
+}
+
+/* 密钥输入框锁定状态 */
+.api-field.locked {
+  background-color: #f5f5f5 !important;
+  cursor: not-allowed !important;
+  color: #555;
+  -webkit-text-fill-color: #555;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.api-field.locked::selection { background: transparent; }
+
+/* PIN 对话框 */
+.pin-dialog-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pin-dialog {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  width: 320px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+.pin-dialog h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+}
+.pin-dialog-desc {
+  font-size: 13px;
+  color: #666;
+  margin: 0 0 12px 0;
+}
+.pin-dialog input {
+  width: 100%;
+  padding: 12px;
+  font-size: 20px;
+  text-align: center;
+  letter-spacing: 8px;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  margin: 12px 0;
+  box-sizing: border-box;
+}
+.pin-dialog input:focus {
+  border-color: var(--primary, #007bff);
+  outline: none;
+}
+.pin-error {
+  color: #dc3545;
+  font-size: 12px;
+  margin: 4px 0;
+  text-align: center;
+}
+.pin-dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.pin-dialog-footer {
+  margin-top: 16px;
+  text-align: center;
+}
+
+/* 不完整警告条 */
+.api-incomplete-warning {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  font-size: 13px;
+  color: #856404;
+}
+.api-incomplete-warning strong {
+  color: #856404;
+}
+
+/* 启用复选框禁用状态 */
+.api-enable:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.api-enable:disabled + label {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 密钥可见性切换按钮 */
+.api-field-toggle {
+  display: inline-block;
+  margin-left: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  user-select: none;
+  vertical-align: middle;
+}
+.api-field-toggle:hover {
+  opacity: 0.7;
+}

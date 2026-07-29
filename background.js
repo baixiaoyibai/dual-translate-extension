@@ -215,6 +215,32 @@ async function handleMessage(message, sender) {
       // v1.0.7: 一键清除单个 API 的所有配置信息
       return await handleClearApi(message.apiName);
 
+    case 'hasPin': {
+      const has = await settingsManager.hasPin();
+      return { has };
+    }
+
+    case 'setupPin': {
+      const pin = String(message.pin || '');
+      if (!/^\d{6}$/.test(pin)) {
+        return { success: false, error: 'PIN 必须为 6 位数字' };
+      }
+      await settingsManager.setupPin(pin);
+      return { success: true };
+    }
+
+    case 'verifyPin': {
+      const pin = String(message.pin || '');
+      const result = await settingsManager.verifyPin(pin);
+      return result;
+    }
+
+    case 'resetPin': {
+      await settingsManager.resetPin();
+      await apiManager.reload();
+      return { success: true };
+    }
+
     case 'getCacheStats':
       return await translationCache.getStats();
 
@@ -249,6 +275,12 @@ async function handleMessage(message, sender) {
     case 'exportAllSettings': {
       const settings = JSON.parse(JSON.stringify(settingsManager.settings));
       if (settings.api && settings.api.apiKeys) delete settings.api.apiKeys;
+      // 安全：清除自定义供应商的 apiKey，防止随导出文件泄露
+      if (settings.api && Array.isArray(settings.api.customProviders)) {
+        for (const provider of settings.api.customProviders) {
+          if (provider) provider.apiKey = '';
+        }
+      }
       const glossary = await settingsManager.getGlossary();
       let customPrompt = '';
       try {

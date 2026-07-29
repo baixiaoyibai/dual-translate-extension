@@ -326,6 +326,13 @@
     <div id="tab-api" class="tab-content">
       <h2>API 管理</h2>
       <p class="section-subtitle">配置和管理翻译接口</p>
+      <!-- API 密钥安全锁 -->
+      <div id="apiSecurityBar" class="api-security-bar locked">
+        <span class="security-icon">🔒</span>
+        <span class="security-text">密钥已锁定</span>
+        <span class="security-hint">输入 PIN 码后可查看和修改密钥</span>
+        <button class="btn btn-sm btn-primary" id="unlockApiBtn">🔓 解锁</button>
+      </div>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
         <button class="btn btn-sm" id="refreshApiBtn" title="重新从后台加载 API 配置">🔄 刷新API配置</button>
         <span id="apiDebugStatus" style="font-size:12px;color:#888;"></span>
@@ -611,5 +618,21 @@
   <script src="../lib/escape-utils.js"></script>
   <script src="../lib/api-metadata.js"></script>
   <script src="options.js"></script>
+  <!-- PIN 码对话框 -->
+  <div id="pinDialog" class="pin-dialog-overlay" style="display:none;">
+    <div class="pin-dialog">
+      <h3 id="pinDialogTitle">输入 PIN 码</h3>
+      <p class="pin-dialog-desc" id="pinDialogDesc">请输入 PIN 码以解锁密钥编辑</p>
+      <input type="password" id="pinInput" maxlength="6" pattern="[0-9]*" inputmode="numeric" placeholder="6 位数字" autocomplete="off">
+      <div id="pinError" class="pin-error" style="display:none;"></div>
+      <div class="pin-dialog-actions">
+        <button class="btn btn-sm" id="pinCancelBtn">取消</button>
+        <button class="btn btn-sm btn-primary" id="pinConfirmBtn">确认</button>
+      </div>
+      <div class="pin-dialog-footer">
+        <a href="#" id="resetPinLink" style="font-size:12px;color:#666;">忘记 PIN？重置密钥保护</a>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
