@@ -5,28 +5,232 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>诊断 - Storage 数据检查</title>
 <style>
-body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
-h2 { color: #569cd6; margin-top: 30px; }
-.section { background: #252526; padding: 15px; border-radius: 5px; margin-bottom: 15px; }
-.key { color: #9cdcfe; }
-.value { color: #ce9178; }
-.empty { color: #f44747; }
-.ok { color: #4ec9b0; }
-pre { white-space: pre-wrap; word-break: break-all; margin: 0; }
-button { padding: 8px 16px; background: #0e639c; color: white; border: none; border-radius: 3px; cursor: pointer; margin: 5px; }
-button:hover { background: #1177bb; }
-table { border-collapse: collapse; width: 100%; }
-td, th { border: 1px solid #555; padding: 6px 10px; text-align: left; }
-th { background: #333; }
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', monospace;
+  padding: 24px 28px;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  color: #e2e8f0;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 头部 */
+h1 {
+  font-size: 22px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  letter-spacing: -0.3px;
+}
+
+/* 按钮组 */
+.button-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+button {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 500;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+  position: relative;
+  overflow: hidden;
+}
+
+button::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0);
+  transition: background 0.15s;
+}
+
+button:hover {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+}
+
+button:active::after {
+  background: rgba(255,255,255,0.15);
+}
+
+button:active {
+  transform: translateY(0);
+}
+
+button.danger {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.25);
+}
+
+button.danger:hover {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.35);
+}
+
+button:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+/* 分区 */
+h2 {
+  color: #94a3b8;
+  margin-top: 28px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+h2::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  background: linear-gradient(180deg, #60a5fa, #a78bfa);
+  border-radius: 2px;
+}
+
+.section {
+  background: rgba(30, 41, 59, 0.6);
+  padding: 16px 18px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: border-color 0.2s;
+}
+
+.section:hover {
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.key {
+  color: #7dd3fc;
+}
+
+.value {
+  color: #fbbf24;
+}
+
+.empty {
+  color: #f87171;
+  font-weight: 500;
+}
+
+.ok {
+  color: #34d399;
+  font-weight: 500;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: #cbd5e1;
+}
+
+/* 表格 */
+.table-wrapper {
+  background: rgba(30, 41, 59, 0.6);
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  overflow: hidden;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+td, th {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 13px;
+}
+
+th {
+  background: rgba(15, 23, 42, 0.5);
+  font-weight: 600;
+  color: #94a3b8;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+td {
+  color: #cbd5e1;
+}
+
+tr:hover td {
+  background: rgba(96, 165, 250, 0.05);
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.3);
+}
 </style>
 </head>
 <body>
 <h1>双语翻译助手 - Storage 诊断</h1>
-<button onclick="checkAll()">检查全部 Storage</button>
-<button onclick="checkSync()">仅检查 Sync Storage</button>
-<button onclick="checkLocal()">仅检查 Local Storage</button>
-<button onclick="checkSettings()">模拟 getSettings 消息</button>
-<button onclick="migrateKeys()">迁移 Sync→Local 密钥</button>
+
+<div class="button-group">
+  <button onclick="checkAll()">检查全部 Storage</button>
+  <button onclick="checkSync()">仅检查 Sync Storage</button>
+  <button onclick="checkLocal()">仅检查 Local Storage</button>
+  <button onclick="checkSettings()">模拟 getSettings 消息</button>
+  <button class="danger" onclick="migrateKeys()">迁移 Sync→Local 密钥</button>
+</div>
 
 <h2>Sync Storage (dual_translate_settings)</h2>
 <div class="section"><pre id="syncOutput">点击按钮检查...</pre></div>
@@ -38,7 +242,11 @@ th { background: #333; }
 <div class="section"><pre id="msgOutput">点击按钮检查...</pre></div>
 
 <h2>API 密钥汇总</h2>
-<div class="section"><table id="keyTable"><tr><th>API</th><th>字段</th><th>Sync 值</th><th>Local 值</th><th>getSettings 值</th></tr></table></div>
+<div class="table-wrapper">
+<table id="keyTable">
+  <tr><th>API</th><th>字段</th><th>Sync 值</th><th>Local 值</th><th>getSettings 值</th></tr>
+</table>
+</div>
 
 <script>
 const SETTINGS_KEY = 'dual_translate_settings';
@@ -52,7 +260,6 @@ async function checkSync() {
     out.innerHTML = '<span class="empty">未找到 settings!</span>';
     return;
   }
-  // 脱敏显示
   const display = JSON.parse(JSON.stringify(settings));
   if (display.api && display.api.apiKeys) {
     for (const [k, v] of Object.entries(display.api.apiKeys)) {
@@ -122,9 +329,7 @@ async function checkAll() {
   const localKeys = await checkLocal();
   const msgSettings = await checkSettings();
 
-  // 汇总表格
   const table = document.getElementById('keyTable');
-  // 清除旧行（保留表头）
   while (table.rows.length > 1) table.deleteRow(1);
 
   const allApis = new Set([
@@ -166,7 +371,6 @@ async function migrateKeys() {
   }
   if (!confirm('确认将 sync storage 中的 apiKeys 迁移到 local storage？')) return;
   await chrome.storage.local.set({ [LOCAL_API_KEYS_KEY]: apiKeys });
-  // 从 sync 中删除
   delete syncSettings.api.apiKeys;
   await chrome.storage.sync.set({ [SETTINGS_KEY]: syncSettings });
   alert('迁移完成！请重新加载扩展并检查设置页。');

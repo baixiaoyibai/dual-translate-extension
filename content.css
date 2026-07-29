@@ -1,31 +1,34 @@
 :root {
-  /* 亮色模式默认值 */
+  /* 亮色模式默认值 - Claude Code 橙色系 */
   --dt-bg-primary: #ffffff;
   --dt-bg-secondary: #f8f8f8;
   --dt-bg-hover: #f5f5f5;
-  --dt-bg-highlight: #fff3cd;
-  --dt-bg-error: #fde8e8;
+  --dt-bg-highlight: #fff7ed;
+  --dt-bg-error: #fef2f2;
   --dt-bg-progress: #f0f0f0;
-  --dt-text-primary: #333333;
-  --dt-text-secondary: #888888;
-  --dt-text-muted: #999999;
-  --dt-text-error: #c62828;
-  --dt-text-brand: #1a73e8;
+  --dt-text-primary: #262626;
+  --dt-text-secondary: #737373;
+  --dt-text-muted: #a3a3a3;
+  --dt-text-error: #dc2626;
+  --dt-text-brand: #F97316;
   --dt-text-fail: #bbbbbb;
-  --dt-border-primary: #dddddd;
-  --dt-border-light: #f0f0f0;
-  --dt-border-error: #f5c2c2;
-  --dt-spinner-track: #e0e0e0;
-  --dt-spinner-active: #1a73e8;
-  --dt-shadow: rgba(0,0,0,0.12);
+  --dt-border-primary: #e5e5e5;
+  --dt-border-light: #f5f5f5;
+  --dt-border-error: #fecaca;
+  --dt-spinner-track: #fed7aa;
+  --dt-spinner-active: #F97316;
+  --dt-shadow: rgba(0,0,0,0.1);
   --dt-shadow-lg: rgba(0,0,0,0.15);
   /* 译文样式变量（由 content.js applyTranslationStyles 动态设置） */
-  --dt-trans-color: #888888;
+  --dt-trans-color: #a3a3a3;
   --dt-trans-size: 85%;
   --dt-trans-spacing: 4px;
   --dt-trans-font: inherit;
+  /* 动画时长 */
+  --dt-anim-fast: 0.15s;
 }
 
+/* ===== 译文显示 - 无动画，直接显示 ===== */
 .dual-translate-translation {
   color: var(--dt-trans-color);
   font-size: var(--dt-trans-size);
@@ -34,7 +37,6 @@
   line-height: 1.6;
   opacity: 0.88;
   font-family: var(--dt-trans-font);
-  transition: opacity 0.2s ease;
   font-weight: normal;
   font-style: normal;
   text-decoration: none;
@@ -50,49 +52,53 @@
   opacity: 1;
 }
 
+/* ===== 悬停高亮 ===== */
 .dual-translate-hover.pinned {
   cursor: pointer;
 }
 
-.dual-translate-panel {
-  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+.dual-translate-hover {
+  border-radius: 2px;
 }
 
-/* ===== 加载浮层 ===== */
+.dual-translate-hover:hover {
+  background-color: rgba(249, 115, 22, 0.06);
+}
+
+/* ===== 面板 ===== */
+.dual-translate-panel {
+}
+
+/* ===== 加载浮层 - 保留美化和动画 ===== */
 .dual-translate-loading-overlay {
   position: fixed;
   top: 16px;
   right: 16px;
   z-index: 2147483646;
   background: var(--dt-bg-primary);
-  border-radius: 12px;
-  box-shadow: 
-    0 8px 24px var(--dt-shadow),
-    0 2px 8px rgba(0,0,0,0.06);
+  border-radius: 8px;
+  box-shadow:
+    0 8px 24px var(--dt-shadow-lg),
+    0 2px 8px rgba(0,0,0,0.04);
   padding: 14px 20px;
   display: flex;
   align-items: center;
   gap: 14px;
-  /* 跨平台字体栈：system-ui(现代浏览器) → macOS → Win11 → Win10/旧Win → Linux → 兜底 */
+  /* 跨平台字体栈 */
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Ubuntu', 'Cantarell', 'Noto Sans', sans-serif;
   font-size: 13px;
   color: var(--dt-text-primary);
   min-width: 220px;
   max-width: 320px;
-  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  opacity: 1;
-  transform: translateY(0) scale(1);
   pointer-events: none;
   -webkit-user-select: none;
   user-select: none;
-  border: 1px solid var(--dt-border-light);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  border: 1px solid var(--dt-border-primary);
 }
 
 .dual-translate-loading-overlay.hiding {
   opacity: 0;
-  transform: translateY(-8px) scale(0.98);
+  transition: opacity 0.2s ease;
 }
 
 .dual-translate-loading-spinner {
@@ -103,7 +109,6 @@
   border-radius: 50%;
   animation: dual-translate-spin 0.8s linear infinite;
   flex-shrink: 0;
-  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.05);
 }
 
 @keyframes dual-translate-spin {
@@ -146,9 +151,9 @@
 
 .dual-translate-loading-progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, #1a73e8, #4fc3f7);
+  background: linear-gradient(90deg, #F97316, #fb923c);
   border-radius: 3px;
-  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: width 0.3s ease;
   position: relative;
   overflow: hidden;
 }
@@ -168,14 +173,13 @@
   to { left: 100%; }
 }
 
-/* ===== 加载占位符 ===== */
+/* ===== 加载占位符（行内） - 保留旋转动画 ===== */
 .dual-translate-placeholder {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   margin-top: 4px;
   padding: 2px 0;
-  opacity: 0.7;
 }
 
 .dual-translate-spinner {
@@ -194,29 +198,28 @@
   color: var(--dt-text-muted);
 }
 
-/* 暗色模式支持 */
+/* ===== 暗色模式支持 - Claude Code 深色系 ===== */
 @media (prefers-color-scheme: dark) {
   :root {
-    /* 暗色模式变量值 */
-    --dt-bg-primary: #1e1e2e;
-    --dt-bg-secondary: #252536;
-    --dt-bg-hover: #2a2a3c;
-    --dt-bg-highlight: #3d3520;
-    --dt-bg-error: #3d1e1e;
-    --dt-bg-progress: #2a2a3c;
-    --dt-text-primary: #e0e0e0;
-    --dt-text-secondary: #a0a0a0;
-    --dt-text-muted: #707070;
-    --dt-text-error: #ef9a9a;
-    --dt-text-brand: #6db3f2;
-    --dt-text-fail: #555555;
-    --dt-border-primary: #3a3a4a;
-    --dt-border-light: #2a2a3c;
-    --dt-border-error: #5a2e2e;
-    --dt-spinner-track: #3a3a4a;
-    --dt-spinner-active: #6db3f2;
-    --dt-shadow: rgba(0,0,0,0.4);
-    --dt-shadow-lg: rgba(0,0,0,0.5);
+    --dt-bg-primary: #262626;
+    --dt-bg-secondary: #1c1c1c;
+    --dt-bg-hover: #333333;
+    --dt-bg-highlight: #422006;
+    --dt-bg-error: #450a0a;
+    --dt-bg-progress: #333333;
+    --dt-text-primary: #e5e5e5;
+    --dt-text-secondary: #a3a3a3;
+    --dt-text-muted: #737373;
+    --dt-text-error: #f87171;
+    --dt-text-brand: #F97316;
+    --dt-text-fail: #525252;
+    --dt-border-primary: #404040;
+    --dt-border-light: #333333;
+    --dt-border-error: #7f1d1d;
+    --dt-spinner-track: #7c2d12;
+    --dt-spinner-active: #F97316;
+    --dt-shadow: rgba(0,0,0,0.5);
+    --dt-shadow-lg: rgba(0,0,0,0.6);
   }
 }
 
@@ -229,9 +232,9 @@
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
-  padding: 4px 10px;
+  padding: 6px 12px;
   color: var(--dt-text-primary);
-  transition: all 0.15s ease;
+  transition: background var(--dt-anim-fast) ease, border-color var(--dt-anim-fast) ease;
   font-family: inherit;
 }
 
@@ -247,30 +250,27 @@
   outline-offset: 2px;
 }
 
-/* ===== 悬停翻译浮层 ===== */
+/* ===== 悬停翻译浮层 - 直接显示无动画 ===== */
 .dual-translate-hover-tooltip {
   position: absolute;
   z-index: 2147483645;
   background: var(--dt-bg-primary);
   border: 1px solid var(--dt-border-primary);
   border-radius: 8px;
-  padding: 8px 12px;
+  padding: 10px 14px;
   font-size: 13px;
   color: var(--dt-text-primary);
-  /* 跨平台字体栈：system-ui(现代浏览器) → macOS → Win11 → Win10/旧Win → Linux → 兜底 */
+  /* 跨平台字体栈 */
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Ubuntu', 'Cantarell', 'Noto Sans', sans-serif;
-  box-shadow: 0 4px 12px var(--dt-shadow);
-  max-width: 300px;
-  line-height: 1.5;
+  box-shadow: 0 6px 20px var(--dt-shadow-lg);
+  max-width: 320px;
+  line-height: 1.6;
   pointer-events: none;
-  opacity: 0;
-  transform: translateY(4px);
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  display: none;
 }
 
 .dual-translate-hover-tooltip.visible {
-  opacity: 1;
-  transform: translateY(0);
+  display: block;
 }
 
 /* ===== 原文隐藏模式 ===== */
@@ -278,7 +278,7 @@
   display: none !important;
 }
 
-/* ===== 错误横幅 ===== */
+/* ===== 错误横幅 - 直接显示 ===== */
 .dual-translate-error-banner {
   position: fixed;
   top: 16px;
@@ -287,33 +287,21 @@
   background: var(--dt-bg-error);
   border: 1px solid var(--dt-border-error);
   border-radius: 10px;
-  box-shadow: 0 6px 20px var(--dt-shadow);
-  padding: 12px 16px;
+  box-shadow: 0 6px 20px var(--dt-shadow-lg);
+  padding: 14px 18px;
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  /* 跨平台字体栈：system-ui(现代浏览器) → macOS → Win11 → Win10/旧Win → Linux → 兜底 */
+  /* 跨平台字体栈 */
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Ubuntu', 'Cantarell', 'Noto Sans', sans-serif;
   font-size: 13px;
   color: var(--dt-text-error);
-  max-width: 360px;
-  animation: slideDown 0.3s ease;
-}
-
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  max-width: 380px;
 }
 
 .dual-translate-error-text {
   flex: 1;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .dual-translate-error-close {
@@ -322,31 +310,32 @@
   color: var(--dt-text-error);
   cursor: pointer;
   font-size: 18px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  transition: background 0.15s;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background var(--dt-anim-fast);
   font-family: inherit;
   line-height: 1;
+  pointer-events: auto;
 }
 
 .dual-translate-error-close:hover {
-  background: rgba(0,0,0,0.05);
+  background: rgba(0,0,0,0.08);
 }
 
 /* ===== 面板内容 ===== */
 .dual-translate-panel-content {
   height: 100%;
   overflow-y: auto;
-  padding: 16px;
-  /* 跨平台字体栈：system-ui(现代浏览器) → macOS → Win11 → Win10/旧Win → Linux → 兜底 */
+  padding: 18px;
+  /* 跨平台字体栈 */
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Ubuntu', 'Cantarell', 'Noto Sans', sans-serif;
   font-size: 14px;
-  line-height: 1.7;
+  line-height: 1.8;
   color: var(--dt-text-primary);
 }
 
 .dual-translate-panel-content::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
 }
 
 .dual-translate-panel-content::-webkit-scrollbar-track {
@@ -355,5 +344,9 @@
 
 .dual-translate-panel-content::-webkit-scrollbar-thumb {
   background: var(--dt-border-primary);
-  border-radius: 3px;
+  border-radius: 4px;
+}
+
+.dual-translate-panel-content p {
+  margin-bottom: 12px;
 }
