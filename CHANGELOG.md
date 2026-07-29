@@ -79,21 +79,21 @@
 
 ### 工程
 
-- `npm run check`（13 个 `node --check`，含新增 `tencent.js`）全部通过
+- `npm run check`（12 个 `node --check`）全部通过
 - 6 文件变更：`manifest.json` / `README.md` / `background.js` / `lib/settings-manager.js` / `options/options.html` / `options/options.js`
 - 净 +167 行（+370/-203），其中 `renderCustomProviders` 删除 -155 行
 
-### v1.0.7 补充 — 重新加入腾讯翻译 TMT
+### v1.0.7 补充 — 移除腾讯翻译 TMT
 
-> 腾讯云机器翻译 TMT（TextTranslate）重新接入，用户自行填写 SecretId / SecretKey。
+> 腾讯云 TMT 文本翻译接口已下线，移除全部相关代码。
 
-- **新增 `lib/api-adapters/tencent.js`** — 完整的 TC3-HMAC-SHA256 v3 签名实现（基于 Web Crypto API），支持批量文本翻译（`\n` 拼接 + 结果拆分），错误码映射（`FailedOperation.NoFreeAmount` → `QUOTA_EXCEEDED`，`FailedOperation.UserNotRegistered` → `AUTH_ERROR`）
-- **`lib/api-metadata.js`** — 添加 tencent 到 `API_DISPLAY_NAMES` / `API_ENDPOINTS_DEFAULT` / `API_MODELS_DEFAULT`
-- **`lib/settings-manager.js`** — `DEFAULT_SETTINGS.api.apiPriority` 添加 `tencent`；`apiKeys` 添加 `tencent: { secretId, secretKey, region }`
-- **`lib/api-manager.js`** — import `TencentTranslator`；`_buildTranslators` 和 `testApi` 添加 tencent 分支
-- **`options/options.js`** — `API_CONFIG_FIELDS` 添加 tencent 字段配置（SecretId / SecretKey / 地域）
-- **`package.json`** — `check` 脚本添加 `tencent.js` 语法检查
-- **`README.md`** — 预置供应商从 8 个更新为 9 个，添加腾讯 TMT 说明；文件结构添加 `tencent.js`
+- **删除 `lib/api-adapters/tencent.js`** — TC3-HMAC-SHA256 签名适配器整文件移除
+- **`lib/api-metadata.js`** — 从 `API_DISPLAY_NAMES` / `API_ENDPOINTS_DEFAULT` / `API_MODELS_DEFAULT` 移除 tencent
+- **`lib/settings-manager.js`** — `DEFAULT_SETTINGS.api.apiPriority` 和 `apiKeys` 移除 tencent；`_cleanupObsoleteApis` 会自动清理用户存储中残留的 tencent 数据
+- **`lib/api-manager.js`** — 移除 `TencentTranslator` import 和 `_buildTranslators` / `testApi` 中的 tencent 分支
+- **`options/options.js`** — `API_CONFIG_FIELDS` 移除 tencent 字段配置
+- **`package.json`** — `check` 脚本移除 `tencent.js` 语法检查
+- **`README.md`** — 预置供应商从 9 个恢复为 8 个，移除腾讯 TMT 说明和文件结构中的 `tencent.js`
 
 ---
 

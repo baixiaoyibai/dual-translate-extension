@@ -21,11 +21,6 @@ const API_CONFIG_FIELDS = {
     { key: 'appId', label: 'APP ID', type: 'text' },
     { key: 'apiKey', label: 'API Key', type: 'password' }
   ],
-  tencent: [
-    { key: 'secretId', label: 'SecretId', type: 'text' },
-    { key: 'secretKey', label: 'SecretKey', type: 'password' },
-    { key: 'region', label: '地域', type: 'text' }
-  ],
   tongyi: [
     { key: 'apiKey', label: 'API Key', type: 'password' }
   ],
