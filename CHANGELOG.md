@@ -13,6 +13,42 @@
 
 ---
 
+## v1.0.11 — 2026-07-29
+
+> 架构重构：提取 BaseTranslator 基类 + API 注册表工厂，消除适配器重复代码和条件分支。
+> 纯代码质量改进，无功能变更。新增 2 个文件，重构 5 个文件，净减 ~113 行重复代码。
+
+### Changed — 架构优化（4 项）
+
+- **新增 `BaseTranslator` 基类（`lib/api-adapters/base.js`，98 行）**
+  - 提取 4 个适配器中重复的 HTTP 错误处理逻辑到 `_handleHttpError()`：统一处理 429→`QUOTA_EXCEEDED`、401/403→`AUTH_ERROR`（兼容火山引擎 `ResponseMetadata.Error`、OpenAI `error.message`、百度 `error_msg` 三种错误格式）
+  - 提取语言映射工具方法：`_mapLanguage()` / `_mapSourceLanguage()` / `_mapBaiduLanguage()` / `_mapLanguageToChinese()`
+  - 提取文本安全处理：`_safeStr()`（null/undefined → ''）、`_sanitize()`（合并空白 + trim）
+  - 子类只需实现 `isConfigured()` 和 `translate()`，其余继承基类
+- **新增 API 注册表工厂（`lib/api-registry.js`，191 行）**
+  - 配置驱动替代 `api-manager.js` 中 `_buildTranslators()` 和 `testApi()` 的 ~120 行 if/else 分支
+  - `API_REGISTRY` 对象集中管理每个 API 的创建逻辑（`createFromSettings` / `createFromTestConfig`）
+  - `LLM_PROVIDERS` 动态生成 6 个 LLM 供应商（deepseek/glm/tongyi/zhipu/yi/doubao）的注册条目，消除重复模板代码
+  - 导出 `createTranslatorFromSettings()` 和 `createTranslatorForTest()` 两个工厂函数
+- **重构 4 个适配器继承 `BaseTranslator`**
+  - `baidu.js`：移除内联 HTTP 错误处理和语言映射，改用 `super()` + `_handleHttpError()` + `_mapBaiduLanguage()` + `_sanitize()`
+  - `baidu-llm.js`：同上，移除重复的 `error_code` 判断中的 HTTP 状态码检查
+  - `volcano.js`：同上，移除内联 429/401/403 处理（基类已兼容火山引擎 `ResponseMetadata.Error` 格式）
+  - `llm-generic.js`：同上，移除内联 HTTP 错误处理，改用 `_mapLanguageToChinese()` + `_handleHttpError()`
+- **重构 `api-manager.js` 使用注册表工厂**
+  - `_buildTranslators()`：从 ~45 行 if/else 链缩减为 8 行循环 + `createTranslatorFromSettings()` 调用
+  - `testApi()`：从 ~40 行 if/else 链缩减为 4 行 + `createTranslatorForTest()` 调用
+  - 文件总行数从 ~345 行降至 232 行（-113 行）
+
+### 工程
+
+- `npm run check`（15 个 `node --check`）全部通过
+- 新增文件：`lib/api-adapters/base.js` / `lib/api-registry.js`
+- 修改文件：`manifest.json` / `package.json` / `lib/api-manager.js` / `lib/api-adapters/baidu.js` / `lib/api-adapters/baidu-llm.js` / `lib/api-adapters/volcano.js` / `lib/api-adapters/llm-generic.js`
+- `package.json` 版本号从 1.0.6 修正为 1.0.11（此前多个版本未同步更新 package.json）
+
+---
+
 ## v1.0.10 — 2026-07-29
 
 > 修复火山引擎 V4 签名算法致命 bug + 测试后状态不更新问题。

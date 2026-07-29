@@ -2,7 +2,7 @@
 
 一个给 Edge / Chrome 浏览器用的翻译扩展（Manifest V3）。浏览英文或日文网页时，自动帮你翻译成简体中文，支持 4 种显示方式，内置 4 个免费翻译接口自动轮换，针对游戏攻略 / MOD 社区做了术语优化。
 
-> **版本变更历史请见 [CHANGELOG.md](./CHANGELOG.md)**，当前版本：**v1.0.10**
+> **版本变更历史请见 [CHANGELOG.md](./CHANGELOG.md)**，当前版本：**v1.0.11**
 
 ## 有什么用
 
@@ -171,23 +171,25 @@
 dual-translate-extension/
 ├── manifest.json                  扩展配置（MV3）
 ├── background.js                  Service Worker，消息路由 + 翻译调度
-├── content.js                     注入网页的翻译脚本（1319 行）
-├── content.css                    翻译 UI 样式（202 行）
+├── content.js                     注入网页的翻译脚本（1237 行）
+├── content.css                    翻译 UI 样式（183 行）
 ├── popup/                         扩展图标弹出面板
 │   ├── popup.html
 │   ├── popup.css
 │   └── popup.js
-├── options/                       完整设置页（5 个标签页）
+├── options/                       完整设置页（7 个标签页）
 │   ├── options.html
 │   ├── options.css
 │   └── options.js
 ├── lib/
 │   ├── api-manager.js             API 调度、优先级、超时重试、错误恢复
+│   ├── api-registry.js            API 翻译器注册表（配置驱动替代 if/else 分支）
 │   ├── api-metadata.js            API 元数据（供 options/popup UI 用）
 │   ├── settings-manager.js        用户配置管理（含密钥隔离、域名排除缓存）
 │   ├── translation-cache.js       翻译结果缓存（LRU + 3 天 TTL + 防抖写入）
 │   ├── escape-utils.js            HTML 转义工具
 │   └── api-adapters/
+│       ├── base.js               翻译适配器基类（共享错误处理 + 语言映射）
 │       ├── baidu.js               百度通用翻译
 │       ├── baidu-llm.js           百度大模型翻译
 │       ├── volcano.js             火山引擎机器翻译（V4 签名）
@@ -209,10 +211,16 @@ dual-translate-extension/
 - **缓存策略**：翻译结果持久化到 `chrome.storage.local`，3 天 TTL 自动过期，最多 10000 条 LRU 淘汰；防抖写入（5 秒合并）；服务重启后缓存仍在
 - **错误恢复**：API 配额耗尽时标记 `quota_exceeded`，密钥错误时标记 `auth_error`，冷却期内不重试；超时后 AbortController 中止 fetch 节省 API 额度
 - **国际化**：当前全中文硬编码（如果计划开源给国际用户，需要抽到 `_locales/`）
-- **代码质量**：经 14 轮迭代，含性能优化 20 项（charCodeAt 热路径、事件委托、防抖写入、Promise.all 并行化等），累计修复 13 项严重 bug + 17 项中等风险问题 + 清理 220+ 行死代码/冗余。全项目通过 `npm run check` 语法检查
+- **代码质量**：经 15 轮迭代，含性能优化 20 项（charCodeAt 热路径、事件委托、防抖写入、Promise.all 并行化等），累计修复 13 项严重 bug + 17 项中等风险问题 + 清理 220+ 行死代码/冗余。v1.0.11 架构重构提取 BaseTranslator 基类 + API 注册表工厂，消除适配器重复代码 ~113 行。全项目通过 `npm run check`（15 项语法检查）
 - **密钥安全**：所有 API 密钥（含自定义供应商）存储在 `chrome.storage.local`，**不随 sync 同步**；`saveSettings` 合并而非覆盖密钥，防止单次保存丢失其他 API 配置
 
 ### 代码审查状态
+
+v1.0.11 架构重构：
+
+- **基类提取**：创建 `BaseTranslator` 基类，4 个适配器继承，消除重复 HTTP 错误处理和语言映射代码
+- **注册表工厂**：创建 `api-registry.js`，配置驱动替代 `api-manager.js` 中 ~120 行 if/else 分支
+- **净减代码**：`api-manager.js` 从 ~345 行降至 232 行（-113 行），无功能变更
 
 v1.0.7 新增修复：
 
@@ -234,6 +242,8 @@ v1.0.6 期间做了 5 次全项目代码审查（子代理并发审核），已�
 - `translation-cache` 并发 `_load()` 丢数据（需 promise 缓存重构）
 - `testApi` 无超时保护（用户可关闭弹窗，影响可控）
 - 多 tab 并发翻译时 `statusCache` 可能互相覆盖（需加锁或改为 storage 单 key 写）
+- v1.0.11 新增 `api-registry.js` 的 `custom` 注册条目与 `custom_*` 前缀供应商走不同代码路径，新增供应商时需同时维护两处（需统一为单一入口）
+- `BaseTranslator._handleHttpError()` 的 `response.json()` 在非 JSON 响应时会抛异常被静默 catch，错误详情可能丢失（需增加 Content-Type 判断）
 
 ## 注意事项
 
