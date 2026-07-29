@@ -756,8 +756,9 @@ function setupApiManagement() {
         renderApiCards();
         renderApiPriority();
         renderApiUsage();
-        // v1.0.19: 新增自定义供应商后联动刷新额度限制标签页
+        // v1.0.19: 新增自定义供应商后联动刷新额度限制和月度用量标签页
         renderQuotaLimits();
+        renderMonthlyUsage();
         showSavedTip();
       });
     });
@@ -836,8 +837,9 @@ function _cleanupEmptyCustomProviders() {
     console.log(`[options] 清理了 ${before - settings.api.customProviders.length} 个未填写的自定义大模型`);
     saveAllSettings(settings).then(() => {
       chrome.runtime.sendMessage({ action: 'reloadApis' });
-      // v1.0.19: 清理自定义供应商后联动刷新额度限制
+      // v1.0.19: 清理自定义供应商后联动刷新额度限制和月度用量
       renderQuotaLimits();
+      renderMonthlyUsage();
     });
   }
 }
@@ -1109,9 +1111,8 @@ function renderApiCards() {
       settings.api.enabledApis[cb.dataset.api] = cb.checked;
       saveAllSettings(settings).then(() => {
         chrome.runtime.sendMessage({ action: 'reloadApis' });
-        // v1.0.19: API 启用/禁用后联动刷新额度限制和用量显示
-        renderQuotaLimits();
-        renderApiUsage();
+        // v1.0.19 fix: renderQuotaLimits/renderApiUsage 不依赖 enabledApis，重绘只会销毁额度输入框焦点
+        // 仅刷新月度用量显示（可能因 API 禁用而停止累计）
         renderMonthlyUsage();
         showSavedTip();
       });
@@ -2736,6 +2737,7 @@ async function runSettingsIntegrityDiagnosis() {
 
 // 工具6: 运行日志查看器
 let _logViewerInitialized = false;
+let _logLoadingInFlight = false;
 
 function setupLogViewer() {
   if (_logViewerInitialized) return;
@@ -2747,11 +2749,16 @@ function setupLogViewer() {
   const clearBtn = document.getElementById('diagLogClearBtn');
   if (clearBtn) clearBtn.addEventListener('click', async () => {
     if (!confirm('确认清空所有运行日志？此操作不可撤销。')) return;
+    clearBtn.disabled = true;
+    clearBtn.textContent = '清空中...';
     try {
       await chrome.runtime.sendMessage({ action: 'clearLogs' });
-      loadLogs();
+      await loadLogs();
     } catch (e) {
       console.error('[diag] clearLogs failed:', e);
+    } finally {
+      clearBtn.disabled = false;
+      clearBtn.textContent = '🗑 清空日志';
     }
   });
 
@@ -2763,23 +2770,42 @@ function setupLogViewer() {
 }
 
 async function loadLogs() {
+  // v1.0.19 fix: 并发保护，防止快速连续点击导致 innerHTML 竞争覆写
+  if (_logLoadingInFlight) return;
+  _logLoadingInFlight = true;
+
   const listEl = document.getElementById('diagLogList');
   const infoEl = document.getElementById('diagLogInfo');
-  if (!listEl) return;
+  const refreshBtn = document.getElementById('diagLogRefreshBtn');
+  if (!listEl) { _logLoadingInFlight = false; return; }
+
+  if (refreshBtn) { refreshBtn.disabled = true; refreshBtn.textContent = '加载中...'; }
   listEl.innerHTML = '<div class="diag-log-empty">正在加载日志...</div>';
 
   try {
     const filterSel = document.getElementById('diagLogLevelFilter');
     const level = filterSel?.value || 'all';
 
-    const res = await chrome.runtime.sendMessage({ action: 'getLogs', level, limit: 500 });
+    // v1.0.19 fix: 并行请求日志和配置，避免串行延迟
+    const [logsRes, configRes] = await Promise.allSettled([
+      chrome.runtime.sendMessage({ action: 'getLogs', level, limit: 500 }),
+      chrome.runtime.sendMessage({ action: 'getLogConfig' })
+    ]);
+
+    // 日志请求失败才报错，配置请求失败不影响日志展示
+    if (logsRes.status !== 'fulfilled') {
+      throw logsRes.reason || new Error('getLogs 请求失败');
+    }
+
+    const res = logsRes.value;
     const logs = res?.logs || [];
     const total = res?.total ?? 0;
 
+    // 更新信息栏（配置请求失败时降级显示）
     if (infoEl) {
       const levelText = { 0: '静默', 1: '仅错误', 2: '警告', 3: '信息', 4: '调试' };
-      const configRes = await chrome.runtime.sendMessage({ action: 'getLogConfig' });
-      const lv = configRes?.logLevel ?? 2;
+      const configData = configRes.status === 'fulfilled' ? configRes.value : null;
+      const lv = configData?.logLevel ?? 2;
       infoEl.textContent = `缓冲区: ${total} 条 | 日志级别: ${levelText[lv] || lv} | 显示: ${logs.length} 条`;
     }
 
@@ -2803,6 +2829,9 @@ async function loadLogs() {
     listEl.scrollTop = listEl.scrollHeight;
   } catch (e) {
     listEl.innerHTML = `<div class="diag-log-empty" style="color:#f48771;">加载日志失败: ${escapeAttr(e.message || String(e))}</div>`;
+  } finally {
+    _logLoadingInFlight = false;
+    if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.textContent = '🔄 刷新'; }
   }
 }
 

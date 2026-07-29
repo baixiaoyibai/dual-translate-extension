@@ -1081,6 +1081,8 @@ input:checked + .toggle-slider:before {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* v1.0.19 fix: Grid 项默认 min-width:auto 会阻止 nowrap 文本收缩，导致网格横向溢出 */
+  min-width: 0;
 }
 
 /* v1.0.19: 诊断结果通用样式 */
@@ -1109,13 +1111,15 @@ input:checked + .toggle-slider:before {
   font-size: 11.5px;
   font-weight: 600;
   white-space: nowrap;
+  /* v1.0.19 fix: 浅色背景徽章在白色单元格上几乎不可见，增加边框 */
+  border: 1px solid transparent;
 }
 
-.diag-status-badge.available { background: #d1fae5; color: #065f46; }
-.diag-status-badge.exhausted { background: #fee2e2; color: #991b1b; }
-.diag-status-badge.error { background: #fef3c7; color: #92400e; }
-.diag-status-badge.disabled { background: var(--bg-secondary); color: var(--text-muted); }
-.diag-status-badge.unconfigured { background: #f3f4f6; color: #6b7280; }
+.diag-status-badge.available { background: #d1fae5; color: #065f46; border-color: #a7f3d0; }
+.diag-status-badge.exhausted { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+.diag-status-badge.error { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+.diag-status-badge.disabled { background: #f1f5f9; color: #475569; border-color: #cbd5e1; }
+.diag-status-badge.unconfigured { background: #f3f4f6; color: #4b5563; border-color: #d1d5db; }
 
 /* v1.0.19: API 轮转链路可视化 */
 .diag-chain-container {
@@ -1206,7 +1210,7 @@ input:checked + .toggle-slider:before {
 }
 
 .diag-log-time {
-  color: #858585;
+  color: #9e9e9e;
   flex-shrink: 0;
   margin-right: 10px;
   font-size: 11px;
@@ -1234,7 +1238,7 @@ input:checked + .toggle-slider:before {
 .diag-log-empty {
   padding: 40px;
   text-align: center;
-  color: #858585;
+  color: #9e9e9e;
   font-size: 13px;
 }
 
