@@ -200,7 +200,8 @@ function isAlreadyChinese(text) {
   let kanaCount = 0;    // 日文假名（平假名 + 片假名）
   let latinCount = 0;   // 拉丁字母
   for (let i = 0; i < t.length; i++) {
-    const c = t.charCodeAt(i);
+    const c = t.codePointAt(i);
+    if (c > 0xFFFF) i++;
     if ((c >= 0x4E00 && c <= 0x9FFF) ||  // CJK 统一汉字
         (c >= 0x3400 && c <= 0x4DBF) ||  // CJK 扩展 A
         (c >= 0x20000 && c <= 0x2A6DF) || // CJK 扩展 B
@@ -244,7 +245,8 @@ function isAlreadyChineseLenient(text) {
   let kanaCount = 0;
   let latinCount = 0;
   for (let i = 0; i < t.length; i++) {
-    const c = t.charCodeAt(i);
+    const c = t.codePointAt(i);
+    if (c > 0xFFFF) i++;
     if ((c >= 0x4E00 && c <= 0x9FFF) ||
         (c >= 0x3400 && c <= 0x4DBF) ||
         (c >= 0x20000 && c <= 0x2A6DF) ||
@@ -302,7 +304,22 @@ function isAiModelName(text) {
   
   return false;
 }
-function shouldSkipText(text) { return isMetricOrRepetitiveText(text)||containsUrl(text)||isGarbledText(text)||isAiModelName(text)||isAlreadyChinese(text); }
+function hasAnyCJK(text) {
+  for (let i = 0; i < text.length; i++) {
+    const c = text.codePointAt(i);
+    if (c > 0xFFFF) i++;
+    if ((c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF) ||
+        (c >= 0xF900 && c <= 0xFAFF) || (c >= 0x2F800 && c <= 0x2FA1F) ||
+        (c >= 0x20000 && c <= 0x2A6DF) ||
+        (c >= 0x2A700 && c <= 0x2B73F) || (c >= 0x2B740 && c <= 0x2B81F))
+      return true;
+  }
+  return false;
+}
+function shouldSkipText(text) {
+  if (settings && settings.rules && settings.rules.skipChineseSegments !== false && cachedPageLang !== 'ja' && hasAnyCJK(text)) return true;
+  return isMetricOrRepetitiveText(text)||containsUrl(text)||isGarbledText(text)||isAiModelName(text)||isAlreadyChinese(text);
+}
 
 function hideOriginalText(seg) {
   if (seg._originalHidden) return;
@@ -483,6 +500,7 @@ function shouldAutoTranslate(hostname) {
 function detectPageLanguage(forceLanguage) {
   // 如果传入了 forceLanguage 且不为 'auto'/'all'，直接返回该语言
   if (forceLanguage && forceLanguage !== 'auto' && forceLanguage !== 'all') {
+    cachedPageLang = forceLanguage;
     return forceLanguage;
   }
 
@@ -686,6 +704,7 @@ async function startTranslation(opts = {}) {
       showLoading('正在分析页面...', '提取需要翻译的文本段落');
     }
     await new Promise(r=>setTimeout(r,30));
+    if(!cachedPageLang) { detectPageLanguage(settings.api.sourceLanguage||'auto'); }
     segments = extractSegments();
     if (segments.length===0) {
       updateLoadingProgress(0,0,'未检测到需要翻译的内容');
@@ -901,7 +920,7 @@ async function translatePageMeta() {
   if (settings.display.translatePageTitle !== false) {
     const origTitle = (document.title || '').trim();
     // 跳过中文标题（避免无用 API 调用）
-    if (origTitle.length >= 2 && !isAlreadyChinese(origTitle)) {
+    if (origTitle.length >= 2 && !isAlreadyChinese(origTitle) && !(settings.rules && settings.rules.skipChineseSegments !== false && sourceLang !== 'ja' && hasAnyCJK(origTitle))) {
       // 跳过已翻译过的（data 属性标记）
       if (!document.documentElement.hasAttribute('data-dt-orig-title')) {
         document.documentElement.setAttribute('data-dt-orig-title', origTitle);
@@ -920,6 +939,7 @@ async function translatePageMeta() {
         const alt = (img.getAttribute('alt') || '').trim();
         if (alt.length < 2 || alt.length > 200) continue;
         if (isAlreadyChinese(alt)) continue; // 已是中文
+        if (settings.rules && settings.rules.skipChineseSegments !== false && sourceLang !== 'ja' && hasAnyCJK(alt)) continue;
         if (seen.has(alt)) continue;
         // 跳过已翻译过的（data 属性标记 + ImgSet 跟踪）
         if (img.hasAttribute('data-dt-orig-alt')) continue;
@@ -1532,9 +1552,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (!newS) return;
   const oldD = sc.oldValue && sc.oldValue.display;
   const newD = newS.display;
-  if (!newD || JSON.stringify(oldD) === JSON.stringify(newD)) return;
-  // 更新内存中的 settings
   settings = newS;
-  // 通过 CSS 变量一次性更新所有译文样式，无需遍历 DOM
-  applyTranslationStyles();
+  if (newD && JSON.stringify(oldD) !== JSON.stringify(newD)) {
+    applyTranslationStyles();
+  }
 });

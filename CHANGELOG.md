@@ -1,4 +1,4 @@
-# 更新日志
+﻿# 更新日志
 
 > 本文件记录双语翻译助手扩展每个版本的变更。
 > 当前版本请见 [README.md](./README.md)。
@@ -27,6 +27,24 @@
 - **Performance** — 性能优化
 
 ---
+
+## v1.2.8 (2026-07-31)
+
+### Added - 新增
+- 新增「跳过含中文的段落」设置项（`rules.skipChineseSegments`，默认开启）
+  - 开启时，含中文字符的段落不会被翻译，避免中文页面上的中英混合内容被错误翻译
+  - 关闭时，所有段落（含中英混合内容）都会送入翻译 API
+  - 弹窗新增「翻译中文页英文」快捷开关，方便随时切换
+  - 设置页「翻译规则 -> 语言检测」中也可配置
+  - 日文页面不受影响（通过页面语言检测自动豁免）
+
+### Fixed - 修复
+- 修复中文 AI 平台页面上，block-parent 合并导致整段中英混合文本被送入翻译 API 的问题
+  - 原因：`extractSegments` 将 ``<p>欢迎了解 DeepSeek Coding Plan 套餐</p>`` 合并为一个段
+  - 现在含 CJK 汉字的合并段会被跳过，回退到提取独立英文文本节点单独翻译
+- 修复 `detectPageLanguage` 在 `forceLanguage` 早返回时不设置 `cachedPageLang` 的问题
+- 修复 `storage.onChanged` 监听器在非 `display` 字段变更时不更新 `settings` 的问题
+- 修复 `isAlreadyChinese` / `isAlreadyChineseLenient` 使用 `charCodeAt` 无法检测 CJK 扩展 B/C/D 字符的问题（改用 `codePointAt`）
 
 ## v1.2.7 — 2026-07-30
 

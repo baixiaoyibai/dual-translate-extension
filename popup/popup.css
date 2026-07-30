@@ -511,3 +511,76 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.25);
 }
+
+/* ==========================================================================
+   Mini Toggle (for popup compact settings)
+   ========================================================================== */
+.mini-toggle {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.mini-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.mini-toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--border, #3a3a3a);
+  border-radius: 9px;
+  transition: 0.2s;
+}
+
+.mini-toggle-slider:before {
+  content: "";
+  position: absolute;
+  height: 14px;
+  width: 14px;
+  left: 2px;
+  bottom: 2px;
+  background: #fff;
+  border-radius: 50%;
+  transition: 0.2s;
+}
+
+.mini-toggle input:checked + .mini-toggle-slider {
+  background: var(--accent, #f97316);
+}
+
+.mini-toggle input:checked + .mini-toggle-slider:before {
+  transform: translateX(14px);
+}
+
+.setting-row.compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.setting-row.compact .setting-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-row.compact .setting-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.setting-row.compact .setting-desc {
+  font-size: 10px;
+  color: var(--text-secondary, #888);
+  margin-top: 2px;
+}

@@ -68,6 +68,7 @@ async function loadState() {
   }
   
   await loadSourceLanguage();
+  await loadSkipChineseSegments();
 }
 
 function updateToggleButton() {
@@ -139,6 +140,12 @@ async function loadSourceLanguage() {
       select.value = sourceLang;
     }
   }
+}
+
+async function loadSkipChineseSegments() {
+  const skip = cachedSettings?.rules?.skipChineseSegments !== false;
+  const toggle = document.getElementById('skipChineseSegmentsToggle');
+  if (toggle) toggle.checked = !skip;
 }
 
 async function loadApiStatus() {
@@ -281,6 +288,18 @@ function setupEventListeners() {
         }
       }, 300);
       // background 中已根据 api.sourceLanguage 变更触发 retranslateWithSource，避免重复触发
+    });
+  }
+
+  const skipToggle = document.getElementById('skipChineseSegmentsToggle');
+  if (skipToggle) {
+    skipToggle.addEventListener('change', async () => {
+      const skipChinese = !skipToggle.checked;
+      try {
+        await sendMessageWithRetry({ action: 'updateSettings', path: 'rules.skipChineseSegments', value: skipChinese });
+      } catch (e) {
+        skipToggle.checked = !skipChinese;
+      }
     });
   }
 

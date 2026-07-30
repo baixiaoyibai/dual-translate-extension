@@ -431,6 +431,7 @@ function setupRulesSettings() {
   const t = settings.trigger;
 
   bindToggle('onlyEnJa', 'rules.onlyEnJa', r.onlyEnJa);
+  bindToggle('skipChineseSegments', 'rules.skipChineseSegments', r.skipChineseSegments !== false);
   bindToggle('translateCodeBlocks', 'rules.translateCodeBlocks', r.translateCodeBlocks);
   bindNumber('minTextLength', 'rules.minTextLength', r.minTextLength);
   bindToggle('autoTranslate', 'trigger.autoTranslate', t.autoTranslate);

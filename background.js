@@ -11,7 +11,8 @@ function isAlreadyChinese(text) {
   let kanaCount = 0;
   let latinCount = 0;
   for (let i = 0; i < t.length; i++) {
-    const c = t.charCodeAt(i);
+    const c = t.codePointAt(i);
+    if (c > 0xFFFF) i++;
     if ((c >= 0x4E00 && c <= 0x9FFF) ||
         (c >= 0x3400 && c <= 0x4DBF) ||
         (c >= 0x20000 && c <= 0x2A6DF) ||
@@ -282,7 +283,7 @@ async function handleMessage(message, sender) {
       await settingsManager.updateSetting(message.path, message.value);
 
       // 如果更新的是 api.sourceLanguage，通知活跃 tab 重新翻译
-      if (message.path === 'api.sourceLanguage') {
+      if (message.path === 'api.sourceLanguage' || message.path === 'rules.skipChineseSegments') {
         // 读取 translationEnabled 状态
         const enabled = settingsManager.getSetting('general.translationEnabled');
         if (enabled !== false) {
