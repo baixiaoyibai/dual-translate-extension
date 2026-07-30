@@ -135,6 +135,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   try { setupQuotaSettings(); } catch(e) { console.error('[options] setupQuotaSettings:', e); }
   try { setupTips(); } catch(e) { console.error('[options] setupTips:', e); }
   try { setupAdvancedSettings(); } catch(e) { console.error('[options] setupAdvancedSettings:', e); }
+  try { setupAboutSection(); } catch(e) { console.error('[options] setupAboutSection:', e); }
 
   // 如果 settings 仍为 null，在 API 区域显示错误提示
   if (!settings) {
@@ -312,7 +313,7 @@ function setupTabSwitching() {
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
       document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
-      // v1.0.8: 切换到温馨提示页时，将当前显示设置应用到翻译示例
+      // v1.0.8: 切换到关于页时，将当前显示设置应用到翻译示例
       if (tab.dataset.tab === 'tips') {
         setupTips();
       }
@@ -1850,7 +1851,7 @@ async function renderMonthlyUsage() {
   }
 }
 
-// v1.0.8: 温馨提示设置
+// v1.0.8: 关于页设置
 function setupTips() {
   // 将当前显示设置应用到翻译示例
   const translationEl = document.querySelector('.tips-example-translation');
@@ -1978,6 +1979,267 @@ function setupAdvancedSettings() {
       e.target.value = '';
     }
   });
+
+  // v1.2.5: 恢复默认设置
+  const resetBtn = document.getElementById('resetDefaultsBtn');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', handleResetDefaults);
+  }
+}
+
+// v1.2.5: 恢复默认设置 —— 重置显示/规则/触发/高级/API启用状态，保留密钥/自定义接口/术语库/PIN
+async function handleResetDefaults() {
+  // v1.2.5 UX: 防重复点击
+  const resetBtn = document.getElementById('resetDefaultsBtn');
+  if (resetBtn) {
+    resetBtn.disabled = true;
+    resetBtn.textContent = '⏳ 恢复中...';
+  }
+
+  const confirmed = confirm(
+    '确定恢复默认设置？\n\n' +
+    '将重置：显示设置、翻译规则、触发行为、高级参数、LLM Prompt、API 启用状态与优先级\n' +
+    '将保留：API 密钥、自定义翻译接口、术语库、PIN 码\n\n' +
+    '操作完成后页面将自动刷新。'
+  );
+  if (!confirmed) {
+    if (resetBtn) {
+      resetBtn.disabled = false;
+      resetBtn.textContent = '↺ 恢复默认设置';
+    }
+    return;
+  }
+
+  let reloadScheduled = false;
+
+  try {
+    // 构建默认设置：从 background 获取完整默认设置，保留用户自定义接口
+    const resp = await chrome.runtime.sendMessage({ action: 'getSettings' });
+    const currentSettings = (resp && resp.settings) || settings;
+
+    // 深拷贝当前的自定义接口和 API 密钥
+    const preservedCustomProviders = currentSettings?.api?.customProviders
+      ? JSON.parse(JSON.stringify(currentSettings.api.customProviders))
+      : [];
+    const preservedApiKeys = currentSettings?.api?.apiKeys
+      ? JSON.parse(JSON.stringify(currentSettings.api.apiKeys))
+      : {};
+
+    // 构建重置后的设置：使用默认值 + 保留项
+    const resetSettings = {
+      display: {
+        defaultMode: 'bilingual',
+        translationColor: '#888888',
+        translationSize: '85%',
+        translationFont: '',
+        translationSpacing: '4px',
+        hoverDelay: 200,
+        panelPosition: 'right',
+        panelWidth: 400,
+        translatePageTitle: true,
+        translateImgAlt: true
+      },
+      rules: {
+        onlyEnJa: true,
+        translateCodeBlocks: false,
+        minTextLength: 3
+      },
+      trigger: {
+        autoTranslate: true,
+        excludeList: currentSettings?.trigger?.excludeList || [],
+        excludeMode: 'blacklist',
+        contextMenu: true,
+        translateDelay: 500,
+        translationCache: true
+      },
+      api: {
+        enabledApis: { baidu: true, deepseek: true, baidu_llm: true, glm: true },
+        apiPriority: ['baidu', 'glm', 'deepseek', 'baidu_llm', 'volcano', 'custom', 'tongyi', 'zhipu', 'yi', 'doubao'],
+        apiKeys: preservedApiKeys,
+        apiEndpoints: currentSettings?.api?.apiEndpoints || {},
+        apiModels: currentSettings?.api?.apiModels || {},
+        customProviders: preservedCustomProviders,
+        sourceLanguage: 'auto',
+        quotaLimits: {}
+      },
+      advanced: {
+        batchSize: 10,
+        requestTimeout: 10,
+        retryCount: 1,
+        retryInterval: 5,
+        lazyTranslate: true
+      },
+      general: {
+        hasCompletedWelcome: currentSettings?.general?.hasCompletedWelcome ?? true,
+        lastMode: 'bilingual',
+        translationEnabled: true,
+        logLevel: 2,
+        toggleTranslateShortcut: 'Alt+T'
+      }
+    };
+
+    // 保存重置后的设置
+    await chrome.runtime.sendMessage({ action: 'saveSettings', settings: resetSettings });
+
+    // 清除自定义 LLM Prompt
+    await chrome.storage.local.remove('dual_translate_custom_llm_prompt');
+
+    // 通知 background 重新加载 API 配置
+    chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
+
+    showSavedTip();
+    alert('已恢复默认设置！API 密钥、自定义接口和术语库已保留。页面将自动刷新。');
+    reloadScheduled = true;
+    setTimeout(() => location.reload(), 800);
+  } catch (e) {
+    console.error('[options] handleResetDefaults:', e);
+    alert('恢复默认设置失败：' + (e.message || '未知错误'));
+  } finally {
+    if (resetBtn && !reloadScheduled) {
+      resetBtn.disabled = false;
+      resetBtn.textContent = '↺ 恢复默认设置';
+    }
+  }
+}
+
+// v1.2.5: 关于与更新 section
+function setupAboutSection() {
+  // 显示当前版本号
+  const versionEl = document.getElementById('currentVersion');
+  if (versionEl) {
+    const manifest = chrome.runtime.getManifest();
+    versionEl.textContent = 'v' + manifest.version;
+  }
+
+  // 检查更新按钮
+  const checkBtn = document.getElementById('checkUpdateBtn');
+  if (checkBtn) {
+    checkBtn.addEventListener('click', () => checkForUpdates().catch(e => {
+      console.error('[options] checkForUpdates:', e);
+      showUpdateStatus('error', '检查更新失败：' + (e.message || '未知错误'));
+    }));
+  }
+}
+
+// v1.2.5: 从 GitHub API 获取最新 release 并与当前版本比对
+async function checkForUpdates() {
+  const checkBtn = document.getElementById('checkUpdateBtn');
+  const statusEl = document.getElementById('updateStatus');
+
+  // 防重复点击
+  if (checkBtn) {
+    checkBtn.disabled = true;
+    checkBtn.textContent = '⏳ 检查中...';
+  }
+  showUpdateStatus('loading', '正在连接 GitHub 获取最新版本信息...');
+
+  try {
+    const manifest = chrome.runtime.getManifest();
+    const currentVersion = manifest.version;
+
+    // GitHub API 获取最新 release（带超时保护）
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    const resp = await fetch('https://api.github.com/repos/baixiaoyibai/dual-translate-extension/releases/latest', {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/vnd.github.v3+json' }
+    });
+    clearTimeout(timeoutId);
+
+    if (!resp.ok) {
+      if (resp.status === 403) {
+        showUpdateStatus('error', 'GitHub API 速率限制（每小时 60 次无认证请求），请稍后再试。');
+      } else {
+        showUpdateStatus('error', `GitHub API 返回错误（HTTP ${resp.status}）`);
+      }
+      return;
+    }
+
+    const data = await resp.json();
+    const latestTag = data.tag_name || '';
+    // tag_name 格式为 "v1.2.4"，去掉前缀 "v"
+    const latestVersion = latestTag.replace(/^v/i, '').trim();
+
+    if (!latestVersion) {
+      showUpdateStatus('error', '无法解析最新版本号');
+      return;
+    }
+
+    const comparison = compareVersions(currentVersion, latestVersion);
+
+    if (comparison < 0) {
+      // 有新版本可用
+      const releaseUrl = data.html_url || 'https://github.com/baixiaoyibai/dual-translate-extension/releases';
+      const publishedAt = data.published_at ? new Date(data.published_at).toLocaleDateString('zh-CN') : '';
+      const downloadUrl = (data.assets && data.assets.length > 0)
+        ? data.assets[0].browser_download_url
+        : releaseUrl;
+
+      let html = `<div class="update-available">
+        <strong>🎉 发现新版本！</strong>
+        <br>当前版本：<code>v${currentVersion}</code>　→　最新版本：<code>v${latestVersion}</code>`;
+      if (publishedAt) html += `<br>发布日期：${publishedAt}`;
+      html += `<br><br>`;
+      if (data.body) {
+        // 截取 release notes 前 300 字符，转义 HTML 防止 XSS
+        const notes = data.body.length > 300 ? data.body.slice(0, 300) + '...' : data.body;
+        html += `<div class="update-notes">${escapeAttr(notes).replace(/\n/g, '<br>')}</div>`;
+      }
+      html += `<div class="btn-row">
+        <a href="${escapeAttr(downloadUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">⬇ 下载更新</a>
+        <a href="${escapeAttr(releaseUrl)}" target="_blank" rel="noopener noreferrer" class="btn">📋 查看发布说明</a>
+      </div>
+      </div>`;
+      statusEl.className = 'update-status';  // 清除 update-loading
+      statusEl.innerHTML = html;
+      statusEl.classList.remove('hidden');
+    } else if (comparison === 0) {
+      showUpdateStatus('success', `✅ 已是最新版本（v${currentVersion}）`);
+    } else {
+      showUpdateStatus('success', `当前版本（v${currentVersion}）可能高于 GitHub 发布版本（v${latestVersion}），您可能在使用开发版。`);
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      showUpdateStatus('error', '请求超时（15 秒），请检查网络连接后重试。');
+    } else {
+      showUpdateStatus('error', '检查更新失败：' + (e.message || '未知错误'));
+    }
+  } finally {
+    if (checkBtn) {
+      checkBtn.disabled = false;
+      checkBtn.textContent = '🔍 检查更新';
+    }
+  }
+}
+
+// v1.2.5: 版本号比较（返回 -1/0/1，分别表示 a<b/a=b/a>b）
+function compareVersions(a, b) {
+  const partsA = String(a).split('.').map(n => parseInt(n, 10) || 0);
+  const partsB = String(b).split('.').map(n => parseInt(n, 10) || 0);
+  const maxLen = Math.max(partsA.length, partsB.length);
+  for (let i = 0; i < maxLen; i++) {
+    const va = partsA[i] || 0;
+    const vb = partsB[i] || 0;
+    if (va < vb) return -1;
+    if (va > vb) return 1;
+  }
+  return 0;
+}
+
+// v1.2.5: 显示更新状态
+function showUpdateStatus(type, message) {
+  const statusEl = document.getElementById('updateStatus');
+  if (!statusEl) return;
+  statusEl.className = 'update-status update-' + type;
+  if (type === 'loading') {
+    statusEl.innerHTML = `<span class="update-spinner"></span> ${escapeAttr(message)}`;
+  } else if (type === 'success') {
+    statusEl.innerHTML = escapeAttr(message);
+  } else if (type === 'error') {
+    statusEl.innerHTML = '⚠ ' + escapeAttr(message);
+  }
+  statusEl.classList.remove('hidden');
 }
 
 async function loadCacheStats() {

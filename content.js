@@ -186,9 +186,13 @@ function isNexusModsDomain() {
 }
 
 // 检测段落是否已经是中文（无需翻译）
-// 策略：CJK 汉字占比 >= 60% 视为中文
+// 策略：CJK 汉字占可分类字符的 80% 及以上，且 CJK 字符绝对数量 ≥ 5
 //       段落同时含日文假名（平假名/片假名）则视为日文，需翻译
 //       段落同时含较多拉丁字母则视为混合，需翻译
+// v1.2.7 fix: 旧阈值 (CJK≥60% + 拉丁≤CJK×30%) 过宽：
+//   1) 中文段落内嵌较多英文/URL/数字标点时，CJK 占比可能 < 60% → 误判为非中文 → 被 API "翻译"（LLM 可能润色或加额外内容）
+//   2) 日文汉字假名混合段（含英文术语）CJK 占比可超 60% → 误判为中文 → 跳过翻译
+//   新阈值：CJK 占可分类字符 80% 且绝对数量 ≥ 5，误判概率显著降低
 function isAlreadyChinese(text) {
   const t = text.trim();
   if (t.length === 0) return false;
@@ -217,12 +221,53 @@ function isAlreadyChinese(text) {
   }
   // 含假名 → 视为日文段落，需翻译
   if (kanaCount > 0) return false;
+  // CJK 绝对数量不足 → 短样本不可靠，不视为中文（可能是中文页面里的英文短句）
+  if (cjkCount < 5) return false;
   const total = cjkCount + latinCount;
   if (total === 0) return false;
   const cjkRatio = cjkCount / total;
-  // CJK 占比 >= 60% 且拉丁字母不超过汉字数的 30% → 视为中文，跳过翻译
-  if (cjkRatio >= 0.6 && latinCount <= cjkCount * 0.3) return true;
+  // CJK 占比 >= 80% → 视为中文，跳过翻译
+  // 旧阈值 60% 已被移除：避免 "这 里 有 100+ 个 items" 类含较多英文/数字的段落被误判为非中文
+  if (cjkRatio >= 0.8) return true;
   return false;
+}
+
+// v1.2.7 fix: 宽松版中文检测 —— 仅用于页面级"中文占比"统计（不参与单段跳过判定）
+// 阈值：CJK 占可分类字符 60% 且绝对数量 ≥ 3
+//   介于 isAlreadyChinese（严格）和纯字符占比（过宽）之间，专门用于判断"这一段中文含量较高"
+//   单独存在时不会跳过翻译（仍由 isAlreadyChinese 决定单段是否翻译）
+//   仅当全页多数段落满足此条件时，才在 startTranslation 阶段提前终止整个翻译流程
+function isAlreadyChineseLenient(text) {
+  const t = text.trim();
+  if (t.length === 0) return false;
+  let cjkCount = 0;
+  let kanaCount = 0;
+  let latinCount = 0;
+  for (let i = 0; i < t.length; i++) {
+    const c = t.charCodeAt(i);
+    if ((c >= 0x4E00 && c <= 0x9FFF) ||
+        (c >= 0x3400 && c <= 0x4DBF) ||
+        (c >= 0x20000 && c <= 0x2A6DF) ||
+        (c >= 0x2A700 && c <= 0x2B73F) ||
+        (c >= 0x2B740 && c <= 0x2B81F) ||
+        (c >= 0xF900 && c <= 0xFAFF) ||
+        (c >= 0x2F800 && c <= 0x2FA1F)) {
+      cjkCount++;
+    } else if ((c >= 0x3040 && c <= 0x309F) ||
+               (c >= 0x30A0 && c <= 0x30FF)) {
+      kanaCount++;
+    } else if (c >= 0xAC00 && c <= 0xD7AF) {
+      return false;
+    } else if ((c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)) {
+      latinCount++;
+    }
+  }
+  if (kanaCount > 0) return false;
+  if (cjkCount < 3) return false;
+  const total = cjkCount + latinCount;
+  if (total === 0) return false;
+  const cjkRatio = cjkCount / total;
+  return cjkRatio >= 0.6;
 }
 function containsUrl(text) {
   return URL_RE.test(text);
@@ -472,7 +517,11 @@ function detectPageLanguage(forceLanguage) {
   if(total===0)result='unknown';
   else {
     const nonJaCjk = cjk - ja;
-    if(nonJaCjk/total>0.15)result='zh';
+    // v1.2.7 fix: 旧阈值 nonJaCjk/total > 0.15 → zh 过低（15% 汉字即判为中文页面），
+    //   会在含少量中文专有名词/引用的英文页面上被误判为 zh，从而走 "中文页面不翻译" 分支，
+    //   但具体段落未做中文检查，API 仍可能收到中文文本并"翻译"。
+    //   新阈值 0.4：要求 40% 以上是"非日文"汉字（基本无假名）才视为中文页面，显著降低误判。
+    if(nonJaCjk/total>0.4)result='zh';
     else if(ja/total>0.12)result='ja';
     else if(en/total>0.5)result='en';
     else if(ja>0)result='ja';
@@ -648,17 +697,32 @@ async function startTranslation(opts = {}) {
     // v1.0.6 perf: 构建 segId → seg 查找表，供 fillTranslations O(1) 查找
     segmentMap = new Map(segments.map(s => [s.id, s]));
 
-    let chineseSegmentCount = 0;
+    // v1.2.7 fix: 页面级中文段比例检查 —— 复用 isAlreadyChinese 与 isAlreadyChineseLenient 双重判定
+    // 旧实现（v1.2.6）：单段 CJK 占比 > 30% 即视为中文段，> 25% 段数即跳过整页
+    //   问题：CJK 占比 30% 太低，纯英文段落中夹杂的中文专有名词/引用/URL 参数可让该段被算作"中文段"
+    //   例：英文技术博客里的中文用户名/中文示例代码段，CJK 占比约 30-40%，被误算为中文段
+    //   阈值 25% 段数时，混合页面被错误跳过
+    // 新实现：
+    //   - 单段先用 isAlreadyChinese（CJK≥80% + 绝对值≥5）严格判定为"纯中文段"
+    //   - 再用 isAlreadyChineseLenient（CJK≥60% + 绝对值≥3）识别"含较多中文的混合段"
+    //   - 严格段 ≥ 50% 时直接跳过；严格段 ≥ 30% 且含中文段 ≥ 60% 时也跳过
+    //   这样既避免误跳过英文为主页面，也能在中文为主页面尽早停止 API 调用
+    let strictChineseCount = 0;
+    let lenientChineseCount = 0;
     for (const seg of segments) {
-      let chineseChars = 0;
-      const t = seg.text;
-      for (let i = 0; i < t.length; i++) {
-        const c = t.charCodeAt(i);
-        if (c >= 0x4E00 && c <= 0x9FFF) chineseChars++;
+      if (isAlreadyChinese(seg.text)) {
+        strictChineseCount++;
+        lenientChineseCount++;
+      } else if (isAlreadyChineseLenient(seg.text)) {
+        lenientChineseCount++;
       }
-      if (chineseChars / Math.max(seg.text.length, 1) > 0.3) chineseSegmentCount++;
     }
-    if (chineseSegmentCount / segments.length > 0.25) {
+    const total = segments.length;
+    const strictRatio = strictChineseCount / total;
+    const lenientRatio = lenientChineseCount / total;
+    // 条件 1：严格中文段 ≥ 50% → 明显是中文页面，跳过
+    // 条件 2：严格中文段 ≥ 30% 且含中文段（含混合）≥ 60% → 中文为主的页面，跳过
+    if (total > 0 && (strictRatio >= 0.5 || (strictRatio >= 0.3 && lenientRatio >= 0.6))) {
       updateLoadingProgress(0, 0, '页面中文占比较高，已跳过翻译');
       setTimeout(hideLoading, 1200);
       await sendMessage('setIconState', { state: 'idle' });

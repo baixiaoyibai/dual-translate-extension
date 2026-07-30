@@ -28,6 +28,65 @@
 
 ---
 
+## v1.2.7 — 2026-07-30
+
+> Bug 修复：修复中文段落被 API 错误翻译、中文占比极高页面被翻译等问题。同步发布此前未提交的 v1.2.5（关于页/检查更新/恢复默认设置）与 v1.2.6（恢复默认设置回归修复/竖排/韩文检测等）功能。
+
+### Fixed — Bug 修复
+
+**content.js（翻译注入脚本）：**
+- **P1: 中文段落被 API 错误翻译**：`isAlreadyChinese` 阈值从 CJK≥60% + 拉丁≤CJK×30% 收紧为 CJK≥80% + 绝对值≥5。旧阈值过宽，导致含较多英文/数字/URL 的中文段落被误判为"非中文"→ 走 API 翻译 → LLM 可能润色或加额外内容。新阈值显著降低中文页面被误翻译的概率
+- **P1: 中文占比极高页面被翻译**：旧实现仅统计 CJK 统一汉字 0x4E00-0x9FFF 占比 > 30% 即视为中文段，> 25% 段数即跳过整页——纯英文页面中夹杂的中文用户名/示例代码可让段落被算作"中文段"。新实现复用 `isAlreadyChinese` 严格判定 + 新增 `isAlreadyChineseLenient` 宽松判定，严格段 ≥ 50% 直接跳过；严格段 ≥ 30% 且含中文段 ≥ 60% 也跳过，避免英文页面被误跳过
+- **P2: `detectPageLanguage` zh 阈值过低**：从 0.15 收紧为 0.4，要求 40% 以上是"非日文"汉字才视为中文页面。旧 15% 阈值在含少量中文专有名词的英文页面被误判为 zh
+- **P2: `isAlreadyChinese` 绝对值短路**：新增 `cjkCount < 5` 短路条件，避免短中文段落（如"你好"）被算作中文而影响统计
+
+**background.js（Service Worker）：**
+- **P1: 右键翻译中文检测与 content.js 不同步**：`isAlreadyChinese` 副本同步收紧到 CJK≥80% + 绝对值≥5，确保右键翻译与 content script 行为一致
+
+### Changed — 行为变更
+
+- **同步发布 v1.2.5/v1.2.6 内容**：v1.2.5 的"关于"标签页（原「温馨提示」）、GitHub 源跳转、检查更新、当前版本号展示、恢复默认设置、GitHub Star 引导等新功能，以及 v1.2.6 的恢复默认设置回归修复、排除列表同步等内容一并随本次版本发布（详见下方 v1.2.5 / v1.2.6 条目）
+
+---
+
+## v1.2.6 — 2026-07-30
+
+> Bug 修复：修复恢复默认设置导致 LLM 翻译器短暂失效、检查更新样式残留、排除列表重复维护等 5 项问题。
+
+### Fixed — Bug 修复
+
+**options.js（设置页逻辑）：**
+- **P1: 恢复默认设置导致 LLM 翻译器短暂失效**：`handleResetDefaults` 中 `apiEndpoints` 和 `apiModels` 不再重置为空对象 `{}`，改为保留用户当前值。修复恢复默认设置后 800ms 刷新窗口内 background SW 内存中 LLM 翻译器（deepseek/glm/tongyi 等）baseUrl 变空导致 `isConfigured()` 返回 false、翻译器不构建的问题
+- **P2: 检查更新发现新版本时残留 loading 样式**：`checkForUpdates` 发现新版本分支中，在设置 innerHTML 前增加 `statusEl.className = 'update-status'` 重置 className，清除 `showUpdateStatus('loading')` 设置的 `update-loading` 类，避免新版本内容卡片继承蓝色边框和背景
+- **P2: 排除列表两处独立维护**：`handleResetDefaults` 删除内联的 100+ 条默认排除列表，改为保留用户当前 `excludeList`，消除与 `settings-manager.js` 的 `DEFAULT_SETTINGS` 同步风险
+- **P2: 恢复默认设置成功后按钮过早恢复**：新增 `reloadScheduled` 标记，finally 块在成功路径下跳过按钮状态恢复，避免 800ms 刷新窗口内用户重复点击触发二次重置
+
+**options.html（设置页 UI）：**
+- **P2: 恢复默认设置 UI 未说明额度限制会重置**：「将重置的内容」列表中「API 启用状态与优先级顺序」改为「API 启用状态、优先级顺序与额度限制」，与 `quotaLimits: {}` 的实际重置行为保持一致
+
+---
+
+## v1.2.5 — 2026-07-30
+
+> 新功能：设置页新增关于页（原「温馨提示」）、GitHub 源跳转、检查更新、恢复默认设置、GitHub Star 引导。
+
+### Added — 新功能
+
+**options.html / options.js / options.css（设置页）：**
+- **「温馨提示」更名为「关于」**：侧边栏标签、页面标题、README 描述同步更新
+- **GitHub 源跳转**：在「关于」页的「开发说明」和「版本信息」卡片中新增项目地址、问题反馈、版本发布三个 GitHub 链接
+- **检查更新功能**：在「高级设置 → 关于与更新」卡片中新增检查更新按钮，调用 GitHub API 获取最新 Release 并与当前版本做语义化比对，支持加载中/已是最新/发现新版本三种状态展示，含 release notes 预览和下载链接
+- **当前版本号展示**：从 `chrome.runtime.getManifest()` 动态读取版本号，以橙色 badge 形式展示
+- **GitHub 仓库 / Releases / CHANGELOG 快捷链接**：在「关于与更新」卡片中新增三个外部跳转按钮
+- **GitHub Star 引导**：在「关于与更新」卡片底部新增 Star 按钮和「制作不易，请点点 ⭐ 支持一下」提示
+- **恢复默认设置**：在「高级设置」页「关于与更新」之前新增恢复默认设置卡片，重置显示/规则/触发/高级参数/API 启用状态，保留 API 密钥/自定义接口/术语库/PIN 码
+
+### Changed — 行为变更
+
+- **excludeList 默认值内联**：`handleResetDefaults` 中内联了完整的 100+ 条默认排除列表（与 `settings-manager.js` 的 `DEFAULT_SETTINGS` 保持一致），避免跨文件依赖
+
+---
+
 ## v1.2.4 — 2026-07-30
 
 > Bug 修复：修复译文竖排显示、中文段落重复翻译、字体设置功能回归及 writing-mode 遗漏问题。

@@ -115,7 +115,7 @@
         <span class="tab-icon">📊</span>额度限制
       </button>
       <button class="sidebar-tab" data-tab="tips">
-        <span class="tab-icon">💡</span>温馨提示
+        <span class="tab-icon">💡</span>关于
       </button>
       <button class="sidebar-tab" data-tab="advanced">
         <span class="tab-icon">⚙</span>高级设置
@@ -462,7 +462,7 @@
     </div>
 
     <div id="tab-tips" class="tab-content">
-      <h2>温馨提示</h2>
+      <h2>关于</h2>
       <p class="section-subtitle">使用前请仔细阅读以下说明</p>
 
       <div class="section-card">
@@ -595,6 +595,10 @@
           <strong>开源与反馈</strong>：
           <br>本项目代码完全开源，欢迎在代码仓库中提交 Issue 或 Pull Request。如发现翻译异常、功能缺陷或有改进建议，请通过项目仓库的 Issue 页面反馈。
           <br><br>
+          <strong>项目地址</strong>：<a href="https://github.com/baixiaoyibai/dual-translate-extension" target="_blank" rel="noopener noreferrer">github.com/baixiaoyibai/dual-translate-extension</a>
+          <br><strong>问题反馈</strong>：<a href="https://github.com/baixiaoyibai/dual-translate-extension/issues" target="_blank" rel="noopener noreferrer">github.com/baixiaoyibai/dual-translate-extension/issues</a>
+          <br><strong>版本发布</strong>：<a href="https://github.com/baixiaoyibai/dual-translate-extension/releases" target="_blank" rel="noopener noreferrer">github.com/baixiaoyibai/dual-translate-extension/releases</a>
+          <br><br>
           <small >声明：Vibe Coding 生成的代码可能存在未预见的行为或边界情况。虽然已尽力测试和审查，但仍建议在使用重要内容翻译时以人工翻译为参考。</small>
         </p>
       </div>
@@ -613,7 +617,10 @@
           <br>• API 密钥 PIN 码保护
           <br>• 页面标题和图片 alt 文本翻译
           <br><br>
-          <small >感谢您使用双语翻译助手。如有问题或建议，欢迎反馈。</small>
+          <strong>开源仓库</strong>：<a href="https://github.com/baixiaoyibai/dual-translate-extension" target="_blank" rel="noopener noreferrer">github.com/baixiaoyibai/dual-translate-extension</a>
+          <br><strong>最新版本</strong>：<a href="https://github.com/baixiaoyibai/dual-translate-extension/releases" target="_blank" rel="noopener noreferrer">查看 Releases 页面</a>
+          <br><br>
+          <small >感谢您使用双语翻译助手。如有问题或建议，欢迎在 GitHub 仓库提交 Issue 反馈。</small>
         </p>
       </div>
     </div>
@@ -621,6 +628,87 @@
     <div id="tab-advanced" class="tab-content">
       <h2>高级设置</h2>
       <p class="section-subtitle">翻译引擎和网络请求参数</p>
+
+      <div class="section-card reset-section">
+        <div class="section-card-header">↺ 恢复默认设置</div>
+        <p class="setting-desc desc-mb">将显示设置、翻译规则、触发行为、高级参数等恢复为初始默认值。</p>
+        <div class="reset-scope">
+          <div class="reset-scope-title">将重置的内容：</div>
+          <ul class="reset-scope-list">
+            <li>✓ 显示设置（颜色、大小、字体、间距、面板位置等）</li>
+            <li>✓ 翻译规则（语言检测、翻译范围、触发行为、排除列表）</li>
+            <li>✓ 高级参数（批量段数、超时、重试、懒加载、LLM Prompt）</li>
+            <li>✓ API 启用状态、优先级顺序与额度限制</li>
+          </ul>
+          <div class="reset-scope-title">将保留的内容：</div>
+          <ul class="reset-scope-list">
+            <li>🔒 已配置的 API 密钥</li>
+            <li>🔒 自定义翻译接口</li>
+            <li>🔒 术语库（全局 + 域名专属）</li>
+            <li>🔒 PIN 码保护设置</li>
+          </ul>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-danger" id="resetDefaultsBtn">↺ 恢复默认设置</button>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">ℹ 关于与更新</div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">当前版本</div>
+            <div class="setting-desc">扩展当前安装的版本号</div>
+          </div>
+          <div class="setting-control">
+            <span id="currentVersion" class="version-badge">加载中...</span>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">检查更新</div>
+            <div class="setting-desc">从 GitHub 获取最新发布版本，检查是否有可用更新</div>
+          </div>
+          <div class="setting-control">
+            <button class="btn btn-primary" id="checkUpdateBtn">🔍 检查更新</button>
+          </div>
+        </div>
+        <div id="updateStatus" class="update-status hidden"></div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">项目仓库</div>
+            <div class="setting-desc">源代码、Issue 反馈、Release 下载</div>
+          </div>
+          <div class="setting-control">
+            <a href="https://github.com/baixiaoyibai/dual-translate-extension" target="_blank" rel="noopener noreferrer" class="btn">📂 GitHub 仓库</a>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">版本发布页</div>
+            <div class="setting-desc">查看所有历史版本的发布说明和下载包</div>
+          </div>
+          <div class="setting-control">
+            <a href="https://github.com/baixiaoyibai/dual-translate-extension/releases" target="_blank" rel="noopener noreferrer" class="btn">📦 Releases</a>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">变更日志</div>
+            <div class="setting-desc">查看本版本的详细更新内容</div>
+          </div>
+          <div class="setting-control">
+            <a href="https://github.com/baixiaoyibai/dual-translate-extension/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer" class="btn">📝 CHANGELOG</a>
+          </div>
+        </div>
+        <div class="star-callout">
+          <a href="https://github.com/baixiaoyibai/dual-translate-extension" target="_blank" rel="noopener noreferrer" class="star-btn">
+            <span class="star-icon">⭐</span>
+            <span class="star-text">Star</span>
+          </a>
+          <span class="star-hint">制作不易，请点点 ⭐ 支持一下</span>
+        </div>
+      </div>
 
       <div class="section-card">
         <div class="section-card-header">📡 请求配置</div>

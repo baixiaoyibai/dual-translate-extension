@@ -2,7 +2,8 @@ import { settingsManager } from './lib/settings-manager.js';
 import { apiManager } from './lib/api-manager.js';
 import { translationCache } from './lib/translation-cache.js';
 
-// 中文检测函数（从 content.js 提取，用于右键翻译跳过中文）
+// 中文检测函数（与 content.js 保持一致，用于右键翻译跳过中文）
+// v1.2.7 fix: 阈值同步收紧（CJK≥80% + 绝对值≥5），与 content.js 行为一致
 function isAlreadyChinese(text) {
   const t = text.trim();
   if (t.length === 0) return false;
@@ -29,10 +30,13 @@ function isAlreadyChinese(text) {
     }
   }
   if (kanaCount > 0) return false;
+  // CJK 绝对数量不足 → 短样本不可靠，不视为中文
+  if (cjkCount < 5) return false;
   const total = cjkCount + latinCount;
   if (total === 0) return false;
   const cjkRatio = cjkCount / total;
-  if (cjkRatio >= 0.6 && latinCount <= cjkCount * 0.3) return true;
+  // CJK 占比 >= 80% → 视为中文，跳过翻译
+  if (cjkRatio >= 0.8) return true;
   return false;
 }
 

@@ -2262,3 +2262,225 @@ textarea {
     height: auto;
   }
 }
+
+/* ==========================================================================
+   v1.2.5: About & Update Check
+   ========================================================================== */
+
+/* Links inside setting descriptions */
+.setting-desc a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color var(--dur) var(--ease);
+  word-break: break-all;
+}
+
+.setting-desc a:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+/* Version badge */
+.version-badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-accent);
+  white-space: nowrap;
+}
+
+/* Update status container */
+.update-status {
+  margin: 12px 20px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.update-status.hidden {
+  display: none !important;
+}
+
+/* Loading state */
+.update-loading {
+  border-color: var(--info);
+  background: var(--info-bg);
+  color: var(--text-secondary);
+}
+
+/* Success state */
+.update-success {
+  border-color: var(--success);
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+/* Error state */
+.update-error {
+  border-color: var(--error);
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+/* Loading spinner */
+.update-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-bright);
+  border-top-color: var(--info);
+  border-radius: 50%;
+  animation: update-spin 0.8s linear infinite;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+@keyframes update-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* New version available card */
+.update-available {
+  width: 100%;
+}
+
+.update-available strong {
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.update-available code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: var(--bg-code);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--accent);
+  border: 1px solid var(--border);
+}
+
+/* Release notes preview */
+.update-notes {
+  margin: 10px 0;
+  padding: 10px 12px;
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.update-available .btn-row {
+  margin-top: 12px;
+}
+
+/* ==========================================================================
+   v1.2.5: Reset Defaults Section
+   ========================================================================== */
+
+.reset-section {
+  border-color: var(--border-bright);
+}
+
+.reset-scope {
+  margin: 0 20px 12px;
+  padding: 14px 16px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.reset-scope-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.reset-scope-title:not(:first-child) {
+  margin-top: 12px;
+}
+
+.reset-scope-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.reset-scope-list li {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.8;
+  padding-left: 4px;
+}
+
+/* ==========================================================================
+   v1.2.5: GitHub Star Callout
+   ========================================================================== */
+
+.star-callout {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 20px 4px;
+  padding: 16px 20px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  border: 1px dashed var(--border-accent);
+}
+
+.star-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-on-accent);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease),
+              border-color var(--dur) var(--ease),
+              transform var(--dur) var(--ease);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.star-btn:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.star-btn:active {
+  transform: scale(0.97);
+}
+
+.star-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.star-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
