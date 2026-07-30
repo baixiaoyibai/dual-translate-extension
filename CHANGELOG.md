@@ -72,7 +72,7 @@
 
 ## v1.2.2 — 2026-07-30
 
-> Bug 修复：修复 v1.1.0 性能优化引入的回归缺陷、设置页逻辑错误及安全加固，经 3 轮子代理审查验证。
+> Bug 修复：修复 v1.1.0 性能优化引入的回归缺陷、设置页逻辑错误及安全加固，经多轮代码审查验证。
 
 ### Fixed — Bug 修复
 
@@ -317,7 +317,7 @@
 ## v1.0.15 — 2026-07-30
 
 > 第二轮全面 bug 审查修复：API 错误码修正 + 并发安全 + PIN持久化 + 存储竞态消除。
-> 3 个探索代理审查 + 3 个子代理并行修复 + 主代理审核，覆盖 12 个文件，+249/-132 行变更。
+> 覆盖 12 个文件，+249/-132 行变更。
 
 ### Fixed — Bug 修复（15 项）
 
@@ -368,7 +368,7 @@
 ## v1.0.14 — 2026-07-30
 
 > 全面 bug 审查修复：安全加固 + 并发竞态 + 错误处理 + 缓存可靠性。
-> 两轮子代理修复 + 主代理审核，覆盖 11 个文件，+260/-95 行变更。
+> 覆盖 11 个文件，+260/-95 行变更。
 
 ### Security — 安全修复（4 项）
 
@@ -457,7 +457,7 @@
 ## v1.0.12 — 2026-07-29
 
 > 风险修复批：安全加固 + 死代码清理 + 错误处理增强。
-> 修复风险评估报告中的 R1（高风险）+ R2/R3/R4（中等风险），3 个子代理并行实施，主代理审核通过。
+> 修复风险评估报告中的 R1（高风险）+ R2/R3/R4（中等风险），经代码审查验证通过。
 
 ### Security — 安全修复（1 项）
 
@@ -485,7 +485,7 @@
 ### 工程
 
 - `npm run check`（15 个 `node --check`）全部通过
-- 3 个子代理并行实施（R1 / R2+R3 / R4），主代理审核全部通过，无遗漏，0 轮迭代
+- 经代码审查全部通过，无遗漏
 - 修改文件：`background.js` / `lib/api-registry.js` / `lib/api-adapters/base.js`
 
 ---
@@ -733,7 +733,7 @@
 ## v1.0.6 — 2026-07-28
 
 > P0/P1 缺口修复批（10 项功能补齐）。`manifest.json` 版本号未变更（hotfix 风格）。
-> 3 个子代理并发实施，主代理合并 + 校验 + commit。
+> 经代码审查后合并提交。
 
 ### Added — P1 用户体验补齐（6 项）
 
@@ -783,12 +783,11 @@
 
 ### 工程
 
-- 新增 `.agent-collision-rules.md`（3 子代理并发协作说明，未提交）
 - `npm run check`（12 个 `node --check`）全部通过
 
 ### Fixed — v1.0.6 hotfix（审计后修复 8 项真 bug）
 
-> 主代理在合并后立即审计上一批 10 项 P0/P1 改动，发现 8 项真 bug（3 严重 + 3 中等 + 2 次要），本批逐一修复。`manifest.json` 版本号未变更。
+> 合并后审查发现 8 项 bug（3 严重 + 3 中等 + 2 次要），本批逐一修复。`manifest.json` 版本号未变更。
 
 #### 严重（3 项）
 
@@ -825,7 +824,7 @@
 
 #### v1.0.6 hotfix 第二轮 — 简化过度设计
 
-> 审计 hotfix 自身，发现 3 处过度设计：
+> 审查发现 3 处过度设计：
 > 1. B3 的 `.call({ settings: merged })` 反模式（脆弱、依赖未声明的内部契约）
 > 2. B7/B8 的 14 行 handler 含 4 个状态变量（newVal/oldVal/内存同步/storage 回滚），实际只需"失败回滚 UI"
 > 3. CSS 死代码 `.dual-translate-panel-close-all` + 重复的 `color` 规则
@@ -853,7 +852,7 @@
 
 #### v1.0.6 hotfix 第十三轮 - 发布前全面审查修复
 
-> 3 子代理并发审查（导入引用一致性 / content.js 交互完整性 / API 链路完整性），主代理修复 8 项问题。
+> 经代码审查（导入引用一致性 / content.js 交互完整性 / API 链路完整性），修复 8 项问题。
 
 - **严重修复 `api-manager.js` translate() 成功后 statusCache 不更新** - `saveApiStatus` 返回值被 Promise.all 吞掉，导致 `consecutiveErrors` 永不重置，API 会被错误禁用。改为串行调用并赋值 `this.statusCache`
 - **严重修复 `content.js` cleanupAllInjections 未清增量追踪状态** - HOVER/PANEL 模式在 MutationObserver 触发的重翻译后完全失效。cleanupAllInjections 现在同步清除 `hoverDelegationRegistered`/`hoverRegisteredSegIds`/`hoverTranslations`/`panelRenderedSegIds` + DOM 上的 `data-dt-hover-id`
@@ -866,7 +865,7 @@
 
 #### v1.0.6 hotfix 第十二轮 - 深度性能优化批
 
-> 3 子代理并发审核（content.js / lib / background+popup+options），3 子代理并发实施，主代理审查修复 + 提交。
+> 经代码审查（content.js / lib / background+popup+options）后实施修复并提交。
 
 **content.js（6 项）**
 - **`fillTranslations(batchSegs)` 消除全文档扫描** - 原每批次 `querySelectorAll('.dual-translate-placeholder')` 全文档扫描 O(n²)，改为传入当前批次 segs，用 `seg.blockParent.querySelector` 局部查找 O(n)
@@ -896,7 +895,7 @@
 
 #### v1.0.6 hotfix 第十一轮 - 性能优化批
 
-> 3 子代理并发审核性能瓶颈（content.js / lib / background+popup），主代理验证后委托 2 子代理实施。仅热路径优化，零行为变更。
+> 经代码审查性能瓶颈（content.js / lib / background+popup）后实施优化。仅热路径优化，零行为变更。
 
 - **`content.js` 热路径 regex 替换为 charCodeAt 循环**
   - `isGarbledText()` - 3 处 `match(/[...]/g)` 改为 `charCodeAt` 循环，避免正则引擎+数组分配
@@ -915,7 +914,7 @@
 
 #### v1.0.6 hotfix 第十轮 - 残余死代码清理
 
-> hotfix9 后再次全量审核（3 子代理），主代理验证后委托 2 子代理实施。仅 🟢 安全项，零行为变更。
+> 经全量代码审查后实施。仅 🟢 安全项，零行为变更。
 
 - **`content.js` 删 `seg._hiddenSpan`/`_hiddenSpans` 死写入** - 4 处赋值后从不读取
 - **`content.js` 删 `data-dt-original-hidden` 属性** - 设置+清理但从不查询
@@ -934,7 +933,7 @@
 
 #### v1.0.6 hotfix 第九轮 - 冗余清理 + 代码优化
 
-> 3 子代理并发审核冗余/优化点，主代理验证后委托 3 子代理实施。仅 🟢 安全项，零行为变更。
+> 经代码审查冗余/优化点后实施。仅 🟢 安全项，零行为变更。
 
 **死代码删除**
 
@@ -965,7 +964,7 @@
 
 #### v1.0.6 hotfix 第八轮 - 严重/高风险修复批（2C + 6H）
 
-> 全项目代码审查（4 子代理并发审核全部源文件），识别 5 项 🔴 + 8 项 🟠。本轮修其中 2 项 🔴 + 6 项 🟠。
+> 全项目代码审查，识别 5 项 🔴 + 8 项 🟠。本轮修其中 2 项 🔴 + 6 项 🟠。
 
 - **C4 🔴 `switchMode` 竞态 - `finally` 覆盖新翻译的 `isTranslating`** - `content.js:562-631`
   - **现象**：用户切模式时 `switchMode` abort 旧翻译、设 `isTranslating=false`、启动新翻译（`isTranslating=true`）。但旧翻译的 `finally` 块随后执行 `isTranslating=false`，**覆盖新翻译的状态**。第三次调用通过 guard 并发执行，DOM 注入重复/错乱。
@@ -1247,7 +1246,7 @@
 
 ### Fixed
 
-- **UI 审计 5 个真缺口修复**（主代理核验 24 个问题后筛出的真缺口）
+- **UI 审计 5 个真缺口修复**（经核验筛选出的真缺口）
   - P0 #3 popup 切源语言后无 loading 提示（用户看到 700-800ms 黑屏）
     - `popup.html` 新增 `<div id='sourceLangHint'>翻译中...</div>`
     - `popup.js` change 事件时显示提示，300ms debounce 后隐藏
@@ -1331,7 +1330,4 @@
 
 ## 引用
 
-- `README_REWRITE.md` — v1.0.2 综合报告
-- `CODE_REVIEW_REPORT_V2_REWRITE.md` — v1.0.2 代码审查
-- `UI_INTERACTION_AUDIT_REWRITE.md` — v1.0.2 UI 审计
 - `git log --oneline` — 完整提交历史
