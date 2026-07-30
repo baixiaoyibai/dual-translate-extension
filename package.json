@@ -14,12 +14,16 @@
     "bilingual",
     "terminology"
   ],
-  "author": "unknown",
+  "author": "baixiaoyibai",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://example.com/your-repo"
+    "url": "https://github.com/baixiaoyibai/dual-translate-extension.git"
   },
+  "bugs": {
+    "url": "https://github.com/baixiaoyibai/dual-translate-extension/issues"
+  },
+  "homepage": "https://github.com/baixiaoyibai/dual-translate-extension#readme",
   "engines": {
     "node": ">=18"
   }

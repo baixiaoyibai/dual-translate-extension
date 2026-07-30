@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  syntax-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run syntax check
+        run: npm run check
+
+      - name: Validate JSON files
+        run: |
+          for f in $(find . -name "*.json" -not -path "./node_modules/*"); do
+            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" || { echo "JSON validation failed: $f"; exit 1; }
+          done
+          echo "All JSON files valid."

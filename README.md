@@ -2,7 +2,7 @@
 
 一个给 Edge / Chrome 浏览器用的翻译扩展（Manifest V3）。浏览英文或日文网页时，自动帮你翻译成简体中文，支持 4 种显示方式，内置 4 个免费翻译接口自动轮换，支持专业术语自定义。
 
-> **版本变更历史请见 [CHANGELOG.md](./CHANGELOG.md)**，当前版本：**v1.2.2**
+> **版本变更历史请见 [CHANGELOG.md](./CHANGELOG.md)**，当前版本：**v1.2.3**
 
 ## 有什么用
 
@@ -208,8 +208,10 @@ dual-translate-extension/
 │   └── llm-prompt.txt             LLM 翻译 prompt 模板
 ├── welcome/                       安装引导页
 ├── icons/                         扩展图标
-├── docs/archive/                  历史代码审查报告（归档）
+├── .github/                       GitHub 社区文件（Issue/PR 模板、CI 工作流）
 ├── CHANGELOG.md                   完整变更日志
+├── CONTRIBUTING.md                贡献指南
+├── LICENSE                        MIT 许可证
 └── package.json                   npm check 脚本
 ```
 
@@ -272,7 +274,7 @@ v1.0.6 期间做了 5 次全项目代码审查（子代理并发审核），已�
 - **性能**：charCodeAt 热路径替换 regex、fillTranslations 消除 O(n²) 全文档扫描、AbortController 中止超时 fetch、事件委托替代逐段监听器、storage 批量读/防抖写入/正则预编译缓存、Promise.all 并行化（init/reload/popup/options/loadState/loadAllData/updateIcon）
 - **清理**：删除 `lib/logger.js`（死代码）、`escapeHtml`（零调用）、`INSTALLED_KEYS_KEY`（从未写入的 storage key）、大量死 CSS 规则和冗余变量
 
-历史审查报告归档在 `docs/archive/`。剩余已知风险（留待后续版本）：
+历史审查报告已随开源清理移除。剩余已知风险（留待后续版本）：
 
 - `api-registry.js` 的 `LLM_PROVIDERS` 与 `api-metadata.js` 的 `API_DISPLAY_NAMES` / `API_MODELS_DEFAULT` 仍为两份独立维护的数据（IIFE vs ES module 不兼容无法 import，已加注释标注同步要求）
 
