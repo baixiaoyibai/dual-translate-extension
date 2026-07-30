@@ -4,7 +4,7 @@
   "description": "多模式网页翻译扩展，支持英语/日语翻译为简体中文，提供双语对照、仅译文、对照面板等多种显示模式",
   "main": "background.js",
   "scripts": {
-    "check": "node --check background.js && node --check content.js && node --check lib/api-manager.js && node --check lib/api-registry.js && node --check lib/settings-manager.js && node --check lib/translation-cache.js && node --check lib/escape-utils.js && node --check lib/api-adapters/base.js && node --check lib/api-adapters/baidu.js && node --check lib/api-adapters/baidu-llm.js && node --check lib/api-adapters/volcano.js && node --check lib/api-adapters/llm-generic.js && node --check lib/api-metadata.js && node --check popup/popup.js && node --check options/options.js"
+    "check": "node --check background.js && node --check content.js && node --check diagnose.js && node --check lib/api-manager.js && node --check lib/api-registry.js && node --check lib/settings-manager.js && node --check lib/translation-cache.js && node --check lib/escape-utils.js && node --check lib/api-adapters/base.js && node --check lib/api-adapters/baidu.js && node --check lib/api-adapters/baidu-llm.js && node --check lib/api-adapters/volcano.js && node --check lib/api-adapters/llm-generic.js && node --check lib/api-metadata.js && node --check popup/popup.js && node --check options/options.js && node --check welcome/welcome.js"
   },
   "keywords": [
     "edge-extension",
