@@ -15,15 +15,24 @@
 
 ## 安装方法
 
-### Edge 浏览器
+### 推荐：从 Release 下载 zip
+
+1. 打开 [Releases 页面](https://github.com/baixiaoyibai/dual-translate-extension/releases)
+2. 下载最新版本的 `dual-translate-extension_v*.zip`
+3. 解压到任意位置（解压后会有个 `dual-translate-extension/` 文件夹）
+4. 按下方「手动加载」步骤安装
+
+### 手动加载
+
+**Edge 浏览器**
 
 1. 地址栏输入 `edge://extensions/`
 2. 打开左下角「**开发人员模式**」开关
 3. 点击「**加载解压缩的扩展**」
-4. 选择 `dual-translate-extension` 文件夹
+4. 选择解压后的 `dual-translate-extension` 文件夹
 5. 装好后会自动弹出引导页
 
-### Chrome 浏览器
+**Chrome 浏览器**
 
 步骤一样，地址栏用 `chrome://extensions/`，其他完全相同。
 
