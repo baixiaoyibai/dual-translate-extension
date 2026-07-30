@@ -28,6 +28,30 @@
 
 ---
 
+## v1.2.4 — 2026-07-30
+
+> Bug 修复：修复译文竖排显示、中文段落重复翻译、字体设置功能回归及 writing-mode 遗漏问题。
+
+### Fixed — Bug 修复
+
+**content.css（译文样式）：**
+- **placeholder spinner 间距丢失**：`.dual-translate-placeholder` 从 `inline-block` 恢复为 `inline-flex`，修复 `gap: 6px` 和 `align-items: center` 失效导致 spinner 与"正在翻译..."文字紧贴的问题
+- **字体设置功能回归**：`.dual-translate-translation` 的 `font-family` 从硬编码字体栈改为 `var(--dt-trans-font, fallback)`，用户在设置页设置的自定义字体在网页翻译中重新生效，同时修复 `--dt-trans-font` CSS 变量死代码问题
+- **hover tooltip 缺 writing-mode 保护**：`.dual-translate-hover-tooltip` 添加 `writing-mode: horizontal-tb`，防止日文竖排网站继承 `vertical-rl`
+- **panel content 缺 writing-mode 保护**：`.dual-translate-panel-content` 添加 `writing-mode: horizontal-tb`，同上
+- **width: 100% 在 flex row 父元素中溢出**：改为 `width: auto`，保留 `max-width: 100%` 和 `box-sizing: border-box`
+
+**content.js（翻译注入脚本）：**
+- **showHover 缺 writing-mode**：悬停翻译弹层的 `cssText` 添加 `writing-mode: horizontal-tb`，与 CSS 规则双重保护
+- **isAlreadyChinese 未检测韩文谚文**：新增韩文谚文检测（U+AC00-U+D7AF），含韩文的段落直接返回 false（需翻译），修复韩文+中文混合段落被误判为纯中文跳过的问题
+- **translatePageMeta 中文检测范围不全**：标题和图片 alt 的中文检测从简单正则 `/^[\s\u4E00-\u9FFF]*$/` 改为调用 `isAlreadyChinese()`，覆盖 CJK 扩展 A/B/C/D 和兼容汉字等 7 个范围
+
+**background.js（Service Worker）：**
+- **右键翻译未做语言检测**：`contextMenus.onClicked` 中新增 `isAlreadyChinese` 检查，选中中文文字时提示"该文字已是中文，无需翻译"而非浪费 API 额度
+- **新增 isAlreadyChinese 函数**：在 background.js 中添加与 content.js 一致的中文检测函数副本（含韩文谚文检测）
+
+---
+
 ## v1.2.3 — 2026-07-30
 
 > Bug 修复：修复第4轮审查发现的并发安全、边界条件、CSP合规及跨文件一致性问题。
