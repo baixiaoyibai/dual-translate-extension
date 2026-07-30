@@ -260,6 +260,7 @@ function setupEventListeners() {
   if (sourceLangSelect) {
     let sourceLangDebounceTimer = null;
     sourceLangSelect.addEventListener('change', (e) => {
+      const oldLang = sourceLangSelect.value;
       const newLang = e.target.value;
       sourceLangSelect.disabled = true;
       if (sourceLangHint) sourceLangHint.style.display = 'block';
@@ -272,6 +273,7 @@ function setupEventListeners() {
             value: newLang
           });
         } catch (err) {
+          sourceLangSelect.value = oldLang;
           alert('切换源语言失败');
         } finally {
           sourceLangSelect.disabled = false;
@@ -283,7 +285,7 @@ function setupEventListeners() {
   }
 
   document.getElementById('settingsBtn').addEventListener('click', () => {
-    chrome.runtime.openOptionsPage();
+    chrome.runtime.openOptionsPage().catch(() => alert('无法打开设置页'));
   });
 
   document.getElementById('restoreBtn').addEventListener('click', async () => {

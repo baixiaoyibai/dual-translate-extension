@@ -28,6 +28,48 @@
 
 ---
 
+## v1.2.3 — 2026-07-30
+
+> Bug 修复：修复第4轮审查发现的并发安全、边界条件、CSP合规及跨文件一致性问题。
+
+### Fixed — Bug 修复
+
+**content.js（翻译注入脚本）：**
+- **sendMessage 遗漏 `.catch()`**：`toggleTranslation` / `switchMode` 中 5 处 `sendMessage` 调用未保护，SW 未就绪时产生未捕获 rejection；添加 `.catch(()=>{})`
+- **resp.translations 未校验数组类型**：仅判断 truthy，若 background 返回畸形响应会导致 `for...of` 抛 TypeError；增加 `Array.isArray()` 校验
+- **placePendingSpans 未检查 DOM 连接性**：SPA 快速卸载时 `parent` 可能已脱离 DOM，`appendChild` 抛 `NotFoundError`；添加 `parent.isConnected` 守卫
+
+**lib/api-adapters/（API 适配器）：**
+- **baidu.js 52000 误判为错误**：百度标准 API 成功时返回 `error_code: '52000'`，原条件未排除导致翻译失败；与 `baidu-llm.js` 同步排除
+- **volcano.js 双斜杠 URL**：用户自定义 endpoint 以 `/` 结尾时生成 `//?Action=...`；拼接前去掉尾部斜杠
+- **llm-generic.js Prompt 注入风险**：用户网页文本直接拼接到 prompt 中，无边界分隔符；使用 `<user_text>` XML 定界符包裹并追加防御性约束
+
+**lib/api-manager.js（API 调度）：**
+- **saveApiStatus 遗漏 baseStatus**：翻译成功路径和 `testApi` 中共 3 处 saveApiStatus 未传入内存缓存状态，并发场景下可能覆盖错误计数；补充 `this.statusCache[name] || {}` 作为第三个参数
+- **retryCount 负数导致翻译跳过**：`Number.isFinite` 未限制下限，设为 `-1` 时循环条件直接不成立；添加 `Math.max(0, ...)` 限制
+
+**lib/settings-manager.js（设置管理）：**
+- **verifyPin 类型转换缺失**：存储被篡改时 `_pinFailCount` 可能变为字符串，自增后变为 `NaN`，冷却机制完全失效；使用 `parseInt` 强制转换
+- **addDailyUsage 缓存失步**：storage 写入失败后内存缓存仍被更新，导致后续额度判断基于错误数据；将 set 与缓存更新包裹在 try 中
+
+**popup/popup.js（弹出面板）：**
+- **sourceLangSelect 失败未回滚**：切换源语言请求失败后 select 的 UI 值与实际持久化值不一致；catch 中恢复旧值
+- **settingsBtn 无错误处理**：`openOptionsPage()` 失败时静默无响应；添加 `.catch` 提示用户
+
+**options/options.js（设置页）：**
+- **saveSetting 多处未捕获异常**：13 处 fire-and-forget 调用无错误处理，storage 写入失败时用户看到虚假成功提示；统一添加 `.catch()`
+
+**lib/translation-cache.js（翻译缓存）：**
+- **缓存体积估算漂移**：`lookup()` 和 `sweep()` 删除条目时未同步扣减 `_approxSizeBytes`，导致体积持续高估、过早淘汰；添加扣减逻辑并兜底非负
+
+**options/options.html（设置页结构）：**
+- **脚本与 DOM 顺序风险**：`<script>` 标签位于 `#pinDialog` 之后，同步查询可能返回 null；调整 DOM 顺序将 pinDialog 移至脚本之前
+
+**manifest.json（扩展配置）：**
+- **缺失 unlimitedStorage 权限**：缓存上限 8MB 超出浏览器默认 5MB 配额，存储写入可能失败；添加权限声明
+
+---
+
 ## v1.2.2 — 2026-07-30
 
 > Bug 修复：修复 v1.1.0 性能优化引入的回归缺陷、设置页逻辑错误及安全加固，经 3 轮子代理审查验证。

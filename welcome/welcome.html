@@ -85,17 +85,7 @@
     </div>
   </div>
 
-  <script>
-    document.getElementById('goSettingsBtn').addEventListener('click', () => {
-      chrome.runtime.sendMessage({ action: 'openOptions' }).catch(() => {
-        chrome.runtime.openOptionsPage();
-      });
-    });
-
-    document.getElementById('closeBtn').addEventListener('click', () => {
-      chrome.runtime.sendMessage({ action: 'updateSettings', path: 'general.hasCompletedWelcome', value: true });
-      chrome.runtime.sendMessage({ action: 'closeWelcomeTab' });
-    });
-  </script>
+  <!-- v1.2.3 fix: 内联脚本违反 MV3 CSP (script-src 'self')，改为外部脚本文件 -->
+  <script src="welcome.js"></script>
 </body>
 </html>

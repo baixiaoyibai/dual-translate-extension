@@ -367,7 +367,8 @@ async function checkAndTranslate(url) {
   }
   
   if (!shouldTranslateWithSource(lang)) return;
-  setTimeout(() => startTranslation(), settings.trigger.translateDelay||500);
+  // v1.2.3 fix: 添加 .catch 防止 startTranslation rejection 未捕获（setTimeout 回调中的 promise 不会被外层 try/catch 捕获）
+  setTimeout(() => startTranslation().catch(e => dtError('checkAndTranslate startTranslation error:', e)), settings.trigger.translateDelay||500);
 }
 // NOTE: 此函数与 settings-manager.js._hostMatches 逻辑相同，
 // 因 content script 无法 import ESM，只能内联保留副本。修改时需同步两处。
@@ -558,7 +559,8 @@ function setupMutationObserver() {
           // 防止频繁重新翻译
           if (now - lastRetranslateTime > 2000) {
             lastRetranslateTime = now;
-            startTranslation({ silent: true });
+            // v1.2.3 fix: 添加 .catch 防止 startTranslation rejection 未捕获（setTimeout 回调中的 promise）
+            startTranslation({ silent: true }).catch(e => dtError('mutation observer startTranslation error:', e));
           }
         }
         addedSinceLastCheck = 0;
@@ -782,7 +784,10 @@ async function translatePageMeta() {
   if (!settings) return;
   if (currentAbortController && currentAbortController.signal.aborted) return;
 
-  const sourceLang = settings.api.sourceLanguage === 'auto' ? detectPageLanguage() : (settings.api.sourceLanguage || 'auto');
+  // v1.2.3 fix: 统一使用 detectPageLanguage(sourceLanguage) 获取源语言，与 translateSegments 保持一致。
+  // 原三元表达式当 sourceLanguage 为 'all' 时直接将 'all' 传给 API，导致：
+  // 1) API 收到无效语言代码 'all'；2) sourceLang==='zh' 判断永远不触发，中文页面标题/alt 被错误翻译。
+  const sourceLang = detectPageLanguage(settings.api.sourceLanguage || 'auto');
   if (sourceLang === 'zh') return; // 中文页不翻
 
   // 收集要翻译的 (text, type, target) 三元组
@@ -881,6 +886,7 @@ function placePendingSpans() {
     arr.push({ span, ref });
   }
   for (const [parent, arr] of buckets) {
+    if (!parent.isConnected) continue;
     const frag = document.createDocumentFragment();
     const insertList = [];
     for (const item of arr) {
@@ -1054,7 +1060,7 @@ async function translateSegments(segs, signal) {
     if(uncached.length>0){
       const resp=await sendMessage('translateTexts',{texts:uncached,sourceLang:sourceLang});
       if(signal?.aborted){aborted=true;break;}
-      if(resp&&!resp.error&&resp.translations){
+      if(resp&&!resp.error&&Array.isArray(resp.translations)){
         const cMap=new Map();
         for(const r of resp.translations){
           if(r&&typeof r.translation==='string'){
@@ -1080,6 +1086,9 @@ async function translateSegments(segs, signal) {
           }
         }
       }else{
+        if(resp&&resp.translations&&!Array.isArray(resp.translations)){
+          dtWarn('translateSegments: resp.translations is not an array', resp);
+        }
         const errMsg=(resp&&resp.error)?resp.error:'翻译失败';
         if(errMsg.includes('所有翻译服务')||errMsg.includes('NO_API')||errMsg.includes('暂时不可用')||errMsg.includes('AUTH_ERROR')||errMsg.includes('QUOTA_EXCEEDED')){
           showErrorBanner(errMsg);
@@ -1250,11 +1259,12 @@ function toggleTranslation() {
   if (isTranslating) return;
   if (segments.length > 0 || translationCache.size > 0) {
     resetAll();
-    sendMessage('updateSettings', {path:'general.translationEnabled', value:false});
-    sendMessage('setIconState', {state:'idle'});
+    sendMessage('updateSettings', {path:'general.translationEnabled', value:false}).catch(()=>{});
+    sendMessage('setIconState', {state:'idle'}).catch(()=>{});
   } else {
-    sendMessage('updateSettings', {path:'general.translationEnabled', value:true});
-    startTranslation();
+    sendMessage('updateSettings', {path:'general.translationEnabled', value:true}).catch(()=>{});
+    // v1.2.3 fix: 添加 .catch 防止 startTranslation rejection 未捕获
+    startTranslation().catch(e => dtError('toggleTranslation startTranslation error:', e));
   }
 }
 function switchMode(nm) {
@@ -1262,8 +1272,8 @@ function switchMode(nm) {
   if(nm===currentMode)return;
   currentMode=nm;
   if(settings){settings.general.lastMode=nm;settings.display.defaultMode=nm;}
-  sendMessage('updateSettings',{path:'general.lastMode',value:nm});
-  sendMessage('updateSettings',{path:'display.defaultMode',value:nm});
+  sendMessage('updateSettings',{path:'general.lastMode',value:nm}).catch(()=>{});
+  sendMessage('updateSettings',{path:'display.defaultMode',value:nm}).catch(()=>{});
   // 切模式统一走 resetAll + startTranslation 全流程
   // 原因：in-place 重渲染（旧的 cleanupAllInjections+placePendingSpans+fillTranslations
   //   +hideOriginalText 路径）会留下 detached seg.node，导致 TRANSLATION_ONLY 模式下
@@ -1283,7 +1293,8 @@ function switchMode(nm) {
   // 不动 resetAll 函数体, 避免影响 popstate / hashchange 等其他调用点
   isTranslating = false;
   if(settings&&settings.general.translationEnabled!==false){
-    startTranslation({ silent: true });
+    // v1.2.3 fix: 添加 .catch 防止 startTranslation rejection 未捕获
+    startTranslation({ silent: true }).catch(e => dtError('switchMode startTranslation error:', e));
   }
 }
 function resetAll() {
@@ -1382,7 +1393,8 @@ chrome.runtime.onMessage.addListener((m,s,resp)=>{
   })();return true;
 });
 
-loadSettings();
+// v1.2.3 fix: 添加 .catch 防止模块级 loadSettings() 的 rejection 未捕获（无外层 try/catch 保护）
+loadSettings().catch(e => dtError('init loadSettings error:', e));
 
 // SPA 路由变化时清理模块级状态并重新翻译
 // v1.1.0 perf: 300ms 防抖，避免 SPA 快速路由变化时多次 resetAll+startTranslation
@@ -1397,7 +1409,8 @@ function onSpaRouteChange() {
         isTranslating = false;
         const url = location.href;
         if (url.startsWith('http') && shouldAutoTranslate(new URL(url).hostname)) {
-          setTimeout(() => startTranslation(), settings.trigger.translateDelay || 500);
+          // v1.2.3 fix: 添加 .catch 防止 startTranslation rejection 未捕获（setTimeout 回调中的 promise 不会被外层 try/catch 捕获）
+          setTimeout(() => startTranslation().catch(e => dtError('SPA route startTranslation error:', e)), settings.trigger.translateDelay || 500);
         }
       }
     } catch (err) { dtError('spa route change error:', err); }

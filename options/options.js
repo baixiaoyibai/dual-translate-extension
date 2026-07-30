@@ -328,7 +328,7 @@ function setupDisplaySettings() {
   defaultMode.value = d.defaultMode;
   defaultMode.addEventListener('change', () => {
     settings.display.defaultMode = defaultMode.value;
-    saveSetting('display.defaultMode', defaultMode.value);
+    saveSetting('display.defaultMode', defaultMode.value).catch(err => console.error('[options] saveSetting failed:', err));
     showSavedTip();
   });
 
@@ -336,7 +336,7 @@ function setupDisplaySettings() {
   translationColor.value = d.translationColor;
   translationColor.addEventListener('change', () => {
     settings.display.translationColor = translationColor.value;
-    saveSetting('display.translationColor', translationColor.value);
+    saveSetting('display.translationColor', translationColor.value).catch(err => console.error('[options] saveSetting failed:', err));
     showSavedTip();
   });
 
@@ -344,7 +344,7 @@ function setupDisplaySettings() {
   translationSize.value = d.translationSize;
   translationSize.addEventListener('change', () => {
     settings.display.translationSize = translationSize.value;
-    saveSetting('display.translationSize', translationSize.value);
+    saveSetting('display.translationSize', translationSize.value).catch(err => console.error('[options] saveSetting failed:', err));
     showSavedTip();
   });
 
@@ -359,7 +359,7 @@ function setupDisplaySettings() {
       return;
     }
     settings.display.translationFont = v;
-    saveSetting('display.translationFont', v);
+    saveSetting('display.translationFont', v).catch(err => console.error('[options] saveSetting failed:', err));
     showSavedTip();
   });
 
@@ -374,7 +374,7 @@ function setupDisplaySettings() {
       return;
     }
     settings.display.translationSpacing = v;
-    saveSetting('display.translationSpacing', v);
+    saveSetting('display.translationSpacing', v).catch(err => console.error('[options] saveSetting failed:', err));
     showSavedTip();
   });
 
@@ -382,7 +382,7 @@ function setupDisplaySettings() {
   hoverDelay.value = d.hoverDelay;
   hoverDelay.addEventListener('change', () => {
     settings.display.hoverDelay = parseInt(hoverDelay.value);
-    saveSetting('display.hoverDelay', parseInt(hoverDelay.value));
+    saveSetting('display.hoverDelay', parseInt(hoverDelay.value)).catch(err => console.error('[options] saveSetting failed:', err));
     showSavedTip();
   });
 
@@ -390,7 +390,7 @@ function setupDisplaySettings() {
   panelPosition.value = d.panelPosition;
   panelPosition.addEventListener('change', () => {
     settings.display.panelPosition = panelPosition.value;
-    saveSetting('display.panelPosition', panelPosition.value);
+    saveSetting('display.panelPosition', panelPosition.value).catch(err => console.error('[options] saveSetting failed:', err));
     showSavedTip();
   });
 
@@ -398,7 +398,7 @@ function setupDisplaySettings() {
   panelWidth.value = d.panelWidth;
   panelWidth.addEventListener('change', () => {
     settings.display.panelWidth = parseInt(panelWidth.value);
-    saveSetting('display.panelWidth', parseInt(panelWidth.value));
+    saveSetting('display.panelWidth', parseInt(panelWidth.value)).catch(err => console.error('[options] saveSetting failed:', err));
     showSavedTip();
   });
 
@@ -441,7 +441,7 @@ function setupRulesSettings() {
   excludeMode.value = t.excludeMode;
   excludeMode.addEventListener('change', () => {
     settings.trigger.excludeMode = excludeMode.value;
-    saveSetting('trigger.excludeMode', excludeMode.value);
+    saveSetting('trigger.excludeMode', excludeMode.value).catch(err => console.error('[options] saveSetting failed:', err));
     showSavedTip();
   });
 
@@ -453,7 +453,7 @@ function bindToggle(elementId, path, value) {
   if (!el) return;
   el.checked = value;
   el.addEventListener('change', () => {
-    saveSetting(path, el.checked);
+    saveSetting(path, el.checked).catch(err => console.error('[options] saveSetting failed:', err));
     const keys = path.split('.');
     let current = settings;
     for (let i = 0; i < keys.length - 1; i++) current = current[keys[i]];
@@ -471,7 +471,7 @@ function bindNumber(elementId, path, value) {
   if (!el) return;
   el.value = value;
   el.addEventListener('change', () => {
-    saveSetting(path, parseInt(el.value));
+    saveSetting(path, parseInt(el.value)).catch(err => console.error('[options] saveSetting failed:', err));
     const keys = path.split('.');
     let current = settings;
     for (let i = 0; i < keys.length - 1; i++) current = current[keys[i]];
@@ -494,7 +494,7 @@ function renderExcludeList() {
     btn.addEventListener('click', () => {
       const idx = parseInt(btn.dataset.index);
       settings.trigger.excludeList.splice(idx, 1);
-      saveSetting('trigger.excludeList', settings.trigger.excludeList);
+      saveSetting('trigger.excludeList', settings.trigger.excludeList).catch(err => console.error('[options] saveSetting failed:', err));
       renderExcludeList();
       showSavedTip();
     });
@@ -516,7 +516,7 @@ document.getElementById('addExcludeBtn')?.addEventListener('click', () => {
     return;
   }
   settings.trigger.excludeList.push(domain);
-  saveSetting('trigger.excludeList', settings.trigger.excludeList);
+  saveSetting('trigger.excludeList', settings.trigger.excludeList).catch(err => console.error('[options] saveSetting failed:', err));
   renderExcludeList();
   showSavedTip();
   input.value = '';
@@ -1901,7 +1901,8 @@ function setupAdvancedSettings() {
   // v1.0.7 fix: loadLlmPrompt 完成前禁用保存按钮，防止用户快速点击存入空值
   const saveLlmPromptBtn = document.getElementById('saveLlmPromptBtn');
   if (saveLlmPromptBtn) saveLlmPromptBtn.disabled = true;
-  loadLlmPrompt().finally(() => { if (saveLlmPromptBtn) saveLlmPromptBtn.disabled = false; });
+  // v1.2.3 fix: .finally() 不捕获 rejection，添加 .catch 防止 loadLlmPrompt 失败时产生未捕获的 Promise 拒绝
+  loadLlmPrompt().catch(e => console.warn('[options] loadLlmPrompt failed:', e)).finally(() => { if (saveLlmPromptBtn) saveLlmPromptBtn.disabled = false; });
 
   document.getElementById('saveLlmPromptBtn').addEventListener('click', async () => {
     const prompt = document.getElementById('llmPrompt').value;
