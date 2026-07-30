@@ -184,6 +184,46 @@ function isMetricOrRepetitiveText(text) {
 function isNexusModsDomain() {
   try { return location.hostname.includes('nexusmods.com'); } catch { return false; }
 }
+
+// 检测段落是否已经是中文（无需翻译）
+// 策略：CJK 汉字占比 >= 60% 视为中文
+//       段落同时含日文假名（平假名/片假名）则视为日文，需翻译
+//       段落同时含较多拉丁字母则视为混合，需翻译
+function isAlreadyChinese(text) {
+  const t = text.trim();
+  if (t.length === 0) return false;
+  let cjkCount = 0;     // CJK 统一汉字
+  let kanaCount = 0;    // 日文假名（平假名 + 片假名）
+  let latinCount = 0;   // 拉丁字母
+  for (let i = 0; i < t.length; i++) {
+    const c = t.charCodeAt(i);
+    if ((c >= 0x4E00 && c <= 0x9FFF) ||  // CJK 统一汉字
+        (c >= 0x3400 && c <= 0x4DBF) ||  // CJK 扩展 A
+        (c >= 0x20000 && c <= 0x2A6DF) || // CJK 扩展 B
+        (c >= 0x2A700 && c <= 0x2B73F) || // CJK 扩展 C
+        (c >= 0x2B740 && c <= 0x2B81F) || // CJK 扩展 D
+        (c >= 0xF900 && c <= 0xFAFF) ||  // CJK 兼容汉字
+        (c >= 0x2F800 && c <= 0x2FA1F)) { // CJK 兼容补充
+      cjkCount++;
+    } else if ((c >= 0x3040 && c <= 0x309F) ||  // 平假名
+               (c >= 0x30A0 && c <= 0x30FF)) {  // 片假名
+      kanaCount++;
+    } else if (c >= 0xAC00 && c <= 0xD7AF) { // 韩文谚文
+      // 含韩文 → 需翻译，直接返回 false
+      return false;
+    } else if ((c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)) {
+      latinCount++;
+    }
+  }
+  // 含假名 → 视为日文段落，需翻译
+  if (kanaCount > 0) return false;
+  const total = cjkCount + latinCount;
+  if (total === 0) return false;
+  const cjkRatio = cjkCount / total;
+  // CJK 占比 >= 60% 且拉丁字母不超过汉字数的 30% → 视为中文，跳过翻译
+  if (cjkRatio >= 0.6 && latinCount <= cjkCount * 0.3) return true;
+  return false;
+}
 function containsUrl(text) {
   return URL_RE.test(text);
 }
@@ -217,7 +257,7 @@ function isAiModelName(text) {
   
   return false;
 }
-function shouldSkipText(text) { return isMetricOrRepetitiveText(text)||containsUrl(text)||isGarbledText(text)||isAiModelName(text); }
+function shouldSkipText(text) { return isMetricOrRepetitiveText(text)||containsUrl(text)||isGarbledText(text)||isAiModelName(text)||isAlreadyChinese(text); }
 
 function hideOriginalText(seg) {
   if (seg._originalHidden) return;
@@ -797,7 +837,7 @@ async function translatePageMeta() {
   if (settings.display.translatePageTitle !== false) {
     const origTitle = (document.title || '').trim();
     // 跳过中文标题（避免无用 API 调用）
-    if (origTitle.length >= 2 && !/^[\s\u4E00-\u9FFF]*$/.test(origTitle)) {
+    if (origTitle.length >= 2 && !isAlreadyChinese(origTitle)) {
       // 跳过已翻译过的（data 属性标记）
       if (!document.documentElement.hasAttribute('data-dt-orig-title')) {
         document.documentElement.setAttribute('data-dt-orig-title', origTitle);
@@ -815,7 +855,7 @@ async function translatePageMeta() {
       for (const img of imgs) {
         const alt = (img.getAttribute('alt') || '').trim();
         if (alt.length < 2 || alt.length > 200) continue;
-        if (/^[\s\u4E00-\u9FFF]*$/.test(alt)) continue; // 已是中文
+        if (isAlreadyChinese(alt)) continue; // 已是中文
         if (seen.has(alt)) continue;
         // 跳过已翻译过的（data 属性标记 + ImgSet 跟踪）
         if (img.hasAttribute('data-dt-orig-alt')) continue;
@@ -1197,7 +1237,7 @@ function updateHover(segSubset) {
 }
 function showHover(e,tr,sid){
   const h=document.createElement('div');h.className='dual-translate-hover';h.textContent=tr;h.dataset.segmentId=sid;
-  h.style.cssText='position:fixed;background:var(--dt-bg-primary);color:var(--dt-text-primary);padding:10px 14px;border-radius:6px;font-size:14px;z-index:2147483647;max-width:450px;box-shadow:0 4px 16px var(--dt-shadow);border:1px solid var(--dt-border-primary);cursor:pointer;line-height:1.6;';
+  h.style.cssText='position:fixed;background:var(--dt-bg-primary);color:var(--dt-text-primary);padding:10px 14px;border-radius:6px;font-size:14px;z-index:2147483647;max-width:450px;box-shadow:0 4px 16px var(--dt-shadow);border:1px solid var(--dt-border-primary);cursor:pointer;line-height:1.6;writing-mode:horizontal-tb;';
   document.body.appendChild(h);positionAt(h,e.clientX+14,e.clientY+14);
   // v1.1.0 perf: 新增一个 hover 元素，计数 +1
   _activeHoverCount++;

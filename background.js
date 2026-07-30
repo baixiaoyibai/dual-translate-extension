@@ -2,6 +2,40 @@ import { settingsManager } from './lib/settings-manager.js';
 import { apiManager } from './lib/api-manager.js';
 import { translationCache } from './lib/translation-cache.js';
 
+// 中文检测函数（从 content.js 提取，用于右键翻译跳过中文）
+function isAlreadyChinese(text) {
+  const t = text.trim();
+  if (t.length === 0) return false;
+  let cjkCount = 0;
+  let kanaCount = 0;
+  let latinCount = 0;
+  for (let i = 0; i < t.length; i++) {
+    const c = t.charCodeAt(i);
+    if ((c >= 0x4E00 && c <= 0x9FFF) ||
+        (c >= 0x3400 && c <= 0x4DBF) ||
+        (c >= 0x20000 && c <= 0x2A6DF) ||
+        (c >= 0x2A700 && c <= 0x2B73F) ||
+        (c >= 0x2B740 && c <= 0x2B81F) ||
+        (c >= 0xF900 && c <= 0xFAFF) ||
+        (c >= 0x2F800 && c <= 0x2FA1F)) {
+      cjkCount++;
+    } else if ((c >= 0x3040 && c <= 0x309F) ||
+               (c >= 0x30A0 && c <= 0x30FF)) {
+      kanaCount++;
+    } else if (c >= 0xAC00 && c <= 0xD7AF) {
+      return false;
+    } else if ((c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)) {
+      latinCount++;
+    }
+  }
+  if (kanaCount > 0) return false;
+  const total = cjkCount + latinCount;
+  if (total === 0) return false;
+  const cjkRatio = cjkCount / total;
+  if (cjkRatio >= 0.6 && latinCount <= cjkCount * 0.3) return true;
+  return false;
+}
+
 // v1.0.7: storage key 常量（与 settings-manager.js 保持一致）
 const LOCAL_API_KEYS_KEY = 'dual_translate_api_keys_local';
 const DAILY_USAGE_KEY = 'dual_translate_daily_usage';
@@ -113,6 +147,15 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   // v1.2.2 fix: BUG-7 校验 tab 是否存在及其 id，避免无 tab 上下文（如后台触发）时 sendMessage 抛异常
   if (info.menuItemId === 'translate-selection' && info.selectionText && tab?.id) {
     try {
+      // 跳过已经是中文的选中文字
+      if (isAlreadyChinese(info.selectionText.trim())) {
+        chrome.tabs.sendMessage(tab.id, {
+          action: 'showSelectionTranslation',
+          original: info.selectionText,
+          translation: '该文字已是中文，无需翻译'
+        }).catch(() => {});
+        return;
+      }
       if (!apiManager.translators || apiManager.translators.size === 0) {
         await apiManager.reload();
       }
