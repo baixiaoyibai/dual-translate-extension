@@ -2484,3 +2484,99 @@ textarea {
   color: var(--text-secondary);
   line-height: 1.5;
 }
+
+/* ==========================================================================
+   Custom Model Names & Variants (tag list)
+   ========================================================================== */
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  min-height: 32px;
+  padding: 8px;
+  background: var(--bg-input, #2a2a2a);
+  border-radius: 6px;
+  border: 1px solid var(--border, #3a3a3a);
+}
+
+.tag-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-card, #1e1e1e);
+  border: 1px solid var(--border, #3a3a3a);
+  border-radius: 14px;
+  font-size: 12px;
+  color: var(--text-primary, #e0e0e0);
+  font-family: var(--sans, sans-serif);
+}
+
+.tag-text {
+  user-select: none;
+}
+
+.tag-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #888);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 50%;
+  transition: color 0.2s, background 0.2s;
+}
+
+.tag-remove:hover {
+  color: #fff;
+  background: rgba(255, 80, 80, 0.3);
+}
+
+.tag-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.tag-add-row input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #3a3a3a);
+  border-radius: var(--radius, 4px);
+  background: var(--bg-input, #2a2a2a);
+  color: var(--text-primary, #e0e0e0);
+  font-family: var(--sans, sans-serif);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.tag-add-row input:focus {
+  border-color: var(--accent, #f97316);
+}
+
+.btn-restore-default {
+  background: transparent;
+  border: 1px solid var(--border, #3a3a3a);
+  color: var(--text-secondary, #888);
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--sans, sans-serif);
+  transition: all 0.2s;
+  margin-left: auto;
+}
+
+.btn-restore-default:hover {
+  color: var(--accent, #f97316);
+  border-color: var(--accent, #f97316);
+}
+
+.section-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}

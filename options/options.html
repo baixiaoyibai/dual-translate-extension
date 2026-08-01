@@ -374,6 +374,36 @@
           <button class="btn btn-primary" id="addExcludeBtn">添加</button>
         </div>
       </div>
+
+      <div class="section-card">
+        <div class="section-card-header">
+          <span>🤖 自定义模型名</span>
+          <button class="btn-restore-default" id="restoreModelNamesBtn">恢复默认</button>
+        </div>
+        <div class="setting-info" style="margin-bottom:12px">
+          <div class="setting-desc">文本以这些名称开头时，会被尝试识别为 AI 模型名。紧贴形式（gpt5.6pro）自动跳过；空格分隔（gpt 5.6 pro）需匹配后缀清单。可增删改。</div>
+        </div>
+        <div class="tag-list" id="modelNameList"></div>
+        <div class="tag-add-row">
+          <input type="text" id="modelNameInput" placeholder="输入模型名后回车添加">
+          <button id="modelNameAddBtn" class="btn-primary">添加</button>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-card-header">
+          <span>🏷️ 自定义模型后缀</span>
+          <button class="btn-restore-default" id="restoreVariantsBtn">恢复默认</button>
+        </div>
+        <div class="setting-info" style="margin-bottom:12px">
+          <div class="setting-desc">"基础名 + 空格 + 数字 + 空格 + 后缀"形式中，后缀必须在此清单才跳过翻译。紧贴形式（gpt5.6pro）无视此清单自动跳过。可增删改。</div>
+        </div>
+        <div class="tag-list" id="variantList"></div>
+        <div class="tag-add-row">
+          <input type="text" id="variantInput" placeholder="输入后缀后回车添加">
+          <button id="variantAddBtn" class="btn-primary">添加</button>
+        </div>
+      </div>
     </div>
 
     <div id="tab-glossary" class="tab-content">

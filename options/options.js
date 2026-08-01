@@ -130,6 +130,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   try { setupTabSwitching(); } catch(e) { console.error('[options] setupTabSwitching:', e); }
   try { setupDisplaySettings(); } catch(e) { console.error('[options] setupDisplaySettings:', e); }
   try { setupRulesSettings(); } catch(e) { console.error('[options] setupRulesSettings:', e); }
+  try { setupCustomModelNames(); } catch(e) { console.error('[options] setupCustomModelNames:', e); }
+  try { setupCustomModelVariants(); } catch(e) { console.error('[options] setupCustomModelVariants:', e); }
   try { setupGlossaryManagement(); } catch(e) { console.error('[options] setupGlossaryManagement:', e); }
   try { setupApiManagement(); } catch(e) { console.error('[options] setupApiManagement:', e); }
   try { setupQuotaSettings(); } catch(e) { console.error('[options] setupQuotaSettings:', e); }
@@ -448,6 +450,118 @@ function setupRulesSettings() {
   });
 
   renderExcludeList();
+}
+
+function setupCustomModelNames() {
+  const list = document.getElementById('modelNameList');
+  const input = document.getElementById('modelNameInput');
+  const addBtn = document.getElementById('modelNameAddBtn');
+  const restoreBtn = document.getElementById('restoreModelNamesBtn');
+  if (!list || !input || !addBtn) return;
+
+  let items = [...(settings.rules.customModelNames || [])];
+
+  const render = () => {
+    list.innerHTML = items.map((v, i) =>
+      `<div class="tag-item"><span class="tag-text"></span><button class="tag-remove" data-idx="${i}">×</button></div>`
+    ).join('');
+    list.querySelectorAll('.tag-item').forEach((el, i) => {
+      el.querySelector('.tag-text').textContent = items[i];
+      el.querySelector('.tag-remove').addEventListener('click', () => {
+        items.splice(i, 1);
+        saveAndRender();
+      });
+    });
+  };
+
+  const saveAndRender = async () => {
+    settings.rules.customModelNames = items;
+    try { await saveSetting('rules.customModelNames', items); } catch (err) { console.error('[options] saveSetting failed:', err); }
+    showSavedTip();
+    render();
+  };
+
+  const add = () => {
+    const v = input.value.trim();
+    if (!v) return;
+    if (items.some(x => x.toLowerCase() === v.toLowerCase())) {
+      alert('已存在该模型名');
+      return;
+    }
+    items.push(v);
+    input.value = '';
+    saveAndRender();
+  };
+
+  addBtn.addEventListener('click', add);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+
+  if (restoreBtn) {
+    restoreBtn.addEventListener('click', async () => {
+      if (!confirm('确定恢复默认模型名清单吗？将覆盖您当前的修改。')) return;
+      const defaults = ['gpt', 'chatgpt', 'o1', 'o3', 'o4', 'dall-e', 'whisper', 'sora', 'gpt-4o', 'claude', 'gemini', 'gemma', 'palm', 'bard', 'llama', 'codellama', 'mistral', 'mixtral', 'falcon', 'deepseek', 'glm', 'chatglm', 'qwen', 'qwen2', 'qwen2.5', 'qwen3', 'qwq', 'tongyi qianwen', 'ernie', 'yi', 'doubao', 'seed', 'kimi', 'moonshot', 'hunyuan', 'spark', 'sensechat', 'baichuan', 'step', 'minimax', 'abab', 'cohere', 'command', 'stable-diffusion', 'midjourney', 'copilot', 'cursor', 'windsurf', 'devin', 'perplexity', 'pi', 'groq', 'cerebras', '豆包', '通义千问', '文心一言', '混元', '讯飞星火', '商汤日日新', '百川', '盘古', '天工', '悟道', '孟子', '智谱', '山海', '小冰'];
+      items = [...defaults];
+      await saveAndRender();
+    });
+  }
+
+  render();
+}
+
+function setupCustomModelVariants() {
+  const list = document.getElementById('variantList');
+  const input = document.getElementById('variantInput');
+  const addBtn = document.getElementById('variantAddBtn');
+  const restoreBtn = document.getElementById('restoreVariantsBtn');
+  if (!list || !input || !addBtn) return;
+
+  let items = [...(settings.rules.customModelVariants || [])];
+
+  const render = () => {
+    list.innerHTML = items.map((v, i) =>
+      `<div class="tag-item"><span class="tag-text"></span><button class="tag-remove" data-idx="${i}">×</button></div>`
+    ).join('');
+    list.querySelectorAll('.tag-item').forEach((el, i) => {
+      el.querySelector('.tag-text').textContent = items[i];
+      el.querySelector('.tag-remove').addEventListener('click', () => {
+        items.splice(i, 1);
+        saveAndRender();
+      });
+    });
+  };
+
+  const saveAndRender = async () => {
+    settings.rules.customModelVariants = items;
+    try { await saveSetting('rules.customModelVariants', items); } catch (err) { console.error('[options] saveSetting failed:', err); }
+    showSavedTip();
+    render();
+  };
+
+  const add = () => {
+    const v = input.value.trim();
+    if (!v) return;
+    if (items.some(x => x.toLowerCase() === v.toLowerCase())) {
+      alert('已存在该后缀');
+      return;
+    }
+    items.push(v);
+    input.value = '';
+    saveAndRender();
+  };
+
+  addBtn.addEventListener('click', add);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+
+  if (restoreBtn) {
+    restoreBtn.addEventListener('click', async () => {
+      if (!confirm('确定恢复默认后缀清单吗？将覆盖您当前的修改。')) return;
+      const defaults = ['turbo', 'flash', 'pro', 'mini', 'plus', 'ultra', 'opus', 'sonnet', 'haiku', 'lightning', 'large', 'vision', 'chat', 'instruct', 'base', 'codex', 'nano', 'xl', 'max', 'medium', 'small', 'distill', 'preview', 'alpha', 'beta', 'exp', 'experimental', 'moe', 'thinking', 'reasoning', 'coder', 'fast', 'search', 'sync', 'high', 'low', 'hd', 'long', 'sol', '标准版', '专业版', '增强版', '旗舰版', '极速版', '轻量版', '基础版'];
+      items = [...defaults];
+      await saveAndRender();
+    });
+  }
+
+  render();
 }
 
 function bindToggle(elementId, path, value) {

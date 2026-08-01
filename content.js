@@ -117,20 +117,39 @@ const METRIC_LABELS = new Set([
   'page','pages',
 ]);
 
-const AI_MODEL_NAMES = new Set([
-  // OpenAI 系列
-  'chatgpt', 'gpt-4', 'gpt-4o', 'gpt-4-turbo', 'gpt-4.5', 'gpt-3.5', 'gpt-3', 'gpt-5', 'o1', 'o3', 'o4-mini', 'dall-e', 'dall-e 2', 'dall-e 3', 'whisper', 'sora',
-  // Anthropic 系列
-  'claude', 'claude 2', 'claude 3', 'claude 3.5', 'claude 4', 'claude opus', 'claude sonnet', 'claude haiku',
-  // Google 系列
-  'gemini', 'gemini 1.5', 'gemini 2.0', 'gemini 2.5', 'gemini 3', 'gemini flash', 'gemini pro', 'gemini ultra', 'gemma', 'palm', 'palm 2', 'bard',
-  // Meta 系列
-  'llama', 'llama 2', 'llama 3', 'llama 4', 'codellama',
-  // 国产大模型
-  'deepseek', 'deepseek-v2', 'deepseek-v3', 'deepseek-r1', 'deepseek-coder', 'glm', 'glm-4', 'glm-4-flash', 'glm-4v', 'chatglm', 'qwen', 'qwen2', 'qwen2.5', 'tongyi qianwen', '通义千问', 'ernie', '文心一言', 'ernie 4.0', 'yi', 'yi-lightning', 'yi-large', 'doubao', '豆包', 'kimi', 'moonshot', 'minimax', 'abab', 'step', 'step-2', 'hunyuan', '混元', 'spark', '讯飞星火', 'sensechat', '商汤日日新', 'baichuan', '百川',
-  // 其他
-  'mistral', 'mixtral', 'falcon', 'command r', 'cohere', 'stable diffusion', 'midjourney', 'copilot', 'github copilot', 'cursor', 'windsurf', 'devin', 'perplexity'
-]);
+const DEFAULT_MODEL_NAMES = [
+  'gpt', 'chatgpt', 'o1', 'o3', 'o4', 'dall-e', 'whisper', 'sora', 'gpt-4o',
+  'claude',
+  'gemini', 'gemma', 'palm', 'bard',
+  'llama', 'codellama',
+  'mistral', 'mixtral', 'falcon',
+  'deepseek',
+  'glm', 'chatglm',
+  'qwen', 'qwen2', 'qwen2.5', 'qwen3', 'qwq', 'tongyi qianwen',
+  'ernie',
+  'yi',
+  'doubao', 'seed',
+  'kimi', 'moonshot',
+  'hunyuan',
+  'spark',
+  'sensechat',
+  'baichuan',
+  'step',
+  'minimax', 'abab',
+  'cohere', 'command', 'stable-diffusion', 'midjourney',
+  'copilot', 'cursor', 'windsurf', 'devin', 'perplexity', 'pi', 'groq', 'cerebras',
+  '豆包', '通义千问', '文心一言', '混元', '讯飞星火',
+  '商汤日日新', '百川', '盘古', '天工', '悟道', '孟子', '智谱', '山海', '小冰'
+];
+
+const DEFAULT_MODEL_VARIANTS = [
+  'turbo', 'flash', 'pro', 'mini', 'plus', 'ultra', 'opus', 'sonnet',
+  'haiku', 'lightning', 'large', 'vision', 'chat', 'instruct', 'base',
+  'codex', 'nano', 'xl', 'max', 'medium', 'small', 'distill', 'preview',
+  'alpha', 'beta', 'exp', 'experimental', 'moe', 'thinking', 'reasoning',
+  'coder', 'fast', 'search', 'sync', 'high', 'low', 'hd', 'long', 'sol',
+  '标准版', '专业版', '增强版', '旗舰版', '极速版', '轻量版', '基础版'
+];
 
 const METRIC_PATTERNS = [
   /\d[\d,.]*\s*(?:downloads?|DLs?)\s*$/i,
@@ -288,21 +307,84 @@ function isGarbledText(text) {
   if(nl/t.length>0.3&&t.length>8) return true;
   return false;
 }
-function isAiModelName(text) {
+const MODEL_CN_VARIANTS = new Set([
+  'pro', 'plus', 'ultra', 'max', 'turbo', 'lite', 'mini', 'air', 'nano',
+  '标准版', '专业版', '增强版', '旗舰版', '极速版', '轻量版', '基础版'
+]);
+
+function isAiModelName(text, settings) {
   const t = text.trim();
-  if (!t) return false;
-  if (t.length > 50) return false; // 模型名不可能这么长
-  
-  const normalized = t.toLowerCase().replace(/\s+/g, ' ');
-  
-  // 检查是否在已知AI模型名称集合中
-  if (AI_MODEL_NAMES.has(normalized)) return true;
-  
-  // 检查基础名称（去除版本号后缀）
-  const baseName = normalized.replace(/(?:-turbo|-flash|-pro|-mini|-plus|-ultra|-opus|-sonnet|-haiku|-lightning|-large|r1|v2|v3|2\.0|3\.0|4\.0|1\.5|2\.5|3\.5|4\.5|\s3\.7|\s3\.8|\s4\.5|\s5\.0|\s5\.5|\s3\.6|\s3\.9|\s4\.1|\s4\.2|\s4\.3|\s4\.4|\s4\.6|\s4\.7)\s*$/i, '');
-  if (AI_MODEL_NAMES.has(baseName)) return true;
-  
+  if (!t || t.length > 80) return false;
+
+  const modelNames = (settings && settings.rules && Array.isArray(settings.rules.customModelNames))
+    ? settings.rules.customModelNames
+    : (typeof DEFAULT_MODEL_NAMES !== 'undefined' ? DEFAULT_MODEL_NAMES : []);
+
+  if (modelNames.some(n => n.toLowerCase() === t.toLowerCase())) {
+    return true;
+  }
+
+  if (t.length < 3) return false;
+
+  if (isAiModelNameCN(t, modelNames)) return true;
+
+  const normalized = t.toLowerCase().replace(/[\s_]+/g, '-').replace(/\.+/g, '-');
+  const normalizedNames = [...new Set(modelNames.map(n =>
+    n.toLowerCase().replace(/[\s_]+/g, '-').replace(/\.+/g, '-')
+  ))].sort((a, b) => b.length - a.length);
+
+  for (const base of normalizedNames) {
+    if (normalized === base) return true;
+    if (normalized.startsWith(base)) {
+      const rest = normalized.slice(base.length);
+      if (rest.length > 25) continue;
+      if (parseVariantChain(rest, modelNames)) return true;
+    }
+  }
+
   return false;
+}
+
+function isAiModelNameCN(text, modelNames) {
+  for (const base of modelNames) {
+    if (!/[\u4e00-\u9fff]/.test(base)) continue;
+    if (text === base) return true;
+    if (text.startsWith(base)) {
+      const rest = text.slice(base.length);
+      if (MODEL_CN_VARIANTS.has(rest.toLowerCase())) return true;
+      if (MODEL_CN_VARIANTS.has(rest)) return true;
+    }
+  }
+  return false;
+}
+
+function parseVariantChain(s, modelNames) {
+  const variants = (typeof settings !== 'undefined' && settings && settings.rules && Array.isArray(settings.rules.customModelVariants))
+    ? settings.rules.customModelVariants
+    : (typeof DEFAULT_MODEL_VARIANTS !== 'undefined' ? DEFAULT_MODEL_VARIANTS : []);
+
+  if (!/\s/.test(s)) {
+    const segments = s.split(/[-_.]/).filter(Boolean);
+    if (segments.length === 0) return false;
+    if (segments.some(seg => isNumberSegment(seg))) return true;
+    return segments.every(seg => isVariantSegment(seg, variants));
+  }
+
+  const parts = s.split(/\s+/).map(p => p.replace(/^[-_.]+|[-_.]+$/g, '')).filter(Boolean);
+  for (const part of parts) {
+    if (isNumberSegment(part)) continue;
+    if (isVariantSegment(part, variants)) continue;
+    return false;
+  }
+  return true;
+}
+
+function isNumberSegment(s) {
+  return /^v?\d+(?:\.\d+)?$/.test(s) || /^\d+[bm]$/i.test(s) || /^a\d+b$/i.test(s);
+}
+
+function isVariantSegment(s, variants) {
+  return variants.some(v => v.toLowerCase() === s.toLowerCase());
 }
 function hasAnyCJK(text) {
   for (let i = 0; i < text.length; i++) {
@@ -318,7 +400,7 @@ function hasAnyCJK(text) {
 }
 function shouldSkipText(text) {
   if (settings && settings.rules && settings.rules.skipChineseSegments !== false && cachedPageLang !== 'ja' && hasAnyCJK(text)) return true;
-  return isMetricOrRepetitiveText(text)||containsUrl(text)||isGarbledText(text)||isAiModelName(text)||isAlreadyChinese(text);
+  return isMetricOrRepetitiveText(text)||containsUrl(text)||isGarbledText(text)||isAiModelName(text, settings)||isAlreadyChinese(text);
 }
 
 function hideOriginalText(seg) {
