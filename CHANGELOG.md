@@ -28,6 +28,15 @@
 
 ---
 
+## v1.2.11 (2026-08-01)
+
+### Added - 新增
+- 新增模型名识别回归测试 `tests/model-name.test.js`（`npm test` 可运行）
+  - 直接加载 `content.js` 真实代码验证 `isAiModelName`
+  - 覆盖 19 个"应跳过翻译"的模型名用例（GLM 视觉版 / kimi k3 / deepseek v4 等）
+  - 覆盖 9 个"不应误判"的普通文本用例（gpt 4 is fast / python3.10 / DeepSeek Coding Plan 等）
+  - 当前 28/28 全部通过
+
 ## v1.2.10 (2026-08-01)
 
 ### Fixed - 修复
