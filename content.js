@@ -383,7 +383,7 @@ function parseVariantChain(s, hasSpace, modelNames) {
 }
 
 function isNumberSegment(s) {
-  return /^v?\d+(?:\.\d+)?$/.test(s) || /^\d+[bm]$/i.test(s) || /^a\d+b$/i.test(s);
+  return /^v?\d+(?:\.\d+)?[a-z]?$/.test(s) || /^\d+[bm]$/i.test(s) || /^a\d+b$/i.test(s);
 }
 
 function isVariantSegment(s, variants) {
