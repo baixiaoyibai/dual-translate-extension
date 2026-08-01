@@ -328,7 +328,9 @@ function isAiModelName(text, settings) {
 
   if (isAiModelNameCN(t, modelNames)) return true;
 
-  const normalized = t.toLowerCase().replace(/[\s_]+/g, '-').replace(/\.+/g, '-');
+  const lower = t.toLowerCase();
+  const hasSpace = /\s/.test(lower);
+  const normalized = lower.replace(/[\s_]+/g, '-').replace(/\.+/g, '-');
   const normalizedNames = [...new Set(modelNames.map(n =>
     n.toLowerCase().replace(/[\s_]+/g, '-').replace(/\.+/g, '-')
   ))].sort((a, b) => b.length - a.length);
@@ -338,7 +340,7 @@ function isAiModelName(text, settings) {
     if (normalized.startsWith(base)) {
       const rest = normalized.slice(base.length);
       if (rest.length > 25) continue;
-      if (parseVariantChain(rest, modelNames)) return true;
+      if (parseVariantChain(rest, hasSpace, modelNames)) return true;
     }
   }
 
@@ -358,23 +360,24 @@ function isAiModelNameCN(text, modelNames) {
   return false;
 }
 
-function parseVariantChain(s, modelNames) {
+function parseVariantChain(s, hasSpace, modelNames) {
   const variants = (typeof settings !== 'undefined' && settings && settings.rules && Array.isArray(settings.rules.customModelVariants))
     ? settings.rules.customModelVariants
     : (typeof DEFAULT_MODEL_VARIANTS !== 'undefined' ? DEFAULT_MODEL_VARIANTS : []);
 
-  if (!/\s/.test(s)) {
+  if (!hasSpace) {
     const segments = s.split(/[-_.]/).filter(Boolean);
     if (segments.length === 0) return false;
-    if (segments.some(seg => isNumberSegment(seg))) return true;
+    if (segments.some(seg => isNumberSegment(seg) || /\d/.test(seg))) return true;
     return segments.every(seg => isVariantSegment(seg, variants));
   }
 
-  const parts = s.split(/\s+/).map(p => p.replace(/^[-_.]+|[-_.]+$/g, '')).filter(Boolean);
+  const parts = s.split(/\s+/).filter(Boolean);
   for (const part of parts) {
-    if (isNumberSegment(part)) continue;
-    if (isVariantSegment(part, variants)) continue;
-    return false;
+    const subSegments = part.split(/[-_.]+/).filter(Boolean);
+    if (subSegments.length === 0) continue;
+    const allValid = subSegments.every(seg => isNumberSegment(seg) || /\d/.test(seg) || isVariantSegment(seg, variants));
+    if (!allValid) return false;
   }
   return true;
 }
