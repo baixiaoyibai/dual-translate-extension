@@ -5,6 +5,17 @@ let currentScope = '_global';
 let apiStatus = {};
 let dailyUsage = {};
 
+// v1.2.12 fix: P2-10 — escapeAttr 降级回退，防止 lib/escape-utils.js 加载失败导致全页崩溃
+const escapeAttr = (typeof window !== 'undefined' && typeof window.escapeAttr === 'function')
+  ? window.escapeAttr
+  : function(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    };
+
 const API_DISPLAY_NAMES = (typeof window !== 'undefined' && window.API_DISPLAY_NAMES) ? window.API_DISPLAY_NAMES : {};
 const API_FREE_QUOTAS = (typeof window !== 'undefined' && window.API_FREE_QUOTAS) ? window.API_FREE_QUOTAS : {};
 const API_CONFIG_FIELDS = {
@@ -679,7 +690,8 @@ function setupGlossaryManagement() {
 
   document.getElementById('exportGlossaryBtn').addEventListener('click', () => {
     const area = document.getElementById('importExportArea');
-    area.style.display = 'block';
+    // v1.2.12 fix: P1-2 — 同样需移除 hidden 类（CSS !important 阻断内联 display）
+    if (area) { area.classList.remove('hidden'); area.style.display = 'block'; }
     const textarea = document.getElementById('importExportText');
     // 导出仅当前 scope（v1.0.4 域名专属）
     textarea.value = JSON.stringify(getCurrentEntries(), null, 2);
@@ -692,7 +704,8 @@ function setupGlossaryManagement() {
 
   document.getElementById('importGlossaryBtn').addEventListener('click', () => {
     const area = document.getElementById('importExportArea');
-    area.style.display = 'block';
+    // v1.2.12 fix: P1-2
+    if (area) { area.classList.remove('hidden'); area.style.display = 'block'; }
     const textarea = document.getElementById('importExportText');
     textarea.value = '';
     textarea.placeholder = '在此粘贴 JSON 格式的术语表...';
@@ -708,7 +721,9 @@ function setupGlossaryManagement() {
       renderGlossaryTable();
       // v1.2.2 fix: Bug 5 - 添加 .catch 防止未处理的 Promise 拒绝
       saveGlossary().catch(e => console.warn('[glossary] saveGlossary failed:', e));
-      document.getElementById('importExportArea').style.display = 'none';
+      // v1.2.12 fix: P1-2 — 关闭时同时加回 hidden 类
+      const area = document.getElementById('importExportArea');
+      if (area) { area.style.display = 'none'; area.classList.add('hidden'); }
       showSavedTip();
     } catch (e) {
       alert('JSON 格式无效：' + e.message);
@@ -716,7 +731,9 @@ function setupGlossaryManagement() {
   });
 
   document.getElementById('cancelImportBtn').addEventListener('click', () => {
-    document.getElementById('importExportArea').style.display = 'none';
+    const area = document.getElementById('importExportArea');
+    // v1.2.12 fix: P1-2
+    if (area) { area.style.display = 'none'; area.classList.add('hidden'); }
   });
 
   document.getElementById('resetGlossaryBtn').addEventListener('click', async () => {
@@ -1531,6 +1548,9 @@ function showPinDialog(mode) {
   // v1.2.2 fix: Bug 1 - 移除前端冷却检查，后端会在 verifyPin 响应中返回冷却提示
   confirmBtn.disabled = false;
 
+  // v1.2.12 fix: P1-1 — 移除 hidden 类（CSS 中 .hidden { display:none !important } 优先级高于内联样式，
+  // 单纯改 style.display 不可见，必须同时切换类名）
+  dialog.classList.remove('hidden');
   dialog.style.display = 'flex';
   // 仅在输入框可见时聚焦（reset 模式下隐藏了输入框）
   if (input.style.display !== 'none') {
@@ -1540,7 +1560,10 @@ function showPinDialog(mode) {
 
 function hidePinDialog() {
   const dialog = document.getElementById('pinDialog');
-  if (dialog) dialog.style.display = 'none';
+  if (!dialog) return;
+  // v1.2.12 fix: P1-1 — 隐藏时同时加回 hidden 类，保持与 .hidden 规则的初始一致
+  dialog.style.display = 'none';
+  dialog.classList.add('hidden');
 }
 
 async function handlePinConfirm() {
@@ -2302,8 +2325,8 @@ async function checkForUpdates() {
         html += `<div class="update-notes">${escapeAttr(notes).replace(/\n/g, '<br>')}</div>`;
       }
       html += `<div class="btn-row">
-        <a href="${escapeAttr(downloadUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">⬇ 下载更新</a>
-        <a href="${escapeAttr(releaseUrl)}" target="_blank" rel="noopener noreferrer" class="btn">📋 查看发布说明</a>
+        <a href="${escapeAttr(safeUrl(downloadUrl))}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">⬇ 下载更新</a>
+        <a href="${escapeAttr(safeUrl(releaseUrl))}" target="_blank" rel="noopener noreferrer" class="btn">📋 查看发布说明</a>
       </div>
       </div>`;
       statusEl.className = 'update-status';  // 清除 update-loading
@@ -2340,6 +2363,16 @@ function compareVersions(a, b) {
     if (va > vb) return 1;
   }
   return 0;
+}
+
+// v1.2.12 fix: P1-6 — URL 协议白名单，阻止 javascript: / data: 等危险 scheme 注入
+function safeUrl(u) {
+  try {
+    const p = new URL(u);
+    return p.protocol === 'https:' ? u : '#';
+  } catch {
+    return '#';
+  }
 }
 
 // v1.2.5: 显示更新状态

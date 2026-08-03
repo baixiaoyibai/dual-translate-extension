@@ -47,6 +47,15 @@ const DAILY_USAGE_KEY = 'dual_translate_daily_usage';
 // v1.2.2 fix: BUG-5 新增月度用量存储键常量，handleClearApi 需同步清除月度用量
 const MONTHLY_USAGE_KEY = 'dual_translate_monthly_usage';
 
+// v1.2.12 fix: P2-2 — 深拷贝 settings（用于返回给扩展页面），避免调用方修改活引用
+function _cloneSettingsForExport(obj) {
+  if (obj == null) return obj;
+  if (typeof structuredClone === 'function') {
+    try { return structuredClone(obj); } catch { /* fall through */ }
+  }
+  try { return JSON.parse(JSON.stringify(obj)); } catch { return obj; }
+}
+
 // v1.0.19: 运行时日志缓冲区（环形队列，最多 500 条）
 // 供设置页诊断工具中的日志查看器使用
 const LOG_BUFFER_MAX = 500;
@@ -110,7 +119,7 @@ async function init() {
       await apiManager.init();
       try { await translationCache.sweep(); } catch {}
       setupContextMenu();
-      setupCommands();
+      // v1.2.12 fix: P2-1 — 移除 setupCommands() 调用，commands.onCommand 已在模块顶层注册
       // 定期维护：重置API配额 + 清理缓存
       await settingsManager.resetApiQuotaIfNeeded();
       try {
@@ -181,16 +190,23 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 });
 
-function setupCommands() {
-  chrome.commands.onCommand.addListener(async (command) => {
-    if (command === 'toggle-translate') {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab) {
-        chrome.tabs.sendMessage(tab.id, { action: 'toggleTranslate' }).catch(() => {});
-      }
+// v1.2.12 fix: P2-1 — chrome.commands.onCommand 在模块顶层注册（不在 init 内），
+// 避免 SW 冷启动窗口期内的快捷键事件丢失，也避免 init 失败重试时监听器重复注册
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command !== 'toggle-translate') return;
+  try {
+    await init();
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab) {
+      chrome.tabs.sendMessage(tab.id, { action: 'toggleTranslate' }).catch(() => {});
     }
-  });
-}
+  } catch (e) {
+    console.warn('[dual-translate] toggle-translate command failed:', e);
+  }
+});
+
+// v1.2.12 fix: P2-1 — chrome.commands.onCommand 已在下方以模块顶层 addListener 注册，
+// 不再需要 setupCommands() 包装函数（避免 init 重试时重复注册导致快捷键相互抵消）
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handleMessage(message, sender).then(sendResponse).catch(err => {
@@ -250,7 +266,8 @@ async function handleMessage(message, sender) {
       //             与其他敏感读操作保持一致，防止跨扩展伪造 sender.url 绕过校验
       const isExtensionPage = _isExtensionSender(sender);
       if (isExtensionPage) {
-        return { settings: settingsManager.settings };
+        // v1.2.12 fix: P2-2 — 返回深拷贝，避免扩展页面直接修改 settingsManager.settings 活引用
+        return { settings: this._cloneSettingsForExport(settingsManager.settings) };
       }
       // 非 extension 页面（content script 等）：深拷贝并将 apiKeys 置空，防止密钥泄露给网页
       // v1.1.0 perf: 优先 structuredClone；回退时仅深拷贝 api 段，避免整体 JSON 序列化开销
@@ -635,22 +652,24 @@ async function handleTranslateTexts(message, sender) {
       await apiManager.reload();
     }
     const sourceLang = message.sourceLang || 'auto';
+    const targetLang = message.targetLang || 'zh';
     const texts = message.texts;
     const cacheEnabled = settingsManager.settings.trigger.translationCache !== false;
 
     let hits = new Map();
     let misses = texts;
     if (cacheEnabled && texts.length > 0) {
-      const r = await translationCache.lookup(texts, sourceLang);
+      // v1.2.12 fix: P1-4 — 缓存键纳入 targetLang
+      const r = await translationCache.lookup(texts, sourceLang, targetLang);
       hits = r.hits;
       misses = r.misses;
     }
 
     let freshResults = [];
     if (misses.length > 0) {
-      freshResults = await apiManager.translate(misses, sourceLang, 'zh');
+      freshResults = await apiManager.translate(misses, sourceLang, targetLang);
       if (cacheEnabled) {
-        try { await translationCache.store(freshResults, sourceLang); } catch {}
+        try { await translationCache.store(freshResults, sourceLang, targetLang); } catch {}
       }
     }
 

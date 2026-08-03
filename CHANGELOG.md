@@ -28,6 +28,36 @@
 
 ---
 
+## v1.2.12 (2026-08-03)
+
+> 本周维护批：修复 79 项代码审查报告中所有 P1 阻断/安全漏洞 + 6 项 P2 重要缺陷 + 1 项系统性重构（X-1）。剩余 P2/P3 项将在后续版本中逐步修复。
+
+### Fixed - 修复（P1 阻断/安全）
+
+- **P1-1: PIN 对话框无法显示**：PIN 对话框带 `hidden` 类，CSS `.hidden { display:none !important }` 优先级高于内联样式。修复：showPinDialog/hidePinDialog 同步切换 `hidden` 类。PIN 管理和密钥解锁现在可用。
+- **P1-2: 术语库导入/导出区域无法显示**：与 P1-1 同根因。修复：exportGlossaryBtn / importGlossaryBtn / confirmImportBtn / cancelImportBtn 全部改用 classList 控制显隐。
+- **P1-3: diagnose 诊断页 XSS 漏洞**：旧实现 `out.innerHTML = '<pre>' + JSON.stringify(display, null, 2) + '</pre>'` 把用户可输入字段（custom provider 名称/endpoint/model/prompt）原样注入 HTML。修复：新增 `renderJsonAsPre()` 用 `textContent` 渲染，新增 `getSettings` 失败时给用户可见错误提示。
+- **P1-4: 翻译缓存键缺少 targetLang**：`lookup`/`store`/`_key` 现在接收并纳入 `targetLang`，避免未来支持多目标语言时返回错误的旧翻译。
+- **P1-5: addMonthlyUsage 异常导致翻译结果被丢弃**：`addDailyUsage` 中的 `addMonthlyUsage` 调用包入 try-catch；`addMonthlyUsage` 自身的 `storage.set` 也加 try-catch 仅 `console.warn`，不抛出。
+- **P1-6: 更新检查中 href 注入风险**：新增 `safeUrl(u)` 工具函数（仅允许 `https:` 协议），更新检查中的 downloadUrl/releaseUrl 经 `safeUrl` 过滤后再 `escapeAttr` 插入。
+
+### Fixed - 修复（P2 重要缺陷）
+
+- **P2-1: commands.onCommand 监听器注册时机**：`chrome.commands.onCommand.addListener` 移到模块顶层（init 外），init 失败重试时不再重复注册导致快捷键抵消。
+- **P2-2: getSettings 返回 settings 活引用**：扩展页面（popup/options）路径改为返回深拷贝（`structuredClone` 优先，回退到 JSON 拷贝），避免调用方修改污染 SW 内存。
+- **P2-10: escapeAttr 无降级回退**：options.js 顶部新增 escapeAttr 降级实现（typeof window.escapeAttr 检测），lib/escape-utils.js 加载失败时设置页仍可工作。
+- **P2-21: translate 未在翻译前检查配额重置时间**：`_isApiUsable` 中增加 `quotaResetAt` 检查，过期则恢复可用。
+- **P2-31: web_accessible_resources 暴露 llm-prompt.txt**：从 `web_accessible_resources` 移除 `config/llm-prompt.txt`，仅保留 `default-glossary.json`（被 content script 通过 chrome.runtime.getURL 访问）。
+
+### Changed - 系统性重构（X-1）
+
+- **错误分类体系：429/流控从 QUOTA_EXCEEDED 改为 RATE_LIMITED**
+  - `base.js`：HTTP 429 → `RATE_LIMITED` 而非 `QUOTA_EXCEEDED`
+  - `volcano.js`：`FlowLimitExceeded` / `-429` → `RATE_LIMITED`
+  - `api-manager.js`：新增 RATE_LIMITED 分支（60 秒冷却），`_isApiUsable` 检查 `cooldownUntil`，过期自动恢复可用
+  - 翻译成功路径清除 `cooldownUntil` 标记
+  - 避免偶发频率限制导致 API 被错误标记为长期不可用（等日/月重置才恢复）
+
 ## v1.2.11 (2026-08-01)
 
 ### Added - 新增

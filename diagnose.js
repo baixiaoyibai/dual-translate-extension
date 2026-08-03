@@ -2,12 +2,25 @@
 const SETTINGS_KEY = 'dual_translate_settings';
 const LOCAL_API_KEYS_KEY = 'dual_translate_api_keys_local';
 
+// v1.2.12 fix: P1-3 — 安全的 JSON 渲染函数（用 textContent 防 XSS）
+function renderJsonAsPre(outEl, obj) {
+  if (!outEl) return;
+  outEl.textContent = '';
+  const pre = document.createElement('pre');
+  pre.textContent = (typeof obj === 'string') ? obj : JSON.stringify(obj, null, 2);
+  outEl.appendChild(pre);
+}
+
 async function checkSync() {
   const result = await chrome.storage.sync.get(SETTINGS_KEY);
   const settings = result[SETTINGS_KEY];
   const out = document.getElementById('syncOutput');
   if (!settings) {
-    out.innerHTML = '<span class="empty">未找到 settings!</span>';
+    out.textContent = '';
+    const span = document.createElement('span');
+    span.className = 'empty';
+    span.textContent = '未找到 settings!';
+    out.appendChild(span);
     return;
   }
   const display = JSON.parse(JSON.stringify(settings));
@@ -22,7 +35,7 @@ async function checkSync() {
       }
     }
   }
-  out.innerHTML = '<pre>' + JSON.stringify(display, null, 2) + '</pre>';
+  renderJsonAsPre(out, display);
   return result[SETTINGS_KEY];
 }
 
@@ -31,7 +44,11 @@ async function checkLocal() {
   const keys = result[LOCAL_API_KEYS_KEY];
   const out = document.getElementById('localOutput');
   if (!keys) {
-    out.innerHTML = '<span class="empty">未找到 local apiKeys!</span>';
+    out.textContent = '';
+    const span = document.createElement('span');
+    span.className = 'empty';
+    span.textContent = '未找到 local apiKeys!';
+    out.appendChild(span);
     return null;
   }
   const display = JSON.parse(JSON.stringify(keys));
@@ -44,15 +61,29 @@ async function checkLocal() {
       }
     }
   }
-  out.innerHTML = '<pre>' + JSON.stringify(display, null, 2) + '</pre>';
+  renderJsonAsPre(out, display);
   return keys;
 }
 
 async function checkSettings() {
-  const res = await chrome.runtime.sendMessage({ action: 'getSettings' });
   const out = document.getElementById('msgOutput');
+  let res;
+  try {
+    res = await chrome.runtime.sendMessage({ action: 'getSettings' });
+  } catch (e) {
+    out.textContent = '';
+    const span = document.createElement('span');
+    span.className = 'empty';
+    span.textContent = '获取设置失败: ' + (e.message || String(e));
+    out.appendChild(span);
+    return null;
+  }
   if (!res || !res.settings) {
-    out.innerHTML = '<span class="empty">getSettings 返回无效!</span>';
+    out.textContent = '';
+    const span = document.createElement('span');
+    span.className = 'empty';
+    span.textContent = 'getSettings 返回无效!';
+    out.appendChild(span);
     return null;
   }
   const display = JSON.parse(JSON.stringify(res.settings));
@@ -67,10 +98,14 @@ async function checkSettings() {
       }
     }
   } else {
-    out.innerHTML = '<span class="empty">settings.api.apiKeys 不存在!</span>';
+    out.textContent = '';
+    const span = document.createElement('span');
+    span.className = 'empty';
+    span.textContent = 'settings.api.apiKeys 不存在!';
+    out.appendChild(span);
     return res.settings;
   }
-  out.innerHTML = '<pre>' + JSON.stringify(display.api, null, 2) + '</pre>';
+  renderJsonAsPre(out, display.api);
   return res.settings;
 }
 
