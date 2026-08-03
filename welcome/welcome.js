@@ -1,8 +1,9 @@
 /* v1.2.3 fix: 将内联脚本移至外部文件，避免违反 MV3 CSP (script-src 'self') */
-document.getElementById('goSettingsBtn').addEventListener('click', () => {
-  chrome.runtime.sendMessage({ action: 'openOptions' }).catch(() => {
+document.getElementById('goSettingsBtn').addEventListener('click', async () => {
+  await chrome.runtime.sendMessage({ action: 'openOptions' }).catch(() => {
     chrome.runtime.openOptionsPage();
   });
+  chrome.runtime.sendMessage({ action: 'closeWelcomeTab' }).catch(() => window.close());
 });
 
 document.getElementById('closeBtn').addEventListener('click', async () => {

@@ -810,6 +810,12 @@ textarea {
   border: 1px solid rgba(234, 179, 8, 0.3);
 }
 
+.api-card-status.rate_limited {
+  color: var(--warning);
+  background: var(--warning-bg);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
 .api-card-status.error {
   color: var(--error);
   background: var(--error-bg);

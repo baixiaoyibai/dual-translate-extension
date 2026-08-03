@@ -28,6 +28,73 @@
 
 ---
 
+## v1.2.14 (2026-08-03)
+
+> 稳定性、设置兼容性、隐私隔离和回归测试优化版本。
+
+### Fixed - 修复
+
+- 修复旧版本设置缺少版本号时无法明确迁移的问题，新增 `settingsVersion` 和幂等迁移入口。
+- 修复旧版自定义 provider API key 仍可能残留在 sync 的问题，迁移时统一转入 local storage。
+- 修复日用量/月用量并发写入时可能丢失统计的问题。
+- 修复设置保存失败后内存状态与持久化状态不一致的问题。
+- 修复导入设置、恢复默认、API 测试和弹窗操作的失败响应被误判为成功的问题。
+
+### Security - 安全
+
+- 导入设置统一复用敏感字段隔离逻辑，API key 不写入 sync storage。
+- 导入的远程 API endpoint 增加 HTTPS 校验。
+- 诊断日志对 API key、secret、token、Authorization、prompt 和 request body 等敏感字段脱敏。
+- API 配置锁定时禁止测试和清除操作，必须先通过 PIN 解锁。
+
+### Performance - 性能
+
+- API 重试间隔按设置页标注的分钟单位执行。
+- `RATE_LIMITED` 请求不再在同一 API 上立即重复重试。
+- 动态重扫使用文本长度和抽样指纹，降低无变化页面的重复扫描开销。
+
+### Tests - 测试
+
+- 新增设置版本迁移、legacy 字段保留、API key 隔离、自定义 provider key 迁移和并发用量回归测试。
+
+---
+
+## v1.2.13 (2026-08-03)
+
+> 本周维护批：修复用户报告的 2 个核心 bug（设置无法保存、页面变化漏翻译）+ 1 个弹窗回滚 bug + 2 个相关改进（storage.onChanged、恢复默认设置硬编码）。
+
+### Fixed - 修复
+
+- **Bug #1 设置更改无法保存**：3 个相互叠加的根因同时修复：
+  - `#1a` `options.js:saveAllSettings` 用未清理的 `newSettings` 直接覆盖本地引用（带空 apiKeys），导致后续保存触发"全空保护"误判
+  - `#1b` `settings-manager.js:saveSettings` 重构：增加 promise-chain 写锁（P2-18），移除"陈旧 apiKeys 覆盖 clonedSettings"块，apiKeys 统一合并逻辑（仅非空字段覆盖），`this.settings` 赋值移到所有 storage 写完之后
+  - `#1c` `background.js:saveSettings` case 加 try/catch 返回 `{success, error}`，让 UI 感知持久化失败
+- **Bug #2 弹窗回滚逻辑完全失效**：`popup.js` 源语言选择器和"跳过中文段"开关的回滚在 `change` 触发时 `value/checked` 已被浏览器更新为 NEW value，导致回滚写入新值（无效）。修复：在 `mousedown`/`focus`/`keydown` 时缓存 `previousSourceLang`/`previousSkipChecked`，失败时回写到该缓存
+- **Bug #3 页面内切换无法及时翻译**：
+  - 扩展 MutationObserver 加 `characterData: true` 观察，捕获 React/Vue 等框架原地文本更新
+  - 新增「自动重新扫描」设置（opt-in），定期检测页面文本长度变化自动重翻译
+  - 包装 `history.pushState`/`replaceState` 触发 `onSpaRouteChange`（修复 P3-5），让 React Router / Vue Router 路由切换能触发翻译
+- **Bug #4 storage.onChanged 同步 sync 区域覆盖导致 apiKeys 变 undefined**：修复 `content.js:1632-1644` 同步 sync 区域时保留当前 apiKeys 引用，并新增 local 区域监听
+- **Bug #5 恢复默认设置硬编码遗漏**：`options.js:handleResetDefaults` 改为从 `window.DEFAULT_SETTINGS`（由 `api-metadata.js` 暴露）取完整默认值，不再遗漏 `skipChineseSegments`、`customModelNames`、`customModelVariants`、`autoRescan`、`api.quotaLimits` 等字段
+
+### Added - 新增
+
+- **「自动重新扫描」设置**（`rules.autoRescan`，默认关闭）：
+  - `enabled`（默认 `false`）：是否启用周期扫描
+  - `interval`（默认 5 秒，可选 2/5/10/30/60）：扫描间隔
+  - `idleOnly`（默认 `true`）：仅当标签页可见时扫描
+  - 设置页「翻译规则」中新增 section，详细说明功能用途、用户端实际效果、推荐开启场景（社交媒体、无限滚动页面、SPA 协作平台等）
+  - 触发条件：页面可见文本总长度变化（轻量预检）才调 `startTranslation`；已翻译内容走缓存不消耗 API 配额
+  - 生命周期：与 MutationObserver 同周期，关闭翻译/SPA 路由切换时自动拆除
+- **`api-metadata.js` 暴露 `window.DEFAULT_SETTINGS`**：供 `handleResetDefaults` 取完整默认值（避免硬编码遗漏）
+
+### Changed - 行为变更
+
+- `settings-manager.js:saveSettings` 现在串行化（P2-18 写锁），并发 `saveAllSettings` 调用不再丢数据
+- `options.js:saveAllSettings` 现在从 background 拉回权威 settings 覆盖本地（不再用未清理对象）
+- `content.js:storage.onChanged` 现在同时监听 sync 和 local 区域
+- `content.js:MutationObserver` 现在也观察 `characterData`，阈值从 `> 2` 降为 `> 0`
+
 ## v1.2.12 (2026-08-03)
 
 > 本周维护批：修复 79 项代码审查报告中所有 P1 阻断/安全漏洞 + 6 项 P2 重要缺陷 + 1 项系统性重构（X-1）。剩余 P2/P3 项将在后续版本中逐步修复。

@@ -173,6 +173,7 @@ function renderApiStatus(statusMap, configuredCount, availableCount) {
   const statusTexts = {
     available: '可用',
     quota_exceeded: '额度不足',
+    rate_limited: '频率限制',
     error: '异常',
     auth_error: '密钥错误',
     unconfigured: '未配置'
@@ -220,6 +221,9 @@ function setupEventListeners() {
             await chrome.tabs.sendMessage(tab.id, { action: 'restoreAll' });
           }
         } catch (e) {
+          translationEnabled = prevState;
+          updateToggleButton();
+          await sendMessageWithRetry({ action: 'updateSettings', path: 'general.translationEnabled', value: prevState }).catch(() => {});
           alert('当前页面无法翻译，请在普通网页上重试');
         }
       }
@@ -266,9 +270,22 @@ function setupEventListeners() {
   const sourceLangHint = document.getElementById('sourceLangHint');
   if (sourceLangSelect) {
     let sourceLangDebounceTimer = null;
+    // v1.2.13 fix: Bug #2 — 之前 oldLang 在 change 触发时已被浏览器更新为 NEW value，
+    // 回滚等于无操作。改为在 mousedown/focus 时缓存真正的旧值
+    let previousSourceLang = sourceLangSelect.value;
+    sourceLangSelect.addEventListener('mousedown', () => {
+      previousSourceLang = sourceLangSelect.value;
+    });
+    sourceLangSelect.addEventListener('focus', () => {
+      previousSourceLang = sourceLangSelect.value;
+    });
+    sourceLangSelect.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') previousSourceLang = sourceLangSelect.value;
+    });
     sourceLangSelect.addEventListener('change', (e) => {
-      const oldLang = sourceLangSelect.value;
+      const oldLang = previousSourceLang;
       const newLang = e.target.value;
+      previousSourceLang = newLang;
       sourceLangSelect.disabled = true;
       if (sourceLangHint) sourceLangHint.style.display = 'block';
       clearTimeout(sourceLangDebounceTimer);
@@ -281,6 +298,7 @@ function setupEventListeners() {
           });
         } catch (err) {
           sourceLangSelect.value = oldLang;
+          previousSourceLang = oldLang;
           alert('切换源语言失败');
         } finally {
           sourceLangSelect.disabled = false;
@@ -293,12 +311,25 @@ function setupEventListeners() {
 
   const skipToggle = document.getElementById('skipChineseSegmentsToggle');
   if (skipToggle) {
+    // v1.2.13 fix: Bug #2 — 缓存旧 checked 状态，失败时回滚到旧值
+    let previousSkipChecked = skipToggle.checked;
+    skipToggle.addEventListener('mousedown', () => {
+      previousSkipChecked = skipToggle.checked;
+    });
+    skipToggle.addEventListener('focus', () => {
+      previousSkipChecked = skipToggle.checked;
+    });
+    skipToggle.addEventListener('keydown', (e) => {
+      if (e.key === ' ') previousSkipChecked = skipToggle.checked;
+    });
     skipToggle.addEventListener('change', async () => {
-      const skipChinese = !skipToggle.checked;
+      const skipChinese = previousSkipChecked;
       try {
-        await sendMessageWithRetry({ action: 'updateSettings', path: 'rules.skipChineseSegments', value: skipChinese });
+        await sendMessageWithRetry({ action: 'updateSettings', path: 'rules.skipChineseSegments', value: !skipChinese });
+        previousSkipChecked = !skipChinese;
       } catch (e) {
-        skipToggle.checked = !skipChinese;
+        skipToggle.checked = skipChinese;
+        previousSkipChecked = skipChinese;
       }
     });
   }
@@ -337,7 +368,11 @@ function setupEventListeners() {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab) {
-        try { await chrome.tabs.sendMessage(tab.id, { action: 'cancelTranslation' }); } catch {}
+        try {
+          await chrome.tabs.sendMessage(tab.id, { action: 'cancelTranslation' });
+        } catch (e) {
+          throw new Error('当前页面未能确认取消操作');
+        }
       }
       recovered = true;
       clearTimeout(timeoutId);

@@ -705,12 +705,16 @@ function cleanupAllInjections() {
 function setupMutationObserver() {
   if (mutationObserver) mutationObserver.disconnect();
   let addedSinceLastCheck = 0;
+  let textChangedSinceLastCheck = 0;
   const QUIET_PERIOD = 300;
 
+  // v1.2.13 fix: Bug #3 — 扩展观察范围到 characterData，捕捉 React/Vue 等框架
+  // 直接修改文本节点（.textContent = ...）的场景
   mutationObserver = new MutationObserver((mutations) => {
     if (observerPaused || !translationCompletedOnce) return;
 
     let batchAdded = 0;
+    let batchTextChanged = 0;
     for (const mutation of mutations) {
       if (mutation.type === 'childList') {
         // 忽略我们自己注入的翻译元素
@@ -738,15 +742,25 @@ function setupMutationObserver() {
           }
           batchAdded++;
         }
+      } else if (mutation.type === 'characterData') {
+        // 文本节点内容变化：跳过我们自己注入元素内部的文本
+        const parent = mutation.target && mutation.target.parentElement;
+        if (parent && typeof parent.className === 'string' && parent.className.includes('dual-translate-')) {
+          continue;
+        }
+        batchTextChanged++;
       }
     }
 
-    if (batchAdded > 2) {
+    const totalChange = batchAdded + batchTextChanged;
+    // v1.2.13 fix: Bug #3 — 阈值降低为 >= 1（任一变化即触发），并支持文本节点更新
+    if (totalChange > 0) {
       addedSinceLastCheck += batchAdded;
+      textChangedSinceLastCheck += batchTextChanged;
 
       clearTimeout(mutationQuietTimer);
       mutationQuietTimer = setTimeout(() => {
-        if (addedSinceLastCheck > 0 && !isTranslating) {
+        if ((addedSinceLastCheck > 0 || textChangedSinceLastCheck > 0) && !isTranslating) {
           const now = Date.now();
           // 防止频繁重新翻译
           if (now - lastRetranslateTime > 2000) {
@@ -756,15 +770,63 @@ function setupMutationObserver() {
           }
         }
         addedSinceLastCheck = 0;
+        textChangedSinceLastCheck = 0;
         mutationQuietTimer = null;
       }, QUIET_PERIOD);
     }
   });
 
+  // v1.2.13 fix: Bug #3 — 增加 characterData 观察，捕捉文本节点内容更新
   mutationObserver.observe(document.body, {
     childList: true,
-    subtree: true
+    subtree: true,
+    characterData: true
   });
+}
+
+// v1.2.13 fix: Bug #3 — 周期扫描：当 translationEnabled 开启时，定期检测页面是否有新文本/变化文本。
+// 解决 MutationObserver 漏掉的场景：display:none → block、Shadow DOM、iframe 内变化、
+// 框架内部状态驱动的批量 DOM 重写等。
+// 关键设计：先做轻量预检（长度 + 文本抽样指纹），无变化则跳过 startTranslation。
+let _rescanTimer = null;
+let _lastSeenTextFingerprint = '';
+function setupPeriodicRescan() {
+  if (_rescanTimer) {
+    clearInterval(_rescanTimer);
+    _rescanTimer = null;
+  }
+  const rescanConfig = settings?.rules?.autoRescan;
+  if (!rescanConfig || !rescanConfig.enabled) return;
+  const intervalSec = Math.max(2, Number(rescanConfig.interval) || 5);
+  const idleOnly = rescanConfig.idleOnly !== false;
+  _lastSeenTextFingerprint = getPageTextFingerprint();
+  _rescanTimer = setInterval(() => {
+    if (observerPaused || isTranslating || !translationCompletedOnce) return;
+    if (idleOnly && (typeof document !== 'undefined') && document.visibilityState === 'hidden') return;
+    // 轻量预检：同时比较长度和抽样文本，避免等长度替换漏检。
+    const newFingerprint = getPageTextFingerprint();
+    if (newFingerprint === _lastSeenTextFingerprint) return;
+    _lastSeenTextFingerprint = newFingerprint;
+    const now = Date.now();
+    if (now - lastRetranslateTime < 2000) return;
+    lastRetranslateTime = now;
+    startTranslation({ silent: true }).catch(e => dtError('periodic rescan startTranslation error:', e));
+  }, intervalSec * 1000);
+}
+function teardownPeriodicRescan() {
+  if (_rescanTimer) { clearInterval(_rescanTimer); _rescanTimer = null; }
+  _lastSeenTextFingerprint = '';
+}
+
+function getPageTextFingerprint() {
+  const text = document.body?.textContent || '';
+  const sample = text.length > 4000 ? `${text.slice(0, 2000)}|${text.slice(-2000)}` : text;
+  let hash = 2166136261;
+  for (let i = 0; i < sample.length; i++) {
+    hash ^= sample.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${text.length}:${hash >>> 0}`;
 }
 
 function pauseObserver() {
@@ -784,7 +846,7 @@ async function startTranslation(opts = {}) {
   try {
     await sendMessage('setIconState', { state: 'translating' });
     cleanupAllInjections();
-    translationCache.clear(); // 必须清空页面级缓存，避免跨页面污染
+    await translationCache.clear(); // 必须清空页面级缓存，避免跨页面污染
     if (!opts.silent) {
       showLoading('正在分析页面...', '提取需要翻译的文本段落');
     }
@@ -795,7 +857,10 @@ async function startTranslation(opts = {}) {
       updateLoadingProgress(0,0,'未检测到需要翻译的内容');
       setTimeout(hideLoading,800);
       await sendMessage('setIconState',{state:'idle'});
-      translationCompletedOnce = false;
+      // Keep observers active for skeleton/SPA pages whose content arrives later.
+      translationCompletedOnce = true;
+      setupMutationObserver();
+      setupPeriodicRescan();
       return;
     }
     // v1.0.6 perf: 构建 segId → seg 查找表，供 fillTranslations O(1) 查找
@@ -830,7 +895,10 @@ async function startTranslation(opts = {}) {
       updateLoadingProgress(0, 0, '页面中文占比较高，已跳过翻译');
       setTimeout(hideLoading, 1200);
       await sendMessage('setIconState', { state: 'idle' });
-      translationCompletedOnce = false;
+      // Keep watching because a mostly-Chinese/skeleton page can change later.
+      translationCompletedOnce = true;
+      setupMutationObserver();
+      setupPeriodicRescan();
       return;
     }
 
@@ -853,6 +921,8 @@ async function startTranslation(opts = {}) {
     await sendMessage('setIconState',{state:'translated'});
     translationCompletedOnce = true;
     setupMutationObserver();
+    // v1.2.13 fix: Bug #3 — 装/拆与 mutationObserver 同周期
+    setupPeriodicRescan();
   } catch(e) {
     hideLoading();
     if (e.name === 'AbortError') {
@@ -1515,6 +1585,8 @@ function resetAll() {
   if (mutationObserver) { mutationObserver.disconnect(); mutationObserver = null; }
   // v1.0.7 fix: 清除 setupMutationObserver 残留的 quietTimer，避免重翻译后旧定时器意外触发
   if (mutationQuietTimer) { clearTimeout(mutationQuietTimer); mutationQuietTimer = null; }
+  // v1.2.13 fix: Bug #3 — 同步拆除周期扫描定时器
+  teardownPeriodicRescan();
   // v1.0.3: 清理懒加载 observer（§3.4）
   teardownLazyObserver();
   observerPaused = false;
@@ -1628,17 +1700,57 @@ function onSpaRouteChange() {
 window.addEventListener('popstate', onSpaRouteChange);
 window.addEventListener('hashchange', onSpaRouteChange);
 
-// 监听 display 颜色/字体变化，通过 CSS 变量实时更新所有译文样式
+// v1.2.13 fix: Bug #3 (P3-5) — 拦截 history.pushState/replaceState，
+// 解决 React Router / Vue Router / Next.js 等 SPA 路由切换不触发 popstate 的问题
+(function wrapHistoryApi() {
+  if (!window.history || !window.history.pushState) return;
+  const origPush = window.history.pushState;
+  const origReplace = window.history.replaceState;
+  // 用 bind 包装确保 this 正确
+  window.history.pushState = function(...args) {
+    const ret = origPush.apply(this, args);
+    try { window.dispatchEvent(new Event('dual-translate-locationchange')); } catch {}
+    return ret;
+  };
+  window.history.replaceState = function(...args) {
+    const ret = origReplace.apply(this, args);
+    try { window.dispatchEvent(new Event('dual-translate-locationchange')); } catch {}
+    return ret;
+  };
+  // 监听自定义事件，复用 onSpaRouteChange
+  window.addEventListener('dual-translate-locationchange', onSpaRouteChange);
+})();
+
+// v1.2.13 fix: P2-7 / Bug #4 — 同时监听 sync 和 local 区域，
+// 避免 sync 变更（来自 getSettings 写入）把 content.js 的 settings.api.apiKeys 重置为 undefined
+// （因为 syncData 中不含 apiKeys，被同步过来后 settings.api.apiKeys 会被覆盖成 undefined）
+let _lastLocalApiKeys = null;
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'sync' || !settings) return;
-  const sc = changes.dual_translate_settings;
-  if (!sc) return;
-  const newS = sc.newValue;
-  if (!newS) return;
-  const oldD = sc.oldValue && sc.oldValue.display;
-  const newD = newS.display;
-  settings = newS;
-  if (newD && JSON.stringify(oldD) !== JSON.stringify(newD)) {
-    applyTranslationStyles();
+  if (!settings) return;
+  if (area === 'sync') {
+    const sc = changes.dual_translate_settings;
+    if (sc && sc.newValue) {
+      // 保留当前 local 的 apiKeys 引用，因为 sync 写入不会带 apiKeys
+      const preservedApiKeys = settings.api && settings.api.apiKeys;
+      settings = sc.newValue;
+      if (preservedApiKeys && settings.api) {
+        settings.api.apiKeys = preservedApiKeys;
+      }
+      const oldD = sc.oldValue && sc.oldValue.display;
+      const newD = settings.display;
+      if (newD && JSON.stringify(oldD) !== JSON.stringify(newD)) {
+        applyTranslationStyles();
+      }
+    }
+  } else if (area === 'local') {
+    // local 区：用户可能在 popup 改了 apiKeys（虽然 apiKeys 在 background 内存中），
+    // 或修改了翻译缓存、自定义 prompt 等；不影响当前翻译会话，只记录
+    if (changes.dual_translate_api_keys_local) {
+      _lastLocalApiKeys = changes.dual_translate_api_keys_local.newValue || null;
+    }
+  }
+  // v1.2.13 fix: Bug #3 — sync 变更后若 autoRescan 配置变化，重启周期扫描
+  if (area === 'sync' && settings && settings.rules && settings.rules.autoRescan) {
+    setupPeriodicRescan();
   }
 });

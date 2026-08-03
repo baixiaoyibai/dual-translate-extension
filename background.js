@@ -70,13 +70,26 @@ function _getLogLevel() {
 }
 
 function _pushLog(level, args) {
+  const redact = (value) => {
+    if (!value || typeof value !== 'object') return value;
+    if (Array.isArray(value)) return value.map(redact);
+    const result = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (/api.?key|secret.?key|access.?key|authorization|token|password|prompt|request.?body/i.test(key)) {
+        result[key] = '[REDACTED]';
+      } else {
+        result[key] = redact(item);
+      }
+    }
+    return result;
+  };
   const entry = {
     seq: ++logSeq,
     ts: Date.now(),
     level, // 'error' | 'warn' | 'info' | 'debug'
     msg: args.map(a => {
       if (typeof a === 'string') return a;
-      try { return JSON.stringify(a); } catch { return String(a); }
+       try { return JSON.stringify(redact(a)); } catch { return '[unserializable]'; }
     }).join(' ')
   };
   // v1.1.0 perf: 直接覆写槽位并回绕写指针，O(1) 写入，不再调用 O(n) 的 shift
@@ -157,7 +170,7 @@ function setupContextMenu() {
 }
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  await init();
+  try { await init();
   // v1.2.2 fix: BUG-7 校验 tab 是否存在及其 id，避免无 tab 上下文（如后台触发）时 sendMessage 抛异常
   if (info.menuItemId === 'translate-selection' && info.selectionText && tab?.id) {
     try {
@@ -187,6 +200,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         translation: '翻译失败: ' + error.message
       }).catch(() => {});
     }
+  }
+  } catch (e) {
+    console.warn('[dual-translate] context menu failed:', e);
   }
 });
 
@@ -267,7 +283,7 @@ async function handleMessage(message, sender) {
       const isExtensionPage = _isExtensionSender(sender);
       if (isExtensionPage) {
         // v1.2.12 fix: P2-2 — 返回深拷贝，避免扩展页面直接修改 settingsManager.settings 活引用
-        return { settings: this._cloneSettingsForExport(settingsManager.settings) };
+        return { settings: _cloneSettingsForExport(settingsManager.settings) };
       }
       // 非 extension 页面（content script 等）：深拷贝并将 apiKeys 置空，防止密钥泄露给网页
       // v1.1.0 perf: 优先 structuredClone；回退时仅深拷贝 api 段，避免整体 JSON 序列化开销
@@ -318,9 +334,16 @@ async function handleMessage(message, sender) {
       return { success: true };
 
     case 'saveSettings':
-      await settingsManager.saveSettings(message.settings);
-      await apiManager.reload();
-      return { success: true };
+      // v1.2.13 fix: Bug #1c — 捕获 settingsManager.saveSettings 内部错误并返回失败状态，
+      // 让 options.js 等调用方能感知持久化失败（之前仅 console.warn，UI 永远显示"已保存"）
+      try {
+        await settingsManager.saveSettings(message.settings);
+        await apiManager.reload();
+        return { success: true };
+      } catch (e) {
+        console.error('[background] saveSettings failed:', e);
+        return { success: false, error: e?.message || String(e) };
+      }
 
     case 'getApiStatus':
       // v1.1.0 security: API 状态属敏感读，仅允许扩展页面调用
@@ -358,6 +381,7 @@ async function handleMessage(message, sender) {
       return { usage: await settingsManager.getMonthlyUsage() };
 
     case 'getGlossary':
+      if (!_isExtensionSender(sender)) return { error: 'unauthorized' };
       return { glossary: await settingsManager.getGlossary() };
 
     case 'getGlossaryForDomain':

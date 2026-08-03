@@ -347,6 +347,10 @@ body {
   background: var(--warning);
 }
 
+.api-status-dot.rate_limited {
+  background: var(--warning);
+}
+
 .api-status-dot.unconfigured,
 .api-status-dot.disabled {
   background: var(--disabled);

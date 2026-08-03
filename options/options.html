@@ -315,6 +315,58 @@
       </div>
 
       <div class="section-card">
+        <div class="section-card-header">🔄 自动重新扫描</div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">启用自动重新扫描</div>
+            <div class="setting-desc">
+              <strong>功能用途：</strong>当网页通过 JavaScript 动态加载内容、SPA 路由切换、滚动懒加载、或文本节点被框架（React/Vue）原地修改时，
+              标准的 DOM 变更监听（MutationObserver）可能漏掉部分文本，导致翻译不及时。
+              开启本功能后，扩展会按设定间隔周期性扫描页面，若检测到文本变化（文本长度或抽样内容变化），
+              自动触发一次重新翻译。
+              <br><br>
+              <strong>用户端实际效果：</strong>
+              <ul style="margin: 6px 0 0 0; padding-left: 22px;">
+                <li>✅ 解决「页面内切换无法及时翻译」的问题</li>
+                <li>✅ 自动捕获 React/Vue 等框架的 in-place 文本更新</li>
+                <li>✅ 已翻译内容走缓存，重复扫描不消耗 API 配额</li>
+                <li>⚠️ 启用后会增加少量 CPU 占用（每次扫描约 10-50ms）</li>
+                <li>⚠️ 大部分静态页面无需开启，保持关闭即可</li>
+              </ul>
+              <strong>推荐开启场景：</strong>动态社交媒体（微博、Twitter）、评论区、可无限滚动的网页（Reddit、知乎热榜）、在线文档协作平台、含 iframe / Shadow DOM 的复杂 SPA。
+            </div>
+          </div>
+          <div class="setting-control">
+            <label class="toggle-switch"><input type="checkbox" id="autoRescanEnabled"><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">扫描间隔</div>
+            <div class="setting-desc">每 N 秒扫描一次页面。建议：内容变化快的页面（5 秒），一般动态页面（10-30 秒），慢变化页面（60 秒）。</div>
+          </div>
+          <div class="setting-control">
+            <select id="autoRescanInterval">
+              <option value="2">2 秒（最积极，耗 CPU）</option>
+              <option value="5" selected>5 秒（推荐默认值）</option>
+              <option value="10">10 秒</option>
+              <option value="30">30 秒</option>
+              <option value="60">60 秒（最省）</option>
+            </select>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-label">仅前台标签页扫描</div>
+            <div class="setting-desc">开启后，扩展在后台标签页（未聚焦）时跳过扫描。强烈建议开启，避免无用 CPU 占用。</div>
+          </div>
+          <div class="setting-control">
+            <label class="toggle-switch"><input type="checkbox" id="autoRescanIdleOnly" checked><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-card">
         <div class="section-card-header">▶ 触发行为</div>
         <div class="setting-row">
           <div class="setting-info">

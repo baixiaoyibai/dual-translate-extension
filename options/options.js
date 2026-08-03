@@ -212,6 +212,17 @@ function showSavedTip() {
   setTimeout(() => tip.classList.remove('show'), 1500);
 }
 
+function showSaveError(message) {
+  const tip = document.getElementById('savedTip');
+  if (!tip) return;
+  tip.textContent = `保存失败：${message || '未知错误'}`;
+  tip.classList.add('show', 'error');
+  setTimeout(() => {
+    tip.classList.remove('show', 'error');
+    tip.textContent = '✓ 已保存';
+  }, 2500);
+}
+
 async function loadAllData() {
   // 使用 Promise.allSettled 确保单个消息失败不会导致全部数据加载失败
   const results = await Promise.allSettled([
@@ -275,12 +286,42 @@ async function loadAllData() {
 }
 
 async function saveSetting(path, value) {
-  await chrome.runtime.sendMessage({ action: 'updateSettings', path, value });
+  try {
+    const resp = await chrome.runtime.sendMessage({ action: 'updateSettings', path, value });
+    if (!resp || resp.success === false || resp.error) {
+      throw new Error(resp?.error || '保存失败');
+    }
+  } catch (e) {
+    console.warn('[options] saveSetting error:', path, e);
+    showSaveError(e.message);
+    throw e;
+  }
 }
 
+// v1.2.13 fix: Bug #1a — 旧实现直接 `settings = newSettings` 用未清理对象覆盖本地引用，
+// 新对象中可能含被掩码清空的 apiKeys；随后任何 saveAllSettings 会重复发送空 apiKeys 触发
+// settings-manager 的"全空保护"逻辑，导致其他字段保存异常。
+// 修复：保存成功后从 background 拉回权威 settings 覆盖本地，确保本地与 SW 内存一致。
 async function saveAllSettings(newSettings) {
-  await chrome.runtime.sendMessage({ action: 'saveSettings', settings: newSettings });
-  settings = newSettings;
+  const resp = await chrome.runtime.sendMessage({ action: 'saveSettings', settings: newSettings });
+  if (!resp || resp.success === false || resp.error) {
+    console.error('[options] saveAllSettings failed:', resp?.error);
+    throw new Error(resp?.error || '保存失败');
+  }
+  // 从 background 拉回权威 settings（含 SW 实际持久化的 apiKeys）
+  try {
+    const get = await chrome.runtime.sendMessage({ action: 'getSettings' });
+    if (get && get.settings) {
+      // 扩展页面 getSettings 会返回完整 settings（含 apiKeys），直接覆盖本地
+      settings = get.settings;
+    } else {
+      // 拉取失败时回退：仅同步我们刚刚传入的字段
+      settings = newSettings;
+    }
+  } catch (e) {
+    console.warn('[options] saveAllSettings post-fetch failed, fallback to newSettings:', e);
+    settings = newSettings;
+  }
 }
 
 function setupWelcomeOverlay() {
@@ -451,6 +492,23 @@ function setupRulesSettings() {
   bindToggle('contextMenu', 'trigger.contextMenu', t.contextMenu);
   bindNumber('translateDelay', 'trigger.translateDelay', t.translateDelay);
   bindToggle('translationCache', 'trigger.translationCache', t.translationCache);
+
+  // v1.2.13 fix: Bug #3 — 自动重新扫描设置
+  const ar = (r.autoRescan) || { enabled: false, interval: 5, idleOnly: true };
+  bindToggle('autoRescanEnabled', 'rules.autoRescan.enabled', ar.enabled);
+  const intervalSel = document.getElementById('autoRescanInterval');
+  if (intervalSel) {
+    intervalSel.value = String(ar.interval || 5);
+    intervalSel.addEventListener('change', () => {
+      const val = parseInt(intervalSel.value, 10);
+      if (!Number.isFinite(val) || val < 2) return;
+      settings.rules.autoRescan = settings.rules.autoRescan || {};
+      settings.rules.autoRescan.interval = val;
+      saveSetting('rules.autoRescan.interval', val).catch(err => console.error('[options] saveSetting failed:', err));
+      showSavedTip();
+    });
+  }
+  bindToggle('autoRescanIdleOnly', 'rules.autoRescan.idleOnly', ar.idleOnly !== false);
 
   const excludeMode = document.getElementById('excludeMode');
   excludeMode.value = t.excludeMode;
@@ -860,7 +918,7 @@ async function saveGlossary() {
   await chrome.runtime.sendMessage({ action: 'saveGlossary', glossary: glossaryByDomain });
 }
 
-const API_STATUS_LABELS = { available: '可用', quota_exceeded: '额度不足', error: '异常', auth_error: '密钥错误' };
+const API_STATUS_LABELS = { available: '可用', quota_exceeded: '额度不足', rate_limited: '频率限制', error: '异常', auth_error: '密钥错误' };
 function getStatusLabel(status) { return API_STATUS_LABELS[status] || '未配置'; }
 
 function setupApiManagement() {
@@ -1355,6 +1413,10 @@ function renderApiCards() {
   container.querySelectorAll('.api-test-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const apiName = btn.dataset.api;
+      if (!apiUnlocked) {
+        alert('请先输入 PIN 码解锁 API 配置');
+        return;
+      }
       // 清除该按钮上一次的恢复 timer，避免极端时序下新测试被旧 timer 覆盖文字
       if (btn._testRestoreTimer) {
         clearTimeout(btn._testRestoreTimer);
@@ -1446,6 +1508,10 @@ function renderApiCards() {
   container.querySelectorAll('.api-clear-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const apiName = btn.dataset.api;
+      if (!apiUnlocked) {
+        alert('请先输入 PIN 码解锁 API 配置');
+        return;
+      }
       const displayName = getApiDisplayName(apiName);
       if (!confirm(`确定清除「${displayName}」的所有配置信息？\n\n这将删除：密钥、模型、接入点等数据，且不可恢复。`)) return;
 
@@ -2107,7 +2173,10 @@ function setupAdvancedSettings() {
       const s = data.settings;
       if (!s.api || !Array.isArray(s.api.apiPriority)) throw new Error('文件不是双语翻译助手的设置（缺少 api.apiPriority）');
       if (!s.display || !s.general) throw new Error('文件不是双语翻译助手的设置（缺少 display/general）');
-      await chrome.runtime.sendMessage({ action: 'importAllSettings', data });
+       const importResp = await chrome.runtime.sendMessage({ action: 'importAllSettings', data });
+       if (!importResp || importResp.success === false || importResp.error) {
+         throw new Error(importResp?.error || '导入保存失败');
+       }
       showSavedTip();
       alert('导入成功！API 密钥需要重新在「API 管理」中填写。');
       setTimeout(() => location.reload(), 500);
@@ -2151,7 +2220,14 @@ async function handleResetDefaults() {
   let reloadScheduled = false;
 
   try {
-    // 构建默认设置：从 background 获取完整默认设置，保留用户自定义接口
+    // v1.2.13 fix: Bug #5 — 从全局 DEFAULT_SETTINGS（来自 api-metadata.js）取完整默认值，
+    // 之前硬编码遗漏了 rules.skipChineseSegments / customModelNames / customModelVariants /
+    // api.quotaLimits 等字段，导致"恢复默认"后这些用户配置被默默清零
+    const DEFAULTS = (typeof window !== 'undefined' && window.DEFAULT_SETTINGS) ? window.DEFAULT_SETTINGS : null;
+    if (!DEFAULTS) {
+      throw new Error('无法加载默认设置（DEFAULT_SETTINGS 未定义）');
+    }
+    // 构建默认设置：从 background 获取完整当前设置，保留用户自定义项
     const resp = await chrome.runtime.sendMessage({ action: 'getSettings' });
     const currentSettings = (resp && resp.settings) || settings;
 
@@ -2163,61 +2239,29 @@ async function handleResetDefaults() {
       ? JSON.parse(JSON.stringify(currentSettings.api.apiKeys))
       : {};
 
-    // 构建重置后的设置：使用默认值 + 保留项
-    const resetSettings = {
-      display: {
-        defaultMode: 'bilingual',
-        translationColor: '#888888',
-        translationSize: '85%',
-        translationFont: '',
-        translationSpacing: '4px',
-        hoverDelay: 200,
-        panelPosition: 'right',
-        panelWidth: 400,
-        translatePageTitle: true,
-        translateImgAlt: true
-      },
-      rules: {
-        onlyEnJa: true,
-        translateCodeBlocks: false,
-        minTextLength: 3
-      },
-      trigger: {
-        autoTranslate: true,
-        excludeList: currentSettings?.trigger?.excludeList || [],
-        excludeMode: 'blacklist',
-        contextMenu: true,
-        translateDelay: 500,
-        translationCache: true
-      },
-      api: {
-        enabledApis: { baidu: true, deepseek: true, baidu_llm: true, glm: true },
-        apiPriority: ['baidu', 'glm', 'deepseek', 'baidu_llm', 'volcano', 'custom', 'tongyi', 'zhipu', 'yi', 'doubao'],
-        apiKeys: preservedApiKeys,
-        apiEndpoints: currentSettings?.api?.apiEndpoints || {},
-        apiModels: currentSettings?.api?.apiModels || {},
-        customProviders: preservedCustomProviders,
-        sourceLanguage: 'auto',
-        quotaLimits: {}
-      },
-      advanced: {
-        batchSize: 10,
-        requestTimeout: 10,
-        retryCount: 1,
-        retryInterval: 5,
-        lazyTranslate: true
-      },
-      general: {
-        hasCompletedWelcome: currentSettings?.general?.hasCompletedWelcome ?? true,
-        lastMode: 'bilingual',
-        translationEnabled: true,
-        logLevel: 2,
-        toggleTranslateShortcut: 'Alt+T'
-      }
-    };
+    // 从默认设置出发，深度克隆所有字段，然后仅覆盖需要保留的字段
+    const resetSettings = JSON.parse(JSON.stringify(DEFAULTS));
+    // 覆盖：保留用户的 customProviders / apiKeys / 端点 / 模型
+    resetSettings.api = resetSettings.api || {};
+    resetSettings.api.customProviders = preservedCustomProviders;
+    resetSettings.api.apiKeys = preservedApiKeys;
+    resetSettings.api.apiEndpoints = currentSettings?.api?.apiEndpoints || {};
+    resetSettings.api.apiModels = currentSettings?.api?.apiModels || {};
+    // general.hasCompletedWelcome 保留用户当前值（避免反复弹欢迎页）
+    if (currentSettings?.general && typeof currentSettings.general.hasCompletedWelcome === 'boolean') {
+      resetSettings.general = resetSettings.general || {};
+      resetSettings.general.hasCompletedWelcome = currentSettings.general.hasCompletedWelcome;
+    } else {
+      // 第一次 reset 时，把 hasCompletedWelcome 设为 true（否则下次启动再次弹欢迎页）
+      resetSettings.general = resetSettings.general || {};
+      resetSettings.general.hasCompletedWelcome = true;
+    }
 
     // 保存重置后的设置
-    await chrome.runtime.sendMessage({ action: 'saveSettings', settings: resetSettings });
+    const saveResp = await chrome.runtime.sendMessage({ action: 'saveSettings', settings: resetSettings });
+    if (!saveResp || saveResp.success === false || saveResp.error) {
+      throw new Error(saveResp?.error || '保存默认设置失败');
+    }
 
     // 清除自定义 LLM Prompt
     await chrome.storage.local.remove('dual_translate_custom_llm_prompt');
