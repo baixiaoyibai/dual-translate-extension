@@ -47,6 +47,17 @@ npm run check
 
 该脚本会对所有 JS 文件执行 `node --check` 语法验证。
 
+
+### 完整验证
+
+在创建 PR 或发布分支前，请运行：
+
+```bash
+npm run verify
+```
+
+该命令会依次执行语法检查和现有回归测试。
+
 ## 代码规范
 
 ### 版本迭代规则
@@ -60,6 +71,14 @@ npm run check
 | 不兼容的架构变更 | 升级主版本 | `1.x.x → 2.0.0` |
 
 每次版本升级需同步更新：`manifest.json`、`package.json`、`README.md`（顶部版本标注）、`CHANGELOG.md`。
+
+
+### 发布前核对
+
+1. 确认上述 4 个文件的版本号与变更说明一致。
+2. 运行 `npm run verify`，并确认 `git diff --check` 无空白错误。
+3. 确认 `git status` 中没有 `.env`、`config/api-keys.json`、私钥或发布 zip 等敏感/构建文件。
+4. 从当前版本创建 `release/vX.Y.Z` 分支；CI 会自动检查 `release/**` 与历史 `publish-*` 分支。
 
 ### 安全要求
 

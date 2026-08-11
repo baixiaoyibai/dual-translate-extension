@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, "release/**", "publish-*"]
   pull_request:
-    branches: [master, main]
+    branches: [master, main, "release/**", "publish-*"]
 
 jobs:
   syntax-check:
@@ -19,8 +19,8 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run syntax check
-        run: npm run check
+      - name: Run verification
+        run: npm run verify
 
       - name: Validate JSON files
         run: |
