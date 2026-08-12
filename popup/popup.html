@@ -68,11 +68,20 @@
       </div>
     </div>
 
-    <div class="popup-section">
-      <div class="section-title">文本翻译</div>
-      <textarea id="manualTranslateInput" class="manual-text-input" placeholder="粘贴或输入要翻译的文本..." rows="3" maxlength="10000"></textarea>
+    <div class="popup-section manual-translate-section">
+      <div class="section-title manual-translate-title">文本翻译</div>
+      <div class="manual-translate-layout">
+        <div class="manual-translate-col">
+          <div class="manual-col-label">原文</div>
+          <textarea id="manualTranslateInput" class="manual-text-input" placeholder="粘贴或输入要翻译的文本..." rows="5" maxlength="10000"></textarea>
+        </div>
+        <div class="manual-translate-divider"></div>
+        <div class="manual-translate-col">
+          <div class="manual-col-label">译文</div>
+          <div id="manualTranslateResult" class="manual-translate-result"></div>
+        </div>
+      </div>
       <button id="manualTranslateBtn" class="manual-translate-btn">翻译</button>
-      <div id="manualTranslateResult" class="manual-translate-result"></div>
     </div>
 
     <div class="popup-section">
