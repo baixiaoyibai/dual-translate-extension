@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   await Promise.all([loadApiStatus(), loadDailyUsage(), loadCacheInfo()]);
   setupEventListeners();
+  setupManualTranslate();
 });
 
 async function loadState() {
@@ -438,4 +439,56 @@ async function loadDailyUsage() {
   } catch {
     container.innerHTML = '<div class="status-loading">无法获取用量</div>';
   }
+}
+
+// v1.2.15: Manual text translation - user can paste text and translate using current API settings
+function setupManualTranslate() {
+  const input = document.getElementById('manualTranslateInput');
+  const btn = document.getElementById('manualTranslateBtn');
+  const result = document.getElementById('manualTranslateResult');
+  if (!input || !btn || !result) return;
+
+  btn.addEventListener('click', async () => {
+    const text = input.value.trim();
+    if (!text) {
+      result.textContent = '请输入要翻译的文本';
+      result.className = 'manual-translate-result visible error';
+      return;
+    }
+    if (text.length > 10000) {
+      result.textContent = '文本超过 10000 字符限制';
+      result.className = 'manual-translate-result visible error';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '翻译中...';
+    result.textContent = '正在翻译...';
+    result.className = 'manual-translate-result visible loading';
+
+    try {
+      const sourceLang = (cachedSettings && cachedSettings.api && cachedSettings.api.sourceLanguage) || 'auto';
+      const resp = await sendMessageWithRetry({
+        action: 'translateTexts',
+        texts: [text],
+        sourceLang: sourceLang
+      });
+      if (resp && resp.translations && resp.translations.length > 0 && resp.translations[0].translation) {
+        result.textContent = resp.translations[0].translation;
+        result.className = 'manual-translate-result visible';
+      } else if (resp && resp.error) {
+        result.textContent = resp.error;
+        result.className = 'manual-translate-result visible error';
+      } else {
+        result.textContent = '翻译失败，未获得结果';
+        result.className = 'manual-translate-result visible error';
+      }
+    } catch (e) {
+      result.textContent = '翻译失败: ' + (e && e.message ? e.message : String(e));
+      result.className = 'manual-translate-result visible error';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '翻译';
+    }
+  });
 }

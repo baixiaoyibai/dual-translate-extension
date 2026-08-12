@@ -411,7 +411,7 @@
         <div class="setting-row">
           <div class="setting-info">
             <div class="setting-label">列表模式</div>
-            <div class="setting-desc">黑名单：排除列表中的网站；白名单：仅翻译列表中的网站<br><small >黑名单示例：<code>*.example.com</code> 匹配 <code>a.example.com</code> / <code>b.example.com</code> / <code>example.com</code>；<code>example.com</code> 仅匹配裸域。<br>白名单示例：留空 = 所有网站都翻译；填了 <code>*.github.com</code> = 只翻译 GitHub。</small></div>
+            <div class="setting-desc">黑名单：排除列表中的网站；白名单：仅翻译列表中的网站<br><small >黑名单示例：<code>*.example.com</code> 匹配 <code>a.example.com</code> / <code>b.example.com</code> / <code>example.com</code>；<code>example.com</code> 仅匹配裸域。<br>白名单示例：留空 = 不翻译任何网站；填了 <code>*.github.com</code> = 只翻译 GitHub。</small></div>
           </div>
           <div class="setting-control">
             <select id="excludeMode">
@@ -842,7 +842,7 @@
             <div class="setting-desc">所有 API 都不可用后多久重新尝试</div>
           </div>
           <div class="setting-control">
-            <input type="number" id="retryInterval" value="5" min="1" max="60"> 分钟
+            <input type="number" id="retryInterval" value="5" min="1" max="60"> 秒
           </div>
         </div>
         <div class="setting-row">

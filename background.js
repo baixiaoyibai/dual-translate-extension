@@ -626,9 +626,13 @@ async function handleClearApi(apiName) {
     // v1.2.2 fix: BUG-1 saveSettings 内部的"内存覆盖保护"会在 incoming apiKeys 全空时
     // 将内存中已有密钥恢复回副本并写回 local storage，导致清除操作无效。
     // 因此将 local storage 密钥删除移到 saveSettings 之后执行，并清理内存中被恢复的密钥。
-    if (settingsManager.settings?.api?.apiKeys?.[apiName]) {
-      delete settingsManager.settings.api.apiKeys[apiName];
-    }
+    // v1.2.15 fix: B-1 - use _enqueueWrite to serialize the in-memory mutation
+    // with any concurrent saveSettings calls, preventing race conditions
+    await settingsManager._enqueueWrite(async () => {
+      if (settingsManager.settings?.api?.apiKeys?.[apiName]) {
+        delete settingsManager.settings.api.apiKeys[apiName];
+      }
+    });
     // 清除本地存储中的密钥（必须在 saveSettings 之后执行，避免被内存覆盖保护写回）
     const stored = await chrome.storage.local.get(LOCAL_API_KEYS_KEY);
     const localKeys = stored[LOCAL_API_KEYS_KEY] || {};

@@ -1585,7 +1585,9 @@ function resetAll() {
   if (mutationObserver) { mutationObserver.disconnect(); mutationObserver = null; }
   // v1.0.7 fix: 清除 setupMutationObserver 残留的 quietTimer，避免重翻译后旧定时器意外触发
   if (mutationQuietTimer) { clearTimeout(mutationQuietTimer); mutationQuietTimer = null; }
-  // v1.2.13 fix: Bug #3 — 同步拆除周期扫描定时器
+  // v1.2.15 fix: C-1 - clear pending SPA route timer to prevent unexpected re-translation after restore
+  if (_spaRouteTimer) { clearTimeout(_spaRouteTimer); _spaRouteTimer = null; }
+  // v1.2.13 fix: Bug #3 - 同步拆除周期扫描定时器
   teardownPeriodicRescan();
   // v1.0.3: 清理懒加载 observer（§3.4）
   teardownLazyObserver();
@@ -1747,6 +1749,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
     // 或修改了翻译缓存、自定义 prompt 等；不影响当前翻译会话，只记录
     if (changes.dual_translate_api_keys_local) {
       _lastLocalApiKeys = changes.dual_translate_api_keys_local.newValue || null;
+    }
+    // v1.2.15 fix: C-2 - reload glossary when it changes in local storage
+    if (changes.dual_translate_glossary) {
+      loadGlossary().catch(e => dtError('storage.onChanged glossary reload error:', e));
     }
   }
   // v1.2.13 fix: Bug #3 — sync 变更后若 autoRescan 配置变化，重启周期扫描

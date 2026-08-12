@@ -588,3 +588,91 @@ body {
   color: var(--text-secondary, #888);
   margin-top: 2px;
 }
+
+/* ==========================================================================
+   Manual Text Translation
+   ========================================================================== */
+.manual-text-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 60px;
+  max-height: 200px;
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.manual-text-input::placeholder {
+  color: var(--text-weak);
+}
+
+.manual-text-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.manual-translate-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition), transform var(--transition);
+}
+
+.manual-translate-btn:hover {
+  background: var(--accent-hover);
+}
+
+.manual-translate-btn:active {
+  transform: scale(0.98);
+}
+
+.manual-translate-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.manual-translate-result {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.6;
+  display: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.manual-translate-result.visible {
+  display: block;
+}
+
+.manual-translate-result.error {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.manual-translate-result.loading {
+  color: var(--text-weak);
+  text-align: center;
+}
