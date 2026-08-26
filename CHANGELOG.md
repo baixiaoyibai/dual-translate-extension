@@ -28,6 +28,23 @@
 
 ---
 
+## v1.2.16 (2026-08-26)
+
+> P1 安全修复：统一 HTTPS 端点校验、PIN 慢哈希、权限收窄、双实现一致性回归测试。
+
+### Security - 安全
+
+- **saveSettings 统一 HTTPS 端点校验**：`apiEndpoints` 与 `customProviders[].endpoint` 在落盘前统一强制 `https://`，仅 `localhost`/`127.0.0.1` 允许 HTTP；导入路径同样复用该校验，防止恶意导入或手工篡改后密钥发往明文端点。
+- **PIN 改为 PBKDF2 慢哈希**：由快速 SHA-256 升级为 PBKDF2-HMAC-SHA256（10 万次迭代）；旧版 SHA-256 哈希验证成功后自动平滑升级，不影响既有用户。
+- **收窄 `<all_urls>`**：`content_scripts.matches` 与 `host_permissions` 收窄为 `http://*/*`、`https://*/*`，`web_accessible_resources.matches` 同步收窄，移除 file/ftp 等非必要全站点权限。
+
+### Tests - 测试
+
+- 新增双实现一致性回归测试：断言 `content.js` 内联 `escapeContent` 与 `lib/escape-utils.js` `escapeAttr`、`background.js` 与 `content.js` 的 `isAlreadyChinese` 行为一致，防止再次漂移。
+- 扩展 `settings-manager` 测试：覆盖端点 HTTPS 校验拒绝、localhost 例外，以及 PIN PBKDF2 哈希与旧 SHA-256 哈希升级路径。
+
+---
+
 ## v1.2.15 (2026-08-13)
 
 > 新增弹窗文本翻译功能，修复重试阻塞和多个竞态/泄漏 bug。

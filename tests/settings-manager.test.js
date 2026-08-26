@@ -22,8 +22,16 @@ const chromeMock = {
       }
     },
     local: {
-      get: async key => ({ [key]: localData[key] }),
-      set: async value => Object.assign(localData, value)
+      get: async keys => {
+        const list = Array.isArray(keys) ? keys : [keys];
+        const out = {};
+        for (const key of list) {
+          if (localData[key] !== undefined) out[key] = localData[key];
+        }
+        return out;
+      },
+      set: async value => Object.assign(localData, value),
+      remove: async keys => { const list = [].concat(keys); for (const key of list) delete localData[key]; }
     }
   }
 };
@@ -68,6 +76,55 @@ async function main() {
   await Promise.all(Array.from({ length: 10 }, () => settingsManager.addDailyUsage('deepseek', 3)));
   const daily = localData.dual_translate_daily_usage;
   if (daily.deepseek !== 30) throw new Error(`daily usage mismatch: ${daily.deepseek}`);
+  // v1.2.16 security: M3 — saveSettings 统一 HTTPS 端点校验（localhost/127.0.0.1 例外）
+  async function assertRejected(promise, label) {
+    let rejected = false;
+    try {
+      await promise;
+    } catch {
+      rejected = true;
+    }
+    if (!rejected) throw new Error(label);
+  }
+
+  await assertRejected(
+    settingsManager.saveSettings({ api: { apiEndpoints: { custom: 'http://example.com/v1' } } }),
+    'saveSettings should reject http apiEndpoints'
+  );
+  await assertRejected(
+    settingsManager.saveSettings({ api: { customProviders: [{ id: 'p', name: 'P', endpoint: 'http://example.com', model: 'm', apiKey: 'k' }] } }),
+    'saveSettings should reject http customProviders endpoint'
+  );
+  await settingsManager.saveSettings({ api: { apiEndpoints: { custom: 'http://127.0.0.1:8000/v1' } } });
+  if (settingsManager.settings.api.apiEndpoints.custom !== 'http://127.0.0.1:8000/v1') {
+    throw new Error('localhost http endpoint should be allowed');
+  }
+  await settingsManager.saveSettings({ api: { apiEndpoints: { custom: 'https://api.example.com/v1' } } });
+
+  // v1.2.16 security: M2 — PIN 改为 PBKDF2 慢哈希，并兼容旧 SHA-256 哈希平滑升级
+  await settingsManager.setupPin('123456');
+  if (!String(localData.dual_translate_pin_hash).startsWith('pbkdf2$')) {
+    throw new Error('PIN hash should be PBKDF2 prefixed');
+  }
+  const pinOk = await settingsManager.verifyPin('123456');
+  if (!pinOk.success) throw new Error(`PIN verify failed: ${pinOk.error}`);
+  const pinBad = await settingsManager.verifyPin('000000');
+  if (pinBad.success) throw new Error('wrong PIN should fail');
+
+  async function sha256Hex(text) {
+    const data = new TextEncoder().encode(text);
+    const buf = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  const legacySalt = settingsManager._generateSalt();
+  const legacyHash = await sha256Hex('654321' + legacySalt);
+  localData.dual_translate_pin_hash = legacyHash;
+  localData.dual_translate_pin_salt = legacySalt;
+  const legacyOk = await settingsManager.verifyPin('654321');
+  if (!legacyOk.success) throw new Error(`legacy SHA-256 PIN verify failed: ${legacyOk.error}`);
+  if (!String(localData.dual_translate_pin_hash).startsWith('pbkdf2$')) {
+    throw new Error('legacy PIN should be upgraded to PBKDF2 hash');
+  }
 
   console.log('settings-manager tests passed');
 }
