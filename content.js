@@ -488,13 +488,44 @@ function hideLoading() {
   setTimeout(()=>{if(el.parentNode)el.remove()},350);
 }
 
-function showErrorBanner(text) {
+// v1.2.17 UX: 将技术性错误消息映射为普通用户可理解的文案（页面翻译横幅用）
+function humanizeTranslateError(m){
+  const s=String(m||'');
+  if(s.includes('NO_API'))return '尚未配置翻译 API，请先在扩展设置中添加密钥';
+  if(s.includes('额度')||/quota/i.test(s))return '翻译服务额度不足，请检查额度或更换翻译源';
+  if(s.includes('频率')||/rate.?limit/i.test(s))return '翻译请求过于频繁，请稍后再试';
+  if(s.includes('超时')||/timeout|abort/i.test(s))return '网络超时，请稍后重试';
+  if(/auth|401|403|密钥/i.test(s))return '密钥校验失败，请检查 API 密钥是否正确';
+  if(/network|fetch/i.test(s))return '网络异常，请检查网络后重试';
+  return s||'翻译失败，请稍后重试';
+}
+
+function showErrorBanner(text, opts = {}) {
   hideErrorBanner();
   const el = document.createElement('div');
   el.className = 'dual-translate-error-banner';
-  el.innerHTML = `<span class="dual-translate-error-text">${escapeContent(text)}</span><button class="dual-translate-error-close">✕</button>`;
-  el.style.cssText = 'position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:2147483646;background:var(--dt-bg-error);color:var(--dt-text-error);border:1px solid var(--dt-border-error);border-radius:8px;padding:10px 16px;font-size:13px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI Variable","Segoe UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB","Ubuntu","Cantarell","Noto Sans",sans-serif;box-shadow:0 4px 16px var(--dt-shadow);display:flex;align-items:center;gap:12px;max-width:520px;';
+  // v1.2.17 UX: NO_API 时提供「打开设置」入口，其余可重试错误提供「重试」按钮，修复反馈回路断裂
+  let actionsHtml = '';
+  if (opts.showSettings) {
+    actionsHtml += '<button class="dual-translate-error-action" data-action="settings">打开设置</button>';
+  } else if (opts.canRetry) {
+    actionsHtml += '<button class="dual-translate-error-action" data-action="retry">重试</button>';
+  }
+  el.innerHTML = `<span class="dual-translate-error-text">${escapeContent(text)}</span>${actionsHtml}<button class="dual-translate-error-close">✕</button>`;
+  el.style.cssText = 'position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:2147483647;background:var(--dt-bg-error);color:var(--dt-text-error);border:1px solid var(--dt-border-error);border-radius:8px;padding:10px 16px;font-size:13px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI Variable","Segoe UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB","Ubuntu","Cantarell","Noto Sans",sans-serif;box-shadow:0 4px 16px var(--dt-shadow);display:flex;align-items:center;gap:12px;max-width:520px;';
   el.querySelector('.dual-translate-error-close').style.cssText = 'background:none;border:none;cursor:pointer;font-size:16px;color:var(--dt-text-error);padding:0 4px;line-height:1;';
+  const actionBtn = el.querySelector('.dual-translate-error-action');
+  if (actionBtn) {
+    actionBtn.style.cssText = 'background:var(--dt-bg-error);color:var(--dt-text-error);border:1px solid var(--dt-text-error);border-radius:4px;padding:4px 12px;cursor:pointer;font-size:12px;line-height:1.4;flex-shrink:0;';
+    actionBtn.addEventListener('click', () => {
+      hideErrorBanner();
+      if (actionBtn.dataset.action === 'settings') {
+        sendMessage('openOptions').catch(() => {});
+      } else {
+        startTranslation().catch(() => {});
+      }
+    });
+  }
   el.querySelector('.dual-translate-error-close').addEventListener('click', hideErrorBanner);
   document.body.appendChild(el);
   errorBannerElement = el;
@@ -933,7 +964,7 @@ async function startTranslation(opts = {}) {
       }
     } else {
       dtError('startTranslation error:', e);
-      showErrorBanner(e.message || '翻译过程中发生未知错误');
+      showErrorBanner(humanizeTranslateError(e.message || '翻译过程中发生未知错误'), { canRetry: true });
       try { await sendMessage('setIconState',{state:'idle'}); } catch {}
     }
     translationCompletedOnce = false;
@@ -1200,8 +1231,11 @@ function fillTranslations(batchSegs) {
     if(translation&&translation.length>0){
       ph.textContent = translation;
     }else{
-      ph.textContent = '【该段翻译失败】';
+      // v1.2.17 UX: 段级失败标记为可点击重试，不再是无反馈的死文案
+      ph.textContent = '【该段翻译失败，点击重试】';
       ph.classList.add('dual-translate-failed');
+      ph.title = '点击重试该段翻译';
+      ensureFailedRetryRegistered();
     }
     placeholders.push({ segId, ph });
   }
@@ -1218,6 +1252,44 @@ function fillTranslations(batchSegs) {
 }
 
 function normText(s){return String(s==null?'':s).trim().replace(/\s+/g,' ');}
+
+// v1.2.17 UX: 段级失败重试——点击失败占位符仅重译该段，不重建整页
+let failedRetryRegistered = false;
+function ensureFailedRetryRegistered() {
+  if (failedRetryRegistered) return;
+  failedRetryRegistered = true;
+  document.addEventListener('click', (e) => {
+    const ph = e.target.closest && e.target.closest('.dual-translate-failed[data-dt-seg]');
+    if (!ph) return;
+    retrySegment(ph.dataset.dtSeg);
+  });
+}
+
+async function retrySegment(segId) {
+  const seg = segmentMap.get(segId);
+  if (!seg || !seg.node) return;
+  const root = seg.blockParent || (seg.node && seg.node.parentElement);
+  const ph = root ? root.querySelector('[data-dt-seg="' + segId + '"]') : null;
+  if (ph && ph.classList.contains('dual-translate-failed')) {
+    ph.classList.remove('dual-translate-failed');
+    ph.classList.add('dual-translate-placeholder');
+    ph.innerHTML = '<span class="dual-translate-spinner"></span><span class="dual-translate-loader-text">正在翻译...</span>';
+  }
+  try {
+    const sourceLang = settings?.api?.sourceLanguage || 'auto';
+    const resp = await sendMessage('translateTexts', { texts: [seg.text], sourceLang });
+    let translation = '';
+    if (resp && !resp.error && Array.isArray(resp.translations)) {
+      const t = resp.translations[0] && resp.translations[0].translation;
+      if (typeof t === 'string' && t.length > 0) translation = t;
+    }
+    translationCache.set(segId, translation);
+  } catch (e) {
+    dtError('retrySegment error:', e);
+    translationCache.set(segId, '');
+  }
+  fillTranslations([seg]);
+}
 
 // v1.0.3: 懒加载翻译（§3.4 性能优化）—— 复用 translateSegments 子流程
 let lazyTranslateObserver = null;
@@ -1370,7 +1442,9 @@ async function translateSegments(segs, signal) {
         }
         const errMsg=(resp&&resp.error)?resp.error:'翻译失败';
         if(errMsg.includes('所有翻译服务')||errMsg.includes('NO_API')||errMsg.includes('暂时不可用')||errMsg.includes('AUTH_ERROR')||errMsg.includes('QUOTA_EXCEEDED')){
-          showErrorBanner(errMsg);
+          // v1.2.17 UX: 未配置 API 时引导去设置，其余全局性错误提供整页重试入口
+          const isNoApi=errMsg.includes('NO_API');
+          showErrorBanner(humanizeTranslateError(errMsg),{showSettings:isNoApi,canRetry:!isNoApi});
           // v1.1.0 fix: 仅标记当前批次失败，避免误清空其它批次未翻译段
           for(let k=0;k<batch.length;k++){if(!translationCache.has(batch[k].id))translationCache.set(batch[k].id,'');}
           break;
@@ -1439,12 +1513,22 @@ function updateHover(segSubset) {
     const onOut=(e)=>{lastHoverEv=e;lastHoverType='out';if(!hoverRaf)hoverRaf=requestAnimationFrame(processHover);};
     document.addEventListener('mouseover',onOver);
     document.addEventListener('mouseout',onOut);
+    // v1.2.17 UX: Esc 键一键关闭所有未固定的 hover 气泡（键盘可达性）
+    const onEsc=(e)=>{
+      if(e.key!=='Escape')return;
+      const un=document.querySelectorAll('.dual-translate-hover:not(.pinned)');
+      if(un.length===0)return;
+      un.forEach(h=>h.remove());
+      _activeHoverCount-=un.length;if(_activeHoverCount<0)_activeHoverCount=0;
+    };
+    document.addEventListener('keydown',onEsc);
     hoverCleanupHandlers.push(()=>{
       if(hoverRaf){cancelAnimationFrame(hoverRaf);hoverRaf=0;}
       // v1.1.0 fix: 清理 hover 延迟定时器 ht，防止 cleanup 后仍触发 showHover
       if(ht){clearTimeout(ht);ht=null;}
       document.removeEventListener('mouseover',onOver);
       document.removeEventListener('mouseout',onOut);
+      document.removeEventListener('keydown',onEsc);
     });
   }
 
@@ -1476,7 +1560,8 @@ function updateHover(segSubset) {
 }
 function showHover(e,tr,sid){
   const h=document.createElement('div');h.className='dual-translate-hover';h.textContent=tr;h.dataset.segmentId=sid;
-  h.style.cssText='position:fixed;background:var(--dt-bg-primary);color:var(--dt-text-primary);padding:10px 14px;border-radius:6px;font-size:14px;z-index:2147483647;max-width:450px;box-shadow:0 4px 16px var(--dt-shadow);border:1px solid var(--dt-border-primary);cursor:pointer;line-height:1.6;writing-mode:horizontal-tb;';
+  // v1.2.17 UX: hover 气泡 z-index 降至横幅/遮罩之下，避免遮挡错误提示与加载遮罩
+  h.style.cssText='position:fixed;background:var(--dt-bg-primary);color:var(--dt-text-primary);padding:10px 14px;border-radius:6px;font-size:14px;z-index:2147483646;max-width:450px;box-shadow:0 4px 16px var(--dt-shadow);border:1px solid var(--dt-border-primary);cursor:pointer;line-height:1.6;writing-mode:horizontal-tb;';
   document.body.appendChild(h);positionAt(h,e.clientX+14,e.clientY+14);
   // v1.1.0 perf: 新增一个 hover 元素，计数 +1
   _activeHoverCount++;
@@ -1496,8 +1581,12 @@ function updatePanel(segSubset) {
     hd.innerHTML='<span><strong>原文 / 译文</strong> 对照</span><div><button class="panel-toggle-btn">◀</button><button class="panel-close-btn">✕</button></div>';
     const ct=document.createElement('div');ct.style.cssText='flex:1;overflow-y:auto;padding:14px;';
     ct.className='dual-translate-panel-content';
-    let collapsed=false;
-    hd.querySelector('.panel-toggle-btn').addEventListener('click',()=>{collapsed=!collapsed;panel.style.transform=collapsed?(pos==='right'?'translateX(calc(100% - 30px))':'translateY(calc(100% - 30px))'):'translate(0)';hd.querySelector('.panel-toggle-btn').textContent=collapsed?'▶':'◀';});
+    let collapsed=settings?.display?.panelCollapsed===true;
+    hd.querySelector('.panel-toggle-btn').addEventListener('click',()=>{collapsed=!collapsed;panel.style.transform=collapsed?(pos==='right'?'translateX(calc(100% - 30px))':'translateY(calc(100% - 30px))'):'translate(0)';hd.querySelector('.panel-toggle-btn').textContent=collapsed?'▶':'◀';
+      // v1.2.17 UX: 折叠状态跨会话记忆，刷新后保持用户偏好
+      sendMessage('updateSettings',{path:'display.panelCollapsed',value:collapsed}).catch(()=>{});});
+    // v1.2.17 UX: 按持久化偏好应用初始折叠状态
+    if(collapsed){panel.style.transform=pos==='right'?'translateX(calc(100% - 30px))':'translateY(calc(100% - 30px))';hd.querySelector('.panel-toggle-btn').textContent='▶';}
     hd.querySelector('.panel-close-btn').addEventListener('click',()=>{panel.remove();panelInstance=null;panelRenderedSegIds.clear();document.body.style.marginRight='';document.body.style.marginBottom='';if(panelCleanup){try{panelCleanup()}catch{}const idx=globalCleanupHandlers.indexOf(panelCleanup);if(idx>=0)globalCleanupHandlers.splice(idx,1);panelCleanup=null;}});
     let isDragging=false,sX,sY,sW,sH;
     // v1.1.0 perf: mousemove/mouseup 仅在拖拽期间注册，拖拽结束即移除，避免常驻 document 监听
@@ -1529,7 +1618,7 @@ function updatePanel(segSubset) {
   if(frag.hasChildNodes())ct.appendChild(frag);
 }
 
-function positionAt(el,x,y){const r=el.getBoundingClientRect();let px=x,py=y;if(px+r.width>window.innerWidth)px=x-r.width-12;if(py+r.height>window.innerHeight)py=y-r.height-12;el.style.left=Math.max(0,px)+'px';el.style.top=Math.max(0,py)+'px';}
+function positionAt(el,x,y){const r=el.getBoundingClientRect();let px=x,py=y;if(px+r.width>window.innerWidth-8)px=Math.max(8,window.innerWidth-r.width-8);if(px<8)px=8;if(py+r.height>window.innerHeight-8)py=Math.max(8,window.innerHeight-r.height-8);if(py<8)py=8;el.style.left=px+'px';el.style.top=py+'px';}
 // v1.1.0 perf: 单次正则替换替代 5 次链式 replace
 const _DT_ESCAPE_RE=/[&<>"']/g;
 const _DT_ESCAPE_MAP={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
@@ -1628,11 +1717,13 @@ function showSelectionTranslation(original,translation){
   const sel=window.getSelection();let x=100,y=100;
   if(sel&&sel.rangeCount>0){const r=sel.getRangeAt(0).getBoundingClientRect();x=r.left+r.width/2;y=r.bottom+10;}
   const hover=document.createElement('div');hover.className='dual-translate-hover pinned';
-  hover.style.cssText=`position:fixed;background:var(--dt-bg-primary);color:var(--dt-text-primary);padding:10px 14px;border-radius:6px;font-size:14px;z-index:2147483647;max-width:450px;box-shadow:0 4px 16px var(--dt-shadow);border:1px solid var(--dt-border-primary);cursor:pointer;line-height:1.6;left:${x}px;top:${y}px;`;
+  hover.style.cssText=`position:fixed;background:var(--dt-bg-primary);color:var(--dt-text-primary);padding:10px 14px;border-radius:6px;font-size:14px;z-index:2147483647;max-width:450px;box-shadow:0 4px 16px var(--dt-shadow);border:1px solid var(--dt-border-primary);cursor:pointer;line-height:1.6;`;
   hover.innerHTML=`<div style="color:var(--dt-text-secondary);font-size:12px;margin-bottom:4px">${escapeContent(original)}</div><div>${escapeContent(translation)}</div>`;
   // v1.1.0 fix: 点击移除 hover 时同步递减计数，避免 _activeHoverCount 泄漏
   hover.addEventListener('click',()=>{hover.remove();_activeHoverCount--;if(_activeHoverCount<0)_activeHoverCount=0;});
   document.body.appendChild(hover);
+  // v1.2.17 UX: 复用 positionAt 做四边避让，防止选区位于视口边缘时气泡被截断
+  positionAt(hover,x,y);
   _activeHoverCount++;
 }
 
@@ -1649,7 +1740,12 @@ chrome.runtime.onMessage.addListener((m,s,resp)=>{
       case'switchMode':switchMode(m.mode);resp({success:true});break;
       case'getStatus':resp({mode:currentMode,translating:isTranslating,segmentCount:segments.length});break;
       case'showSelectionTranslation':showSelectionTranslation(m.original,m.translation);resp({success:true});break;
-      case'restoreAll':resetAll();resp({success:true});break;
+      case'restoreAll':
+        resetAll();
+        // v1.2.17 UX: 还原原文后同步刷新扩展图标状态（含翻译已关闭的 ⏸ 标记）
+        sendMessage('setIconState',{state:'idle'}).catch(()=>{});
+        resp({success:true});
+        break;
       case'retranslateWithSource':
         resetAll();
         startTranslation({silent:true}).catch(e => console.warn('[content] retranslate error:', e));

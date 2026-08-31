@@ -483,6 +483,8 @@
             <button class="btn" id="cancelImportBtn">取消</button>
           </div>
         </div>
+        <!-- v1.2.17 UX: 术语表文件导入（与数据管理的导入方式保持一致） -->
+        <input type="file" id="glossaryFileInput" accept=".json,application/json" style="display:none">
       </div>
 
       <div class="section-card glossary-table-card">
@@ -500,6 +502,12 @@
     <div id="tab-api" class="tab-content">
       <h2>API 管理</h2>
       <p class="section-subtitle">配置和管理翻译接口</p>
+      <!-- v1.2.17 UX: API 配置不完整的页内警告（替代阻塞式 alert，持续显示直至修复） -->
+      <div id="apiIncompleteBanner" class="api-incomplete-banner" style="display:none">
+        <span class="incomplete-icon">⚠️</span>
+        <span id="apiIncompleteText" class="incomplete-text"></span>
+        <button class="btn btn-sm" id="apiIncompleteDismiss" title="本次会话内不再显示">知道了</button>
+      </div>
       <!-- API 密钥安全锁 -->
       <div id="apiSecurityBar" class="api-security-bar locked">
         <span class="security-icon">🔒</span>

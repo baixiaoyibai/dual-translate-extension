@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>诊断 - Storage 数据检查</title>
+<title>双语翻译助手 - 故障排查</title>
 <style>
 * {
   margin: 0;
@@ -222,24 +222,28 @@ tr:last-child td {
 </style>
 </head>
 <body>
-<h1>双语翻译助手 - Storage 诊断</h1>
+<h1>双语翻译助手 - 故障排查</h1>
+<p style="color:#94a3b8;font-size:13px;margin:-12px 0 20px;line-height:1.6">
+  翻译不生效或表现异常时，用下面的检查项定位原因。检查结果为原始数据，可截图或复制发给问题反馈。
+  若提示密钥相关异常，通常可先在「设置 → API 管理」中核对密钥后再重试。
+</p>
 
 <div class="button-group">
   <!-- v1.2.3 fix: 移除内联 onclick 处理器（违反 MV3 CSP），改用 ID + addEventListener -->
-  <button id="btnCheckAll">检查全部 Storage</button>
-  <button id="btnCheckSync">仅检查 Sync Storage</button>
-  <button id="btnCheckLocal">仅检查 Local Storage</button>
-  <button id="btnCheckSettings">模拟 getSettings 消息</button>
-  <button class="danger" id="btnMigrateKeys">迁移 Sync→Local 密钥</button>
+  <button id="btnCheckAll">一键全面检查</button>
+  <button id="btnCheckSync">检查同步设置 (Sync)</button>
+  <button id="btnCheckLocal">检查本地密钥 (Local)</button>
+  <button id="btnCheckSettings">检查翻译配置</button>
+  <button class="danger" id="btnMigrateKeys">修复：迁移旧版密钥到本地</button>
 </div>
 
-<h2>Sync Storage (dual_translate_settings)</h2>
+<h2>同步设置 (dual_translate_settings)</h2>
 <div class="section"><pre id="syncOutput">点击按钮检查...</pre></div>
 
-<h2>Local Storage (dual_translate_api_keys_local)</h2>
+<h2>本地密钥 (dual_translate_api_keys_local)</h2>
 <div class="section"><pre id="localOutput">点击按钮检查...</pre></div>
 
-<h2>getSettings 消息返回</h2>
+<h2>翻译配置读取结果 (getSettings)</h2>
 <div class="section"><pre id="msgOutput">点击按钮检查...</pre></div>
 
 <h2>API 密钥汇总</h2>

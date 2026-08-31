@@ -386,6 +386,24 @@ body {
   font-family: var(--sans);
 }
 
+/* v1.2.17 UX: 无 API 警告内的「前往设置」快捷跳转按钮 */
+.no-api-warning .go-settings-btn {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-family: var(--sans);
+  color: var(--accent);
+  background: none;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.no-api-warning .go-settings-btn:hover {
+  background: rgba(234, 88, 12, 0.08);
+}
+
 /* ==========================================================================
    API Usage
    ========================================================================== */

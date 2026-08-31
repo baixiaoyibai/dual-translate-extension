@@ -155,16 +155,29 @@ async function loadApiStatus() {
   try {
     const res = await sendMessageWithRetry({ action: 'getApiStatus' });
     if (!res || res.error) {
-      container.innerHTML = '<div class="no-api-warning">请先在设置中配置至少一个翻译 API</div>';
+      // v1.2.17 UX: 未配置 API 时提供一键跳转设置的入口，而不是只给一句提示
+      container.innerHTML = '<div class="no-api-warning">请先配置至少一个翻译 API<button id="goSettingsFromApiStatus" class="go-settings-btn">前往设置 →</button></div>';
+      bindGoSettings(container);
       return;
     }
     if (!res || !res.status || Object.keys(res.status).length === 0) {
-      container.innerHTML = '<div class="no-api-warning">未检测到已配置的 API，请前往设置页面配置</div>';
+      container.innerHTML = '<div class="no-api-warning">未检测到已配置的 API<button id="goSettingsFromApiStatus" class="go-settings-btn">前往设置 →</button></div>';
+      bindGoSettings(container);
       return;
     }
     renderApiStatus(res.status, res.configuredCount, res.availableCount);
   } catch {
     container.innerHTML = '<div class="no-api-warning">无法获取 API 状态</div>';
+  }
+}
+
+// v1.2.17 UX: 绑定「前往设置」跳转（供 API 状态区使用）
+function bindGoSettings(container) {
+  const btn = container.querySelector('#goSettingsFromApiStatus');
+  if (btn) {
+    btn.addEventListener('click', () => {
+      chrome.runtime.openOptionsPage().catch(() => {});
+    });
   }
 }
 
@@ -339,6 +352,15 @@ function setupEventListeners() {
     chrome.runtime.openOptionsPage().catch(() => alert('无法打开设置页'));
   });
 
+  // v1.2.17 UX: 诊断工具入口——修复「入口不可发现」问题，翻译异常时用户可自助排查
+  const diagnoseBtn = document.getElementById('diagnoseBtn');
+  if (diagnoseBtn) {
+    diagnoseBtn.addEventListener('click', () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL('diagnose.html') });
+      window.close();
+    });
+  }
+
   document.getElementById('restoreBtn').addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab) {
@@ -350,7 +372,7 @@ function setupEventListeners() {
     }
   });
 
-  // 取消翻译按钮点击事件
+  // 停止翻译按钮点击事件（v1.2.17 UX: 文案由「取消翻译」改为「停止翻译」，与「关闭翻译」明确区分）
   document.getElementById('cancelBtn').addEventListener('click', async () => {
     const btn = document.getElementById('cancelBtn');
     const cancelText = btn.querySelector('.cancel-text');
@@ -358,12 +380,12 @@ function setupEventListeners() {
     const restoreCancelBtn = () => { btn.disabled = false; btn.classList.remove('cancelling'); cancelText.textContent = originalText; };
     btn.disabled = true;
     btn.classList.add('cancelling');
-    cancelText.textContent = '正在取消...';
+    cancelText.textContent = '正在停止...';
     let recovered = false;
     const timeoutId = setTimeout(() => {
       if (!recovered) {
         restoreCancelBtn();
-        alert('取消超时，请刷新页面重试');
+        alert('停止超时，当前页面可能无响应，建议刷新页面');
       }
     }, 5000);
     try {
@@ -372,7 +394,7 @@ function setupEventListeners() {
         try {
           await chrome.tabs.sendMessage(tab.id, { action: 'cancelTranslation' });
         } catch (e) {
-          throw new Error('当前页面未能确认取消操作');
+          throw new Error('当前页面未能确认停止操作');
         }
       }
       recovered = true;
@@ -382,7 +404,7 @@ function setupEventListeners() {
       recovered = true;
       clearTimeout(timeoutId);
       restoreCancelBtn();
-      alert('当前页面无法取消，请刷新页面');
+      alert('当前页面无法停止翻译，可能是页面未加载翻译脚本，请刷新页面后重试');
     }
   });
 }
@@ -441,6 +463,18 @@ async function loadDailyUsage() {
   }
 }
 
+// v1.2.17 UX: 将技术性错误映射为普通用户可理解的文案（popup 文本翻译用）
+function humanizeTranslateError(m) {
+  const s = String(m || '');
+  if (s.includes('NO_API') || s.includes('没有可用')) return '尚未配置翻译 API，请先在设置中添加密钥';
+  if (s.includes('额度') || /quota/i.test(s)) return '翻译服务额度不足，请检查额度或更换翻译源';
+  if (s.includes('频率') || /rate.?limit/i.test(s)) return '翻译请求过于频繁，请稍后再试';
+  if (s.includes('超时') || /timeout/i.test(s)) return '网络超时，请稍后重试';
+  if (/auth|401|403|密钥/i.test(s)) return '密钥校验失败，请检查 API 密钥是否正确';
+  if (/network|fetch/i.test(s)) return '网络异常，请检查网络后重试';
+  return s || '翻译失败，请稍后重试';
+}
+
 // v1.2.15: Manual text translation - bilingual side-by-side layout
 function setupManualTranslate() {
   const input = document.getElementById('manualTranslateInput');
@@ -477,14 +511,15 @@ function setupManualTranslate() {
         result.textContent = resp.translations[0].translation;
         result.className = 'manual-translate-result';
       } else if (resp && resp.error) {
-        result.textContent = resp.error;
+        // v1.2.17 UX: 错误文案人话化，避免向用户暴露原始技术错误
+        result.textContent = humanizeTranslateError(resp.error);
         result.className = 'manual-translate-result error';
       } else {
         result.textContent = '翻译失败，未获得结果';
         result.className = 'manual-translate-result error';
       }
     } catch (e) {
-      result.textContent = '翻译失败: ' + (e && e.message ? e.message : String(e));
+      result.textContent = humanizeTranslateError(e && e.message ? e.message : String(e));
       result.className = 'manual-translate-result error';
     } finally {
       btn.disabled = false;

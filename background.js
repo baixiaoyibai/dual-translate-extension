@@ -169,6 +169,47 @@ function setupContextMenu() {
   });
 }
 
+// v1.2.17 UX: 右键菜单动态标题——选中文已是中文或无可用 API 时，菜单文案即时提示，避免点击后才知道不可用
+if (chrome.contextMenus.onShown) {
+  chrome.contextMenus.onShown.addListener(async (info) => {
+    try {
+      await init();
+      let title = '翻译选中文字';
+      const sel = (info.selectionText || '').trim();
+      if (sel && isAlreadyChinese(sel)) {
+        title = '选中文字已是中文';
+      } else if (apiManager.getAvailableCount() === 0) {
+        title = '翻译不可用：请先配置 API 密钥';
+      }
+      await chrome.contextMenus.update('translate-selection', { title });
+    } catch {}
+  });
+}
+
+// v1.2.17 UX: 将技术性错误消息映射为普通用户可理解的文案（右键翻译反馈用）
+function humanizeTranslateError(msg) {
+  const m = String(msg || '');
+  if (m.includes('NO_API') || m.includes('没有可用') || m.includes('尚未配置')) {
+    return '尚未配置翻译 API，请先在扩展设置中添加密钥';
+  }
+  if (m.includes('额度') || /quota/i.test(m)) {
+    return '翻译服务额度不足，请检查额度或更换翻译源';
+  }
+  if (m.includes('频率') || /rate.?limit/i.test(m)) {
+    return '翻译请求过于频繁，请稍后再试';
+  }
+  if (m.includes('超时') || /timeout|abort/i.test(m)) {
+    return '网络超时，请稍后重试';
+  }
+  if (/auth|401|403|密钥/.test(m)) {
+    return '密钥校验失败，请检查 API 密钥是否正确';
+  }
+  if (/network|fetch|failed to fetch/i.test(m)) {
+    return '网络异常，请检查网络后重试';
+  }
+  return '翻译失败，请稍后重试';
+}
+
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   try { await init();
   // v1.2.2 fix: BUG-7 校验 tab 是否存在及其 id，避免无 tab 上下文（如后台触发）时 sendMessage 抛异常
@@ -187,17 +228,18 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         await apiManager.reload();
       }
       const results = await apiManager.translate([info.selectionText], 'auto', 'zh');
-      const translation = results[0]?.translation || '翻译失败';
+      const translation = results[0]?.translation || humanizeTranslateError('翻译结果为空');
       chrome.tabs.sendMessage(tab.id, {
         action: 'showSelectionTranslation',
         original: info.selectionText,
         translation: translation
       }).catch(() => {});
     } catch (error) {
+      // v1.2.17 UX: 失败反馈使用人话化文案，避免向用户暴露原始技术错误
       chrome.tabs.sendMessage(tab.id, {
         action: 'showSelectionTranslation',
         original: info.selectionText,
-        translation: '翻译失败: ' + error.message
+        translation: humanizeTranslateError(error.message)
       }).catch(() => {});
     }
   }
@@ -732,25 +774,36 @@ async function handleTranslateTexts(message, sender) {
 async function updateIcon(tabId, state) {
   if (!tabId) return;
   let title = '双语翻译助手';
+  let badgeText = '';
+  let badgeColor = '#4CAF50';
 
   switch (state) {
     case 'translating':
       title = '翻译中...';
+      badgeText = '...';
+      badgeColor = '#2196F3';
       break;
     case 'translated':
       title = '翻译完成';
+      badgeText = '✓';
+      badgeColor = '#4CAF50';
       break;
     case 'idle':
     default:
-      title = '双语翻译助手';
+      // v1.2.17 UX: 翻译总开关关闭时，图标 badge 显示暂停标记，让用户一眼看出扩展处于关闭状态
+      if (settingsManager.settings?.general?.translationEnabled === false) {
+        title = '双语翻译助手（翻译已关闭）';
+        badgeText = '⏸';
+        badgeColor = '#9E9E9E';
+      }
       break;
   }
 
   try {
     await Promise.all([
       chrome.action.setTitle({ tabId, title }),
-      chrome.action.setBadgeText({ tabId, text: state === 'translating' ? '...' : (state === 'translated' ? '✓' : '') }),
-      chrome.action.setBadgeBackgroundColor({ tabId, color: state === 'translating' ? '#2196F3' : '#4CAF50' })
+      chrome.action.setBadgeText({ tabId, text: badgeText }),
+      chrome.action.setBadgeBackgroundColor({ tabId, color: badgeColor })
     ]);
   } catch {}
 }

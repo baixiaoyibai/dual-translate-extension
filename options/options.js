@@ -99,6 +99,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 欢迎页覆盖层：每次打开设置页都显示，用户交互后隐藏
   try { setupWelcomeOverlay(); } catch(e) { console.error('[options] setupWelcomeOverlay:', e); }
 
+  // v1.2.17 UX: API 完整性警告横幅的「知道了」按钮——本次会话不再显示
+  try {
+    const dismissBtn = document.getElementById('apiIncompleteDismiss');
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', () => {
+        sessionStorage.setItem(INCOMPLETE_WARN_KEY, '1');
+        const banner = document.getElementById('apiIncompleteBanner');
+        if (banner) banner.style.display = 'none';
+      });
+    }
+  } catch(e) { console.error('[options] apiIncompleteDismiss:', e); }
+
   // 诊断工具提前初始化（不依赖 settings 数据，确保一定能用）
   try { setupDiagnostics(); } catch(e) { console.error('[options] setupDiagnostics 失败:', e); }
 
@@ -280,9 +292,14 @@ async function loadAllData() {
   // 保存当前 settings 到 window，供 checkAllApiCompleteness 使用
   window.__currentSettings = settings;
 
-  // 检查所有 API 完整性，首次进入时警告1次
-  // v1.0.7 fix: 用 setTimeout 延迟执行，避免 alert 阻塞 DOMContentLoaded 期间的 setup 函数
-  setTimeout(() => checkAllApiCompleteness(), 100);
+  // v1.2.17 UX: 智能默认 Tab——未配置任何翻译 API 时直接落在「API 管理」，
+  // 与欢迎页第一步引导对齐，缩短新用户「装好即用」的最短路径
+  if (!apiRes || !apiRes.configuredCount) {
+    activateTabByName('api');
+  }
+
+  // 检查所有 API 完整性，页内横幅持续提示（不阻塞 UI）
+  checkAllApiCompleteness();
 }
 
 async function saveSetting(path, value) {
@@ -363,16 +380,23 @@ function setupWelcomeOverlay() {
 function setupTabSwitching() {
   document.querySelectorAll('.sidebar-tab').forEach(tab => {
     tab.addEventListener('click', () => {
-      document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-      tab.classList.add('active');
-      document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
-      // v1.0.8: 切换到关于页时，将当前显示设置应用到翻译示例
-      if (tab.dataset.tab === 'tips') {
-        setupTips();
-      }
+      activateTabByName(tab.dataset.tab);
     });
   });
+}
+
+// v1.2.17 UX: 按 tab 名称激活侧栏（供智能默认 Tab 与编程式跳转复用）
+function activateTabByName(name) {
+  const tab = document.querySelector('.sidebar-tab[data-tab="' + name + '"]');
+  if (!tab) return;
+  document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  tab.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+  // v1.0.8: 切换到关于页时，将当前显示设置应用到翻译示例
+  if (name === 'tips') {
+    setupTips();
+  }
 }
 
 function setupDisplaySettings() {
@@ -752,7 +776,22 @@ function setupGlossaryManagement() {
     if (area) { area.classList.remove('hidden'); area.style.display = 'block'; }
     const textarea = document.getElementById('importExportText');
     // 导出仅当前 scope（v1.0.4 域名专属）
-    textarea.value = JSON.stringify(getCurrentEntries(), null, 2);
+    const json = JSON.stringify(getCurrentEntries(), null, 2);
+    textarea.value = json;
+    // v1.2.17 UX: 同时下载为 JSON 文件，与「数据管理」的导出方式保持一致
+    try {
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const scopeSuffix = currentScope === '_global' ? 'global' : currentScope.replace(/[^a-z0-9.-]/gi, '_');
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.href = url;
+      a.download = `dual-translate-glossary-${scopeSuffix}-${ts}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.warn('[glossary] 文件导出失败，可手动复制文本框内容:', e);
+    }
     const btn = document.getElementById('confirmImportBtn');
     const orig = btn.textContent;
     btn.textContent = '已导出 ✓';
@@ -761,6 +800,13 @@ function setupGlossaryManagement() {
   });
 
   document.getElementById('importGlossaryBtn').addEventListener('click', () => {
+    // v1.2.17 UX: 优先文件导入；文件选择器被取消时回退到文本粘贴方式
+    const fileInput = document.getElementById('glossaryFileInput');
+    if (fileInput) {
+      fileInput.value = '';
+      fileInput.click();
+      return;
+    }
     const area = document.getElementById('importExportArea');
     // v1.2.12 fix: P1-2
     if (area) { area.classList.remove('hidden'); area.style.display = 'block'; }
@@ -769,6 +815,40 @@ function setupGlossaryManagement() {
     textarea.placeholder = '在此粘贴 JSON 格式的术语表...';
     document.getElementById('confirmImportBtn').textContent = '确认导入';
   });
+
+  // v1.2.17 UX: 文件导入术语表——解析失败时回填文本框供手动修正
+  const glossaryFileInput = document.getElementById('glossaryFileInput');
+  if (glossaryFileInput) {
+    glossaryFileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 1024 * 1024) {
+        alert('文件超过 1MB 限制，请检查是否选择了正确的术语表文件');
+        e.target.value = '';
+        return;
+      }
+      let text = '';
+      try {
+        text = await file.text();
+        const data = JSON.parse(text);
+        if (!Array.isArray(data)) throw new Error('格式错误：应为术语数组');
+        glossaryByDomain[currentScope] = data;
+        renderGlossaryTable();
+        saveGlossary().catch(err => console.warn('[glossary] saveGlossary failed:', err));
+        showSavedTip();
+      } catch (err) {
+        // 回退：内容填入文本框，用户可修正后手动确认导入
+        const area = document.getElementById('importExportArea');
+        if (area) { area.classList.remove('hidden'); area.style.display = 'block'; }
+        const textarea = document.getElementById('importExportText');
+        if (textarea) { textarea.value = text; textarea.placeholder = '在此粘贴 JSON 格式的术语表...'; }
+        const btn = document.getElementById('confirmImportBtn');
+        if (btn) btn.textContent = '确认导入';
+        alert('文件解析失败：' + err.message + '\n内容已填入文本框，可修正后点击「确认导入」。');
+      }
+      e.target.value = '';
+    });
+  }
 
   document.getElementById('confirmImportBtn').addEventListener('click', () => {
     const text = document.getElementById('importExportText').value.trim();
@@ -1386,6 +1466,9 @@ function renderApiCards() {
         // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
         chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
         showSavedTip();
+        // v1.2.17 UX: 保存后同步刷新页内完整性横幅
+        window.__currentSettings = settings;
+        checkAllApiCompleteness();
         // 保存后新增完整性检查
         const keys = settings.api.apiKeys[apiName] || {};
         const { complete, missing } = checkApiCompleteness(apiName, keys, null);
@@ -1787,10 +1870,18 @@ function checkAllApiCompleteness() {
       incompleteApis.push({ apiName, missing });
     }
   }
+  const banner = document.getElementById('apiIncompleteBanner');
+  const text = document.getElementById('apiIncompleteText');
+  if (!banner || !text) return;
   if (incompleteApis.length > 0 && !sessionStorage.getItem(INCOMPLETE_WARN_KEY)) {
-    sessionStorage.setItem(INCOMPLETE_WARN_KEY, '1');
-    const names = incompleteApis.map(a => a.apiName).join('、');
-    alert(`以下 API 配置不全：${names}\n已保存已填写的内容，但不会启用。请补全缺失字段后启用。`);
+    const names = incompleteApis.map(a => {
+      const miss = Array.isArray(a.missing) && a.missing.length > 0 ? `（缺 ${a.missing.join('、')}）` : '';
+      return `${getApiDisplayName(a.apiName)}${miss}`;
+    }).join('；');
+    text.textContent = `以下 API 配置不完整：${names}。已填写的部分会保存，但补全缺失字段后才会启用。`;
+    banner.style.display = 'flex';
+  } else {
+    banner.style.display = 'none';
   }
 }
 

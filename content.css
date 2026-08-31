@@ -55,6 +55,12 @@
   color: var(--dt-text-fail);
   opacity: 0.6;
   font-style: italic;
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.dual-translate-translation.dual-translate-failed:hover {
+  opacity: 1;
 }
 
 .dual-translate-translation:hover {
@@ -83,7 +89,8 @@
   position: fixed;
   top: 16px;
   right: 16px;
-  z-index: 2147483646;
+  /* v1.2.17 UX: 提升至最高层级，保证不被 hover 气泡遮挡 */
+  z-index: 2147483647;
   background: var(--dt-bg-primary);
   border-radius: 8px;
   box-shadow:
@@ -297,7 +304,8 @@
   position: fixed;
   top: 16px;
   right: 16px;
-  z-index: 2147483646;
+  /* v1.2.17 UX: 提升至最高层级，保证不被 hover 气泡遮挡 */
+  z-index: 2147483647;
   background: var(--dt-bg-error);
   border: 1px solid var(--dt-border-error);
   border-radius: 10px;
