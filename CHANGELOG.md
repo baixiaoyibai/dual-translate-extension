@@ -1,4 +1,4 @@
-﻿# 更新日志
+# 更新日志
 
 > 本文件记录双语翻译助手扩展每个版本的变更。
 > 当前版本请见 [README.md](./README.md)。
@@ -25,6 +25,35 @@
 - **Removed** — 删除功能/文件
 - **Security** — 安全修复
 - **Performance** — 性能优化
+
+---
+
+## v1.3.1 (2026-09-06)
+
+> v1.3.1 维护批：修复「连续 3 次一般性错误后 API 被永久禁用」（P1）、5 项低风险 P2（api 密钥删除、百度限流映射、3 项交互开关/源语言契约缺陷）、2 项跨组功能缺陷（面板折叠持久化、NO_API 引导），并顺手加固 4 项低危安全项（C1/C2/C3/C4）。
+
+### Fixed - 修复
+
+- **连续 3 次一般性错误后 API 永久禁用**：`lib/api-manager.js` 为 `error` 状态新增 5 分钟冷却（`cooldownUntil`），连续 3 次一般性错误后进入冷却而非永久不可用，`_isApiUsable()` 在冷却到期后自动恢复可用。
+- **清空单个密钥字段无法删除 local 密钥**：`lib/settings-manager.js` 密钥合并支持 `null` 显式删除；设置页清空密钥字段时写入 `null`，本地已存密钥得以真正移除。
+- **百度 LLM 频率受限错误码未映射**：`lib/api-adapters/baidu-llm.js` 将 `54003`/`54005` 映射为 `RATE_LIMITED`，与 429 一致享受 60s 冷却自动恢复。
+- **自动翻译延迟启动未重检开关**：`content.js` 延迟回调内重检开关，避免延迟窗口内关闭翻译后页面又被翻回。
+- **源语言 'all' 契约归一化**：`content.js`/`popup/popup.js`/`background.js` 将 `'all'` 归一化为 `'auto'`，并在 background 增加防御性兜底，修复火山等 API 因非法语言代码失败。
+- **快捷键开关方向失真**：`content.js` `toggleTranslation` 改读权威 `settings.general.translationEnabled` 决定方向，不再依赖局部 segments/cache 是否非空。
+- **面板折叠状态持久化失效**：`background.js` 放行 `display.panelCollapsed` 到 content-script 白名单，折叠状态跨会话持久化生效。
+- **NO_API「打开设置」横幅失效**：`background.js` 对 content script 返回脱敏错误码（新增 `_sanitizeErrorCode`），使 NO_API/额度/限流等引导可正常触发。
+
+### Security - 安全
+
+- **更新检查 `tag_name` 未转义**：`options/options.js` 将 GitHub release 派生的 `latestVersion` 经 `escapeAttr()` 转义后再拼入 `innerHTML`，与 `downloadUrl`/`releaseUrl` 处理一致（纵深防御）。
+- **`escapeAttr` 降级回退补全单引号**：`options/options.js` 回退函数补齐 `'` → `&#39;` 转义，与 `lib/escape-utils.js` 的 5 实体转义完全一致。
+- **运行时日志字符串参数脱敏**：`background.js` `_pushLog` 新增字符串参数脱敏，掩码 `Bearer` / `sk-` / `AKIA` 形态密钥，防止进入诊断页日志查看器。
+- **译文样式 CSS 变量白名单兜底**：`content.js` `applyTranslationStyles` 写入 `--dt-trans-*` 前校验颜色（hex）、字号/间距（数值+单位）、字体（字符白名单），异常值回退到安全默认值。
+
+### Tests - 测试
+
+- 新增 `tests/api-manager.test.js`：覆盖 `_isApiUsable` 对 `error` 状态冷却与自动恢复的判定（冷却中 / 到期 / 历史无冷却字段 / 未满 3 次四种场景），并入 `npm test`。
+- 扩展 `tests/settings-manager.test.js`：新增「清空单个密钥字段（null）后 local 键被删除」用例。
 
 ---
 

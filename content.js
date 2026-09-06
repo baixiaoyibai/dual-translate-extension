@@ -562,10 +562,20 @@ async function loadSettings() {
 function applyTranslationStyles() {
   if (!settings || !settings.display) return;
   const root = document.documentElement;
-  root.style.setProperty('--dt-trans-color', settings.display.translationColor || '#888888');
-  root.style.setProperty('--dt-trans-size', settings.display.translationSize || '85%');
-  root.style.setProperty('--dt-trans-spacing', settings.display.translationSpacing || '4px');
-  root.style.setProperty('--dt-trans-font', settings.display.translationFont || 'inherit');
+  // v1.3.0 fix C3: 写入 CSS 变量前做白名单校验，异常设置值回退到安全默认值（纵深防御）
+  const color = /^#[0-9a-fA-F]{3,8}$/.test(settings.display.translationColor || '')
+    ? settings.display.translationColor : '#888888';
+  const size = /^\d+(\.\d+)?(px|em|rem|%|vh|vw)?$/.test(settings.display.translationSize || '')
+    ? settings.display.translationSize : '85%';
+  const spacing = /^\d+(\.\d+)?(px|em|rem|%|vh|vw)?$/.test(settings.display.translationSpacing || '')
+    ? settings.display.translationSpacing : '4px';
+  const fontInput = settings.display.translationFont || '';
+  const font = fontInput === '' ? 'inherit'
+    : (/^[\w\s,.'-]{1,100}$/.test(fontInput) ? fontInput : 'inherit');
+  root.style.setProperty('--dt-trans-color', color);
+  root.style.setProperty('--dt-trans-size', size);
+  root.style.setProperty('--dt-trans-spacing', spacing);
+  root.style.setProperty('--dt-trans-font', font);
 }
 async function checkAndTranslate(url) {
   await loadSettings();
@@ -586,7 +596,11 @@ async function checkAndTranslate(url) {
   
   if (!shouldTranslateWithSource(lang)) return;
   // v1.2.3 fix: 添加 .catch 防止 startTranslation rejection 未捕获（setTimeout 回调中的 promise 不会被外层 try/catch 捕获）
-  setTimeout(() => startTranslation().catch(e => dtError('checkAndTranslate startTranslation error:', e)), settings.trigger.translateDelay||500);
+  // v1.3.0 fix P2-1: 延迟回调内重检开关，避免延迟窗口内用户关闭翻译后页面又被翻回
+  setTimeout(() => {
+    if (settings.general.translationEnabled === false || !settings.trigger.autoTranslate) return;
+    startTranslation().catch(e => dtError('checkAndTranslate startTranslation error:', e));
+  }, settings.trigger.translateDelay||500);
 }
 // NOTE: 此函数与 settings-manager.js._hostMatches 逻辑相同，
 // 因 content script 无法 import ESM，只能内联保留副本。修改时需同步两处。
@@ -1276,7 +1290,9 @@ async function retrySegment(segId) {
     ph.innerHTML = '<span class="dual-translate-spinner"></span><span class="dual-translate-loader-text">正在翻译...</span>';
   }
   try {
-    const sourceLang = settings?.api?.sourceLanguage || 'auto';
+    // v1.3.0 fix P2-2: 源语言 'all' 归一化为 'auto'，避免把非法语言代码透传给翻译服务
+    const rawSourceLang = settings?.api?.sourceLanguage || 'auto';
+    const sourceLang = rawSourceLang === 'all' ? 'auto' : rawSourceLang;
     const resp = await sendMessage('translateTexts', { texts: [seg.text], sourceLang });
     let translation = '';
     if (resp && !resp.error && Array.isArray(resp.translations)) {
@@ -1441,7 +1457,7 @@ async function translateSegments(segs, signal) {
           dtWarn('translateSegments: resp.translations is not an array', resp);
         }
         const errMsg=(resp&&resp.error)?resp.error:'翻译失败';
-        if(errMsg.includes('所有翻译服务')||errMsg.includes('NO_API')||errMsg.includes('暂时不可用')||errMsg.includes('AUTH_ERROR')||errMsg.includes('QUOTA_EXCEEDED')){
+        if(errMsg.includes('所有翻译服务')||errMsg.includes('NO_API')||errMsg.includes('暂时不可用')||errMsg.includes('AUTH_ERROR')||errMsg.includes('QUOTA_EXCEEDED')||errMsg.includes('RATE_LIMITED')){
           // v1.2.17 UX: 未配置 API 时引导去设置，其余全局性错误提供整页重试入口
           const isNoApi=errMsg.includes('NO_API');
           showErrorBanner(humanizeTranslateError(errMsg),{showSettings:isNoApi,canRetry:!isNoApi});
@@ -1625,7 +1641,8 @@ const _DT_ESCAPE_MAP={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
 function escapeContent(s){return String(s==null?'':s).replace(_DT_ESCAPE_RE,ch=>_DT_ESCAPE_MAP[ch]);}
 function toggleTranslation() {
   if (isTranslating) return;
-  if (segments.length > 0 || translationCache.size > 0) {
+  // v1.3.0 fix P2-3: 以权威的 settings.general.translationEnabled 决定开关方向，避免依赖 segments/cache 是否非空导致快捷键失灵/反向
+  if (settings && settings.general.translationEnabled !== false) {
     resetAll();
     sendMessage('updateSettings', {path:'general.translationEnabled', value:false}).catch(()=>{});
     sendMessage('setIconState', {state:'idle'}).catch(()=>{});

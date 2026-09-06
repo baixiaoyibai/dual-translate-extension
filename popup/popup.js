@@ -501,7 +501,9 @@ function setupManualTranslate() {
     result.className = 'manual-translate-result loading';
 
     try {
-      const sourceLang = (cachedSettings && cachedSettings.api && cachedSettings.api.sourceLanguage) || 'auto';
+      // v1.3.0 fix P2-2: 源语言 'all' 归一化为 'auto'，避免把非法语言代码透传给翻译服务
+      const rawSourceLang = (cachedSettings && cachedSettings.api && cachedSettings.api.sourceLanguage) || 'auto';
+      const sourceLang = rawSourceLang === 'all' ? 'auto' : rawSourceLang;
       const resp = await sendMessageWithRetry({
         action: 'translateTexts',
         texts: [text],

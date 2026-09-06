@@ -83,12 +83,17 @@ function _pushLog(level, args) {
     }
     return result;
   };
+  // v1.3.0 fix C2: 对字符串日志参数脱敏，避免密钥以 Bearer / sk- / AKIA 形态进入诊断页日志
+  const redactString = (str) => String(str == null ? '' : str)
+    .replace(/\b(Bearer\s+)\S{8,}/gi, '$1[REDACTED]')
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}/gi, '[REDACTED]')
+    .replace(/\bAKIA[0-9A-Z]{12,}/gi, '[REDACTED]');
   const entry = {
     seq: ++logSeq,
     ts: Date.now(),
     level, // 'error' | 'warn' | 'info' | 'debug'
     msg: args.map(a => {
-      if (typeof a === 'string') return a;
+      if (typeof a === 'string') return redactString(a);
        try { return JSON.stringify(redact(a)); } catch { return '[unserializable]'; }
     }).join(' ')
   };
@@ -299,7 +304,7 @@ async function handleMessage(message, sender) {
   // v1.1.0 fix: 允许 content script 持久化非敏感设置（翻译开关/模式切换）
   // 敏感设置（API 密钥/端点/PIN 等）仍仅限扩展页面修改
   if (message.action === 'updateSettings' && !_isExtensionSender(sender)) {
-    const allowedPaths = ['general.translationEnabled', 'general.lastMode', 'display.defaultMode'];
+    const allowedPaths = ['general.translationEnabled', 'general.lastMode', 'display.defaultMode', 'display.panelCollapsed'];
     if (message.path && allowedPaths.includes(message.path)) {
       // 放行，继续执行 updateSettings
     } else {
@@ -694,6 +699,17 @@ async function handleClearApi(apiName) {
   }
 }
 
+// v1.3.0 fix C9: 对 content script 返回脱敏错误码，避免泄露原始错误细节，并让 NO_API/额度/限流等引导可按错误码触发
+function _sanitizeErrorCode(message) {
+  const m = String(message == null ? '' : message);
+  if (m.includes('NO_API')) return 'NO_API';
+  if (m.includes('QUOTA_EXCEEDED')) return 'QUOTA_EXCEEDED';
+  if (m.includes('RATE_LIMITED')) return 'RATE_LIMITED';
+  if (m.startsWith('AUTH_ERROR')) return 'AUTH_ERROR';
+  if (m.includes('所有翻译服务') || m.includes('暂时不可用')) return m;
+  return '翻译失败，请重试';
+}
+
 async function handleTranslateTexts(message, sender) {
   try {
     // v1.1.0 security: 输入校验，防止畸形/超大请求耗尽资源
@@ -721,7 +737,7 @@ async function handleTranslateTexts(message, sender) {
     if (!apiManager.translators || apiManager.translators.size === 0) {
       await apiManager.reload();
     }
-    const sourceLang = message.sourceLang || 'auto';
+    const sourceLang = message.sourceLang === 'all' ? 'auto' : (message.sourceLang || 'auto');
     const targetLang = message.targetLang || 'zh';
     const texts = message.texts;
     const cacheEnabled = settingsManager.settings.trigger.translationCache !== false;
@@ -767,7 +783,7 @@ async function handleTranslateTexts(message, sender) {
     return { translations };
   } catch (error) {
     const isExtSender = _isExtensionSender(sender);
-    return { error: isExtSender ? (error.message || '翻译失败') : '翻译失败，请重试', translations: [] };
+    return { error: isExtSender ? (error.message || '翻译失败') : _sanitizeErrorCode(error && error.message ? error.message : String(error)), translations: [] };
   }
 }
 

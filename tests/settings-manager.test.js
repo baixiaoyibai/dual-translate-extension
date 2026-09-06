@@ -71,6 +71,14 @@ async function main() {
   if (localData.dual_translate_api_keys_local.deepseek.apiKey !== 'new-secret') {
     throw new Error('local key was not updated');
   }
+
+  // v1.3.0 fix P2-1: 清空单个密钥字段（null）应显式删除 local 中已存密钥
+  await settingsManager.saveSettings({
+    api: { apiKeys: { deepseek: { apiKey: null } } }
+  });
+  if (localData.dual_translate_api_keys_local.deepseek?.apiKey !== undefined) {
+    throw new Error('P2-1: cleared key field should be deleted from local');
+  }
   if (persisted.display.tooltipDelay !== 777) throw new Error('partial save removed legacy field');
 
   await Promise.all(Array.from({ length: 10 }, () => settingsManager.addDailyUsage('deepseek', 3)));

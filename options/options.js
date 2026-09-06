@@ -12,6 +12,7 @@ const escapeAttr = (typeof window !== 'undefined' && typeof window.escapeAttr ==
       return String(s == null ? '' : s)
         .replace(/&/g, '&amp;')
         .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
     };
@@ -1460,7 +1461,8 @@ function renderApiCards() {
         settings.api.apiModels[apiName] = input.value;
       } else {
         if (!settings.api.apiKeys[apiName]) settings.api.apiKeys[apiName] = {};
-        settings.api.apiKeys[apiName][field] = input.value;
+        // v1.3.0 fix P2-1: 清空密钥字段时写入 null，让后端据此显式删除 local 中已存密钥
+        settings.api.apiKeys[apiName][field] = input.value === '' ? null : input.value;
       }
       saveAllSettings(settings).then(async () => {
         // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
@@ -2451,7 +2453,7 @@ async function checkForUpdates() {
 
       let html = `<div class="update-available">
         <strong>🎉 发现新版本！</strong>
-        <br>当前版本：<code>v${currentVersion}</code>　→　最新版本：<code>v${latestVersion}</code>`;
+        <br>当前版本：<code>v${currentVersion}</code>　→　最新版本：<code>v${escapeAttr(latestVersion)}</code>`;
       if (publishedAt) html += `<br>发布日期：${publishedAt}`;
       html += `<br><br>`;
       if (data.body) {
