@@ -235,10 +235,9 @@ function setupEventListeners() {
             await chrome.tabs.sendMessage(tab.id, { action: 'restoreAll' });
           }
         } catch (e) {
-          translationEnabled = prevState;
-          updateToggleButton();
-          await sendMessageWithRetry({ action: 'updateSettings', path: 'general.translationEnabled', value: prevState }).catch(() => {});
-          alert('当前页面无法翻译，请在普通网页上重试');
+          // v1.3.2 fix F2: 全局开关已成功持久化，不应因「当前页无 content script」回滚并弹误导性 alert。
+          // chrome:// 等内部页本就无法翻译；开关状态保留，下次导航到普通网页即自动生效
+          console.warn('[popup] 当前页无法执行翻译指令（可能无 content script），已保留全局开关状态:', e && e.message);
         }
       }
     } catch (e) {
@@ -339,7 +338,8 @@ function setupEventListeners() {
     skipToggle.addEventListener('change', async () => {
       const skipChinese = previousSkipChecked;
       try {
-        await sendMessageWithRetry({ action: 'updateSettings', path: 'rules.skipChineseSegments', value: !skipChinese });
+        // v1.3.2 fix F7: 开关语义为 checked=!skip，写入应取旧 checked（=新 skip 值）；原 !skipChinese 方向写反，导致开关功能失效/反向
+        await sendMessageWithRetry({ action: 'updateSettings', path: 'rules.skipChineseSegments', value: skipChinese });
         previousSkipChecked = !skipChinese;
       } catch (e) {
         skipToggle.checked = skipChinese;

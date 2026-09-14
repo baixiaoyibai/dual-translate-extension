@@ -28,6 +28,29 @@
 
 ---
 
+## v1.3.2 (2026-09-14)
+
+> v1.3.2 维护批：优化用户体验并修复漏洞——修复 popup「翻译中文页英文」开关写入方向颠倒（P2）、设置页每次打开重复弹欢迎盖层、快捷键关闭翻译后徽章 ⏸ 偶发缺失、动态页周期重扫放大重译与 API 消耗、popup 开关在内部页被误回滚、API 错误冷却恢复后计数不清零、状态摘要展示滞后，并补齐默认值副本漂移与冗余 reloadApis。仅局部最小化修复，无新功能、无 UI 大改。
+
+### Fixed - 修复
+
+- **popup「翻译中文页英文」开关写入方向颠倒**：`popup/popup.js` 开关 change 处理器写入值由 `!skipChinese` 修正为 `skipChinese`（与加载映射 `checked = !skip` 一致），修复首次点击无效果、之后方向全部取反的功能性缺陷（P2）。
+- **设置页每次打开都弹整屏欢迎盖层**：`options/options.js` 接入 `general.hasCompletedWelcome` 读取方——已完成引导则不再展示盖层，关闭盖层时持久化该标记，消除残留死字段。
+- **关闭翻译后徽章 ⏸ 偶发缺失**：`content.js` 关闭分支先 `await updateSettings` 完成再发 `setIconState`，消除两消息并发竞态。
+- **动态页周期重扫放大重译**：`content.js` `getPageTextFingerprint` 采样时排除 `dual-translate-*` 注入子树，避免译文被计入指纹导致每间隔反复重译、放大 API 消耗。
+- **popup 开关在内部页被回滚并误导提示**：`popup/popup.js` 全局开关已持久化后，不再因「当前页无 content script」回滚开关、弹误导性 alert。
+- **API 错误冷却恢复后计数不清零**：`lib/api-manager.js` 冷却到期恢复后 `consecutiveErrors` 从 1 重新起算，避免「连续 3 次」退化为「累计 3 次」。
+- **API 状态摘要展示滞后**：`lib/api-manager.js` `getApiStatusSummary` 复用 `_isApiUsable` 的过期恢复判定，限额重置 / 限流 / 冷却到期后归一为「可用」。
+- **默认值副本漂移**：权威副本 `lib/api-metadata.js` 的 `display` 补齐 `panelCollapsed: false`，与 settings-manager 本地副本对齐。
+
+### Changed - 变更
+
+- 移除 options 保存 API 配置后冗余的 `reloadApis` 补发（`saveAllSettings` 已触发 background 的 `apiManager.reload()`）。
+
+### Tests - 测试
+
+- `tests/consistency.test.js` 新增「权威副本 `DEFAULT_SETTINGS.display` 含 `panelCollapsed:false`」防漂移断言。
+
 ## v1.3.1 (2026-09-06)
 
 > v1.3.1 维护批：修复「连续 3 次一般性错误后 API 被永久禁用」（P1）、5 项低风险 P2（api 密钥删除、百度限流映射、3 项交互开关/源语言契约缺陷）、2 项跨组功能缺陷（面板折叠持久化、NO_API 引导），并顺手加固 4 项低危安全项（C1/C2/C3/C4）。

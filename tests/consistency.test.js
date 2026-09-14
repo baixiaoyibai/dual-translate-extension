@@ -96,6 +96,18 @@ function loadBackgroundIsAlreadyChinese() {
   return new Function(`return (${fnSource})`)();
 }
 
+function loadAuthoritativeDefaults() {
+  const metaPath = path.join(__dirname, '..', 'lib', 'api-metadata.js');
+  const code = fs.readFileSync(metaPath, 'utf8');
+  const sandbox = {};
+  sandbox.window = sandbox;
+  sandbox.self = sandbox;
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(code, sandbox);
+  return sandbox.DEFAULT_SETTINGS;
+}
+
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -143,6 +155,12 @@ function main() {
     assert(bg === ct, `isAlreadyChinese 双实现不一致: ${JSON.stringify(input)} (${desc}) -> background=${bg}, content=${ct}`);
     assert(bg === expected, `isAlreadyChinese 预期不符: ${JSON.stringify(input)} (${desc}) -> actual=${bg}`);
   }
+
+  // ---------- 默认值副本一致性（P3-6 防漂移）----------
+  const metaDefaults = loadAuthoritativeDefaults();
+  assert(metaDefaults && metaDefaults.display, 'api-metadata DEFAULT_SETTINGS 缺少 display');
+  assert(metaDefaults.display.panelCollapsed === false,
+    '权威副本 DEFAULT_SETTINGS.display 缺少 panelCollapsed:false（与 settings-manager LEGACY 副本漂移）');
 
   console.log('consistency tests passed');
 }

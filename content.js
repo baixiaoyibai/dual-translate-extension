@@ -864,7 +864,19 @@ function teardownPeriodicRescan() {
 }
 
 function getPageTextFingerprint() {
-  const text = document.body?.textContent || '';
+  // v1.3.2 fix F4: 采样时排除 dual-translate-* 注入子树（与 MutationObserver 的 text 节点跳过逻辑一致），
+  // 避免译文/注入节点进入指纹，导致动态页每间隔被误判「内容变化」而反复重译、放大 API 消耗
+  let text = '';
+  const body = document.body;
+  if (body) {
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
+    let node;
+    while ((node = walker.nextNode())) {
+      const p = node.parentElement;
+      if (p && typeof p.className === 'string' && p.className.includes('dual-translate-')) continue;
+      text += node.nodeValue || '';
+    }
+  }
   const sample = text.length > 4000 ? `${text.slice(0, 2000)}|${text.slice(-2000)}` : text;
   let hash = 2166136261;
   for (let i = 0; i < sample.length; i++) {
@@ -1644,8 +1656,10 @@ function toggleTranslation() {
   // v1.3.0 fix P2-3: 以权威的 settings.general.translationEnabled 决定开关方向，避免依赖 segments/cache 是否非空导致快捷键失灵/反向
   if (settings && settings.general.translationEnabled !== false) {
     resetAll();
-    sendMessage('updateSettings', {path:'general.translationEnabled', value:false}).catch(()=>{});
-    sendMessage('setIconState', {state:'idle'}).catch(()=>{});
+    // v1.3.2 fix F1: 先 await updateSettings 完成再发 setIconState，消除并发竞态导致 ⏸ 徽章偶发缺失
+    sendMessage('updateSettings', {path:'general.translationEnabled', value:false})
+      .then(() => sendMessage('setIconState', {state:'idle'}).catch(()=>{}))
+      .catch(()=>{});
   } else {
     sendMessage('updateSettings', {path:'general.translationEnabled', value:true}).catch(()=>{});
     // v1.2.3 fix: 添加 .catch 防止 startTranslation rejection 未捕获

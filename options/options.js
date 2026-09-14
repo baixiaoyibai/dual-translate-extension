@@ -150,6 +150,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // v1.3.2 fix F9/F6: settings 加载完成后按 hasCompletedWelcome 决定欢迎盖层去留
+  try { applyWelcomeCompletionState(); } catch(e) { console.error('[options] applyWelcomeCompletionState:', e); }
+
   // 每个 setup 独立 try-catch：一个失败不影响其他
   try { setupTabSwitching(); } catch(e) { console.error('[options] setupTabSwitching:', e); }
   try { setupDisplaySettings(); } catch(e) { console.error('[options] setupDisplaySettings:', e); }
@@ -346,6 +349,10 @@ function setupWelcomeOverlay() {
   const overlay = document.getElementById('welcomeOverlay');
   if (!overlay) return;
 
+  // v1.3.2 fix F9/F6: 先隐藏盖层，待 settings 加载后由 applyWelcomeCompletionState 决定是否展示，
+  // 避免已完成引导的用户每次打开设置页都闪一下整屏盖层
+  overlay.classList.add('hidden');
+
   const enterBtn = document.getElementById('welcomeEnterBtn');
   const skipLink = document.getElementById('welcomeSkipLink');
 
@@ -362,6 +369,8 @@ function setupWelcomeOverlay() {
     document.removeEventListener('keydown', escHandler);
     // 延迟移除 DOM 节点，避免覆盖层残留拦截交互
     setTimeout(() => { overlay.remove(); }, 300);
+    // v1.3.2 fix F9/F6: 持久化「已完成欢迎引导」，避免每次打开设置页都重复弹整屏盖层
+    chrome.runtime.sendMessage({ action: 'updateSettings', path: 'general.hasCompletedWelcome', value: true }).catch(() => {});
   }
 
   if (enterBtn) {
@@ -376,6 +385,17 @@ function setupWelcomeOverlay() {
 
   // ESC 键也可关闭欢迎页
   document.addEventListener('keydown', escHandler);
+}
+
+// v1.3.2 fix F9/F6: 依据 general.hasCompletedWelcome 决定欢迎盖层去留
+function applyWelcomeCompletionState() {
+  const overlay = document.getElementById('welcomeOverlay');
+  if (!overlay) return;
+  if (settings?.general?.hasCompletedWelcome === true) {
+    overlay.remove();
+  } else {
+    overlay.classList.remove('hidden');
+  }
 }
 
 function setupTabSwitching() {
@@ -1397,8 +1417,7 @@ function renderApiCards() {
     cb.addEventListener('change', () => {
       settings.api.enabledApis[cb.dataset.api] = cb.checked;
       saveAllSettings(settings).then(() => {
-        // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
-        chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
+        // v1.3.2 fix F5: 移除冗余 reloadApis（saveAllSettings 已触发 background saveSettings→apiManager.reload）
         // v1.0.19 fix: renderQuotaLimits/renderApiUsage 不依赖 enabledApis，重绘只会销毁额度输入框焦点
         // 仅刷新月度用量显示（可能因 API 禁用而停止累计）
         renderMonthlyUsage();
@@ -1426,8 +1445,7 @@ function renderApiCards() {
         }
         
         saveAllSettings(settings).then(async () => {
-          // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
-          chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
+          // v1.3.2 fix F5: 移除冗余 reloadApis（saveAllSettings 已触发 apiManager.reload）
           showSavedTip();
           // 保存后完整性检查：不完整则禁用启用
           const { complete } = checkApiCompleteness(apiName, null, provider);
@@ -1465,8 +1483,7 @@ function renderApiCards() {
         settings.api.apiKeys[apiName][field] = input.value === '' ? null : input.value;
       }
       saveAllSettings(settings).then(async () => {
-        // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
-        chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
+        // v1.3.2 fix F5: 移除冗余 reloadApis（saveAllSettings 已触发 apiManager.reload）
         showSavedTip();
         // v1.2.17 UX: 保存后同步刷新页内完整性横幅
         window.__currentSettings = settings;
