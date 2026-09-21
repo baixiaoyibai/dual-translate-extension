@@ -782,7 +782,7 @@ function setupGlossaryManagement() {
     getCurrentEntries().push({ source: '', target: '', matchType: 'exact', preserve: false });
     renderGlossaryTable();
     // v1.2.2 fix: Bug 5 - 添加 .catch 防止未处理的 Promise 拒绝
-    saveGlossary().catch(e => console.warn('[glossary] saveGlossary failed:', e));
+    saveGlossary().catch(e => showSaveError(e.message));
     const rows = document.querySelectorAll('#glossaryTable tbody tr');
     if (rows.length) {
       const lastRow = rows[rows.length - 1];
@@ -855,7 +855,7 @@ function setupGlossaryManagement() {
         if (!Array.isArray(data)) throw new Error('格式错误：应为术语数组');
         glossaryByDomain[currentScope] = data;
         renderGlossaryTable();
-        saveGlossary().catch(err => console.warn('[glossary] saveGlossary failed:', err));
+        saveGlossary().catch(err => showSaveError(err.message));
         showSavedTip();
       } catch (err) {
         // 回退：内容填入文本框，用户可修正后手动确认导入
@@ -879,7 +879,7 @@ function setupGlossaryManagement() {
       glossaryByDomain[currentScope] = data;
       renderGlossaryTable();
       // v1.2.2 fix: Bug 5 - 添加 .catch 防止未处理的 Promise 拒绝
-      saveGlossary().catch(e => console.warn('[glossary] saveGlossary failed:', e));
+      saveGlossary().catch(e => showSaveError(e.message));
       // v1.2.12 fix: P1-2 — 关闭时同时加回 hidden 类
       const area = document.getElementById('importExportArea');
       if (area) { area.style.display = 'none'; area.classList.add('hidden'); }
@@ -938,7 +938,7 @@ function setupGlossaryManagement() {
     populateScopeSelect();
     renderGlossaryTable();
     // v1.2.2 fix: Bug 5 - 添加 .catch 防止未处理的 Promise 拒绝
-    saveGlossary().catch(e => console.warn('[glossary] saveGlossary failed:', e));
+    saveGlossary().catch(e => showSaveError(e.message));
   });
 
   // v1.0.4: 删除当前 scope（_global 不可删）
@@ -950,7 +950,7 @@ function setupGlossaryManagement() {
     populateScopeSelect();
     renderGlossaryTable();
     // v1.2.2 fix: Bug 5 - 添加 .catch 防止未处理的 Promise 拒绝
-    saveGlossary().catch(e => console.warn('[glossary] saveGlossary failed:', e));
+    saveGlossary().catch(e => showSaveError(e.message));
   });
 
   renderGlossaryTable();
@@ -987,7 +987,7 @@ function renderGlossaryTable() {
       if (!arr[idx]) return;
       arr[idx][field] = input.type === 'checkbox' ? input.checked : input.value;
       // v1.2.2 fix: Bug 5 - 添加 .catch 防止未处理的 Promise 拒绝
-      saveGlossary().catch(e => console.warn('[glossary] saveGlossary failed:', e));
+      saveGlossary().catch(e => showSaveError(e.message));
     });
   });
 
@@ -998,7 +998,7 @@ function renderGlossaryTable() {
       if (!arr[idx]) return;
       arr[idx].matchType = select.value;
       // v1.2.2 fix: Bug 5 - 添加 .catch 防止未处理的 Promise 拒绝
-      saveGlossary().catch(e => console.warn('[glossary] saveGlossary failed:', e));
+      saveGlossary().catch(e => showSaveError(e.message));
     });
   });
 
@@ -1010,13 +1010,17 @@ function renderGlossaryTable() {
       arr.splice(idx, 1);
       renderGlossaryTable();
       // v1.2.2 fix: Bug 5 - 添加 .catch 防止未处理的 Promise 拒绝
-      saveGlossary().catch(e => console.warn('[glossary] saveGlossary failed:', e));
+      saveGlossary().catch(e => showSaveError(e.message));
     });
   });
 }
 
 async function saveGlossary() {
-  await chrome.runtime.sendMessage({ action: 'saveGlossary', glossary: glossaryByDomain });
+  const resp = await chrome.runtime.sendMessage({ action: 'saveGlossary', glossary: glossaryByDomain });
+  // v1.3.3 fix F-1: 保存失败必须抛出并走 showSaveError 告知用户，禁止 console.warn 静默吞掉
+  if (!resp || resp.success === false || resp.error) {
+    throw new Error(resp?.error || '术语表保存失败');
+  }
 }
 
 const API_STATUS_LABELS = { available: '可用', quota_exceeded: '额度不足', rate_limited: '频率限制', error: '异常', auth_error: '密钥错误' };
@@ -2279,7 +2283,7 @@ function setupAdvancedSettings() {
       const text = await file.text();
       const data = JSON.parse(text);
       if (!data || typeof data !== 'object' || !data.settings) throw new Error('文件格式无效（缺少 settings 字段）');
-      if (!data.version) throw new Error('文件格式无效（缺少 version 字段）');
+      if (!data.version) throw new Error('文件格式无效（缺少 version 字段，仅支持 v1.0.6 及之后导出的文件）');
       const s = data.settings;
       if (!s.api || !Array.isArray(s.api.apiPriority)) throw new Error('文件不是双语翻译助手的设置（缺少 api.apiPriority）');
       if (!s.display || !s.general) throw new Error('文件不是双语翻译助手的设置（缺少 display/general）');
@@ -2520,10 +2524,15 @@ function compareVersions(a, b) {
 }
 
 // v1.2.12 fix: P1-6 — URL 协议白名单，阻止 javascript: / data: 等危险 scheme 注入
+// v1.3.3 security P3-5: 下载/发布链接进一步限定 GitHub 官方域——防止仓库元数据（release assets）
+// 被篡改后诱导浏览器下载任意 https 主机的文件（zip 替换攻击）。
 function safeUrl(u) {
   try {
     const p = new URL(u);
-    return p.protocol === 'https:' ? u : '#';
+    if (p.protocol !== 'https:') return '#';
+    const host = p.hostname.toLowerCase();
+    if (host === 'github.com' || host === 'objects.githubusercontent.com') return u;
+    return '#';
   } catch {
     return '#';
   }
@@ -3089,7 +3098,9 @@ async function runUsageDiagnosis() {
       totalMonthly += mCount;
 
       const quota = quotaLimits[apiName];
-      const limit = quota?.enabled ? quota.limit : 0;
+      // v1.3.3 security P2-2: limit 先做数值校验（导入文件可能写入字符串标记），防止经 toLocaleString 原样注入
+      const limitNum = Number(quota?.limit);
+      const limit = (quota?.enabled && Number.isFinite(limitNum) && limitNum > 0) ? limitNum : 0;
       const unit = quota?.unit || 'chars';
       const resetType = quota?.resetType || 'monthly';
 
@@ -3309,9 +3320,10 @@ async function runSettingsIntegrityDiagnosis() {
     // v1.2.2 fix: 设置概览使用新字段名 defaultMode（原为 mode）
     html += `<div><strong>翻译模式:</strong> ${escapeAttr(s.display?.defaultMode || '未设置')}</div>`;
     html += `<div><strong>源语言:</strong> ${escapeAttr(s.api?.sourceLanguage || 'auto')}</div>`;
-    html += `<div><strong>日志级别:</strong> ${s.general?.logLevel ?? '未设置'}</div>`;
-    html += `<div><strong>批量大小:</strong> ${s.advanced?.batchSize ?? '未设置'} 段</div>`;
-    html += `<div><strong>超时时间:</strong> ${s.advanced?.requestTimeout ?? '未设置'} 秒</div>`;
+    // v1.3.3 security P2-2: 数值字段统一转义——导入的标记串即使已持久化也不能在此注入
+    html += `<div><strong>日志级别:</strong> ${escapeAttr(String(s.general?.logLevel ?? '未设置'))}</div>`;
+    html += `<div><strong>批量大小:</strong> ${escapeAttr(String(s.advanced?.batchSize ?? '未设置'))} 段</div>`;
+    html += `<div><strong>超时时间:</strong> ${escapeAttr(String(s.advanced?.requestTimeout ?? '未设置'))} 秒</div>`;
     html += `<div><strong>懒加载:</strong> ${s.advanced?.lazyTranslate ? '开启' : '关闭'}</div>`;
     html += `<div><strong>翻译缓存:</strong> ${s.trigger?.translationCache ? '开启' : '关闭'}</div>`;
     // v1.2.2 fix: 使用新字段名 excludeList/excludeMode 替代旧的 whitelist/blacklist

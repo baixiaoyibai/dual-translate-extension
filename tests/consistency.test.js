@@ -108,6 +108,44 @@ function loadAuthoritativeDefaults() {
   return sandbox.DEFAULT_SETTINGS;
 }
 
+// v1.3.3 compat F-7: 加载 settings-manager.js 的 LEGACY_DEFAULT_SETTINGS（fallback 副本）
+function loadLegacyDefaults() {
+  const smPath = path.join(__dirname, '..', 'lib', 'settings-manager.js');
+  const code = fs.readFileSync(smPath, 'utf8')
+    .replace(/^import[^;]+;\s*/m, '')
+    .replace(/^export\s*\{[^}]*\};?\s*$/m, '')
+    + '\nreturn LEGACY_DEFAULT_SETTINGS;';
+  const chromeMock = {
+    runtime: { id: 'test-extension' },
+    storage: {
+      sync: { get: async () => ({}), set: async () => {}, remove: async () => {} },
+      local: { get: async () => ({}), set: async () => {}, remove: async () => {} }
+    }
+  };
+  // eslint-disable-next-line no-new-func
+  const factory = new Function('console', 'chrome', 'structuredClone', code);
+  return factory(console, chromeMock, value => JSON.parse(JSON.stringify(value)));
+}
+
+// v1.3.3 compat F-7: 全量深度比对，返回差异路径列表（空数组 = 完全一致）
+function deepCompare(a, b, path, diffs) {
+  if (a === b) return;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) {
+      diffs.push(`${path}: 数组长度 ${a.length} vs ${b.length}`);
+      return;
+    }
+    a.forEach((v, i) => deepCompare(v, b[i], `${path}[${i}]`, diffs));
+    return;
+  }
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    for (const k of keys) deepCompare(a[k], b[k], `${path}.${k}`, diffs);
+    return;
+  }
+  diffs.push(`${path}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`);
+}
+
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -161,6 +199,17 @@ function main() {
   assert(metaDefaults && metaDefaults.display, 'api-metadata DEFAULT_SETTINGS 缺少 display');
   assert(metaDefaults.display.panelCollapsed === false,
     '权威副本 DEFAULT_SETTINGS.display 缺少 panelCollapsed:false（与 settings-manager LEGACY 副本漂移）');
+
+  // ---------- v1.3.3 compat F-7: 默认值双副本全量深度比对 ----------
+  // v1.3.2 曾因权威副本漏 panelCollapsed 出过漂移，当时的回归网只断言了单字段。
+  // 现升级为 LEGACY_DEFAULT_SETTINGS（settings-manager fallback 副本）与权威副本的
+  // 全量深度比对：任何字段（含数组逐项）漂移直接 fail 并给出差异路径。
+  const legacyDefaults = loadLegacyDefaults();
+  assert(legacyDefaults && legacyDefaults.display, 'settings-manager LEGACY_DEFAULT_SETTINGS 缺少 display');
+  const driftDiffs = [];
+  deepCompare(legacyDefaults, metaDefaults, 'DEFAULT_SETTINGS', driftDiffs);
+  assert(driftDiffs.length === 0,
+    `DEFAULT_SETTINGS 双副本漂移（settings-manager LEGACY vs api-metadata 权威），共 ${driftDiffs.length} 处:\n${driftDiffs.slice(0, 10).join('\n')}`);
 
   console.log('consistency tests passed');
 }

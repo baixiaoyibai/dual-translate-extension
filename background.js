@@ -84,10 +84,13 @@ function _pushLog(level, args) {
     return result;
   };
   // v1.3.0 fix C2: 对字符串日志参数脱敏，避免密钥以 Bearer / sk- / AKIA 形态进入诊断页日志
+  // v1.3.3 security P3-2: 补齐火山引擎 AKLT 前缀与 32 位十六进制（百度 secretKey 等）形态
   const redactString = (str) => String(str == null ? '' : str)
     .replace(/\b(Bearer\s+)\S{8,}/gi, '$1[REDACTED]')
     .replace(/\bsk-[A-Za-z0-9_-]{8,}/gi, '[REDACTED]')
-    .replace(/\bAKIA[0-9A-Z]{12,}/gi, '[REDACTED]');
+    .replace(/\bAKIA[0-9A-Z]{12,}/gi, '[REDACTED]')
+    .replace(/\bAKLT[A-Za-z0-9]{12,}/g, '[REDACTED]')
+    .replace(/\b[a-f0-9]{32}\b/gi, '[REDACTED]');
   const entry = {
     seq: ++logSeq,
     ts: Date.now(),

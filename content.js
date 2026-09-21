@@ -1878,6 +1878,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
       _lastLocalApiKeys = changes.dual_translate_api_keys_local.newValue || null;
     }
     // v1.2.15 fix: C-2 - reload glossary when it changes in local storage
+    // v1.3.3 fix F-2: v1.3.3 起术语表存储于 local 区域（见 settings-manager getGlossary/saveGlossary），
+    // 此监听分支真正生效——设置页修改术语表后已打开标签页实时刷新，兑现 v1.2.15 的承诺。
     if (changes.dual_translate_glossary) {
       loadGlossary().catch(e => dtError('storage.onChanged glossary reload error:', e));
     }

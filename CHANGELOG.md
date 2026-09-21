@@ -28,6 +28,39 @@
 
 ---
 
+## v1.3.3 (2026-09-21)
+
+> v1.3.3 维护批：版本兼容性与用户安全专项修复——术语表迁移至 local 存储修复 chrome.storage.sync 单项 8KB 配额导致的默认术语表丢失与编辑静默丢弃（P1），内置厂商端点域名白名单、诊断页密钥掩码、导入字段类型校验三项安全加固（P2），并同步 README 版本/PIN 算法文档漂移。仅局部最小化修复，无新功能、无 UI 大改。
+
+### Fixed - 修复
+
+- **默认术语表超出 sync 单项配额导致永久丢失（P1）**：`lib/settings-manager.js` 术语表（`dual_translate_glossary`）从 `chrome.storage.sync` 迁移到 `chrome.storage.local`（享有 `unlimitedStorage` 权限，无 8KB 单项限制）。背景：默认术语表约 11KB，在 sync 上种子写入必然被 `QUOTA_BYTES_PER_ITEM` 拒绝，且 `catch{}` 吞掉错误后仍置位初始化标记，导致 README 宣称的内置 100+ 专业术语自 v1.0.4 起从未生效；种子写入失败后不再置位 INIT 标记（下次调用自动重试）。
+- **用户术语表超限编辑被静默丢弃**：`options/options.js` `saveGlossary` 现校验 background 返回结果并在失败时抛出，8 处调用点由 `console.warn` 改为 `showSaveError` 用户可见提示，不再出现「UI 提示已保存、实际写入失败」。
+- **已打开标签页术语表不热更新（兑现 v1.2.15 承诺）**：术语表迁移到 local 后，`content.js` 既有的 `chrome.storage.onChanged` local 分支监听真正生效，设置页修改术语表后已打开页面实时刷新，无需手动刷新。
+- **旧版本术语表数据兼容**：读取时自动将旧版本已成功写入 sync 的术语表（≤8KB，含 v1.0.4 前的裸 array 格式）迁移到 local 并清理 sync 旧键，迁移幂等，用户数据无丢失。
+- **导入 pre-v1.0.6 导出文件报错不明确**：导入校验文案补充「仅支持 v1.0.6 及之后导出的文件」。
+- **README 版本与安全承诺漂移**：README 顶部「当前版本」更新为 v1.3.3（v1.3.2 发布时遗漏）；PIN 算法描述由「SHA-256 + 盐值」更正为「PBKDF2-HMAC-SHA256（10 万次迭代）+ 盐值」（v1.2.16 起实际实现，原表述低估安全强度）；存储说明更新术语表位置并标注 sync 单项 8KB 配额边界。
+
+### Security - 安全
+
+- **内置厂商端点可被导入文件改写为任意 HTTPS 主机**：`lib/settings-manager.js` `_assertSafeEndpoints` 对内置厂商（baidu/baidu_llm/volcano/deepseek/glm/zhipu/tongyi/yi/doubao）增加官方域名白名单——恶意导入文件无法再把用户的真实密钥以 Bearer/签名参数发往非官方主机（v1.2.16 M3 只校验协议不限主机的残留缺口）；自定义供应商保持任意 HTTPS 不变，内置厂商本机 localhost 测试地址仍放行。
+- **诊断页明文展示自定义供应商密钥**：`diagnose.js` 对 `customProviders[].apiKey` 补掩码（getSettings 消息与 sync 存储检查两处），诊断页无需解锁 PIN 即可直达，自定义供应商密钥不再明文展示；掩码统一为与设置页 `maskApiValue` 相同的「≤6 位全遮蔽」语义，短密钥不再近乎原文泄露。
+- **设置页诊断工具存储型标记注入**：`options/options.js` 设置概览（日志级别/批量大小/超时时间）补 `escapeAttr` 转义、用量诊断（额度 limit）补 `Number.isFinite` 数值校验；`applyImportedSettings` 对 `general.logLevel`、`advanced.batchSize/requestTimeout/retryCount/retryInterval`、`api.quotaLimits[].limit` 等导入字段做类型归一，非数字回退默认值或丢弃条目，标记串不再能持久化进 storage。
+- **运行日志脱敏模式补齐**：`background.js` `_pushLog` 字符串脱敏补充火山引擎 `AKLT` 前缀与 32 位十六进制（百度 secretKey 形态）模式。
+- **更新检查下载域收紧**：`options/options.js` `safeUrl` 由「任意 https」收紧为 `github.com` / `objects.githubusercontent.com` 域白名单，防止仓库 release 元数据被篡改后诱导下载任意主机的文件。
+
+### Changed - 变更
+
+- **术语表存储区域由 sync 改为 local**（行为变更）：术语表不再跨设备同步，如需跨设备迁移使用设置页导出/导入；导出/导入文件格式不变（`glossary` 字段），旧版本导出文件可直接导入。
+- 导入设置对非 `api.apiKeys` 字段的 `null` 值做剥离（`null` 语义仅保留给密钥显式删除，v1.3.1 契约不变），防止 `trigger.autoTranslate: null` 等畸形值依赖 falsy 语义改变行为。
+- `diagnose.js` 手动密钥迁移工具改为与 `_migrateSyncKeysToLocal` 一致的合并语义：仅补充 local 中缺失的非空密钥，不再整体覆盖（避免部分失败的旧迁移残留把 local 新密钥回滚成 sync 旧值），并同步迁移 `custom_<id>` 供应商密钥。
+- 清理 ≤v1.0.7 遗留的孤儿存储键 `dual_translate_api_status`（单键聚合状态，v1.0.13 起已无任何读取方），并删除对应的死常量。
+
+### Tests - 测试
+
+- `tests/settings-manager.test.js` 新增回归断言：术语表 local 种子成功/失败重试、旧 sync 数据迁移（含裸 array 格式）与 sync 旧键清理、`saveGlossary` 只写 local、内置厂商端点白名单（劫持/仿冒域名拒绝、官方域与 localhost 放行、custom 槽位与自定义供应商不受限）、导入字段类型归一（`logLevel`/`batchSize`/`quotaLimits[].limit`）与 null 剥离（含 `api.apiKeys` 显式删除契约保持）。
+- `tests/consistency.test.js` 默认值双副本防漂移断言由单字段升级为 `LEGACY_DEFAULT_SETTINGS` 与权威副本的全量深度比对（含数组逐项），任何字段漂移直接 fail 并输出差异路径。
+
 ## v1.3.2 (2026-09-14)
 
 > v1.3.2 维护批：优化用户体验并修复漏洞——修复 popup「翻译中文页英文」开关写入方向颠倒（P2）、设置页每次打开重复弹欢迎盖层、快捷键关闭翻译后徽章 ⏸ 偶发缺失、动态页周期重扫放大重译与 API 消耗、popup 开关在内部页被误回滚、API 错误冷却恢复后计数不清零、状态摘要展示滞后，并补齐默认值副本漂移与冗余 reloadApis。仅局部最小化修复，无新功能、无 UI 大改。
