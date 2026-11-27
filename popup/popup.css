@@ -76,95 +76,17 @@ body {
 /* ==========================================================================
    Toggle Section
    ========================================================================== */
-.popup-toggle {
-  padding: 12px 16px;
-  display: flex;
-  gap: 8px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-primary);
+.page-actions { display: flex; flex-direction: column; gap: 10px; }
+.page-status { color: var(--text-secondary); line-height: 1.5; font-size: 12px; }
+.toggle-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 14px; border: 1px solid var(--accent); border-radius: var(--radius);
+  font: inherit; cursor: pointer; background: var(--accent); color: #fff;
 }
-
-.toggle-btn,
-.cancel-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-  background: var(--bg-card);
-  color: var(--accent);
-  font-family: var(--sans);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--transition), color var(--transition), border-color var(--transition), transform var(--transition), opacity var(--transition);
-  line-height: 1.4;
-  user-select: none;
-}
-
-.toggle-btn:hover,
-.cancel-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--accent-hover);
-}
-
-.toggle-btn:active,
-.cancel-btn:active {
-  transform: scale(0.97);
-}
-
-.toggle-btn.active {
-  background: var(--accent);
-  color: #ffffff;
-  border-color: var(--accent);
-}
-
-.toggle-btn.active:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
-.toggle-btn.inactive {
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  border-color: var(--border);
-}
-
-.toggle-btn.inactive:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--bg-hover);
-}
-
-.cancel-btn {
-  flex: 0 0 auto;
-  border-color: var(--error);
-  color: var(--error);
-  background: var(--bg-card);
-  padding: 8px 12px;
-  display: none;
-}
-
-.cancel-btn:hover {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: var(--error);
-  color: var(--error);
-}
-
-.cancel-btn.cancelling {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
-.toggle-icon,
-.cancel-btn span:first-child {
-  font-size: 11px;
-  line-height: 1;
-}
-
+.toggle-btn:hover { background: var(--accent-hover); }
+.toggle-btn:disabled { opacity: .5; cursor: default; }
+.global-toggle { background: var(--bg-card); color: var(--text-secondary); border-color: var(--border); font-size: 12px; }
+.global-toggle:hover { background: var(--bg-hover); }
 /* ==========================================================================
    Sections
    ========================================================================== */

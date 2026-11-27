@@ -23,6 +23,13 @@ let hoverTranslations = new Map();
 let _activeHoverCount = 0;
 let loadingElement = null;
 let panelInstance = null;
+let originalPanelStyles = null;
+
+function restorePanelStyles() {
+  if (!originalPanelStyles) return;
+  Object.assign(document.body.style, originalPanelStyles);
+  originalPanelStyles = null;
+}
 
 // v1.0.2: dtLog —— content script 内联日志 helper（§3.6 / §10.2 修复）
 // logger.js 是 ESM，content script 走非模块路径无法 import；自己写 4 个 level 函数
@@ -49,13 +56,13 @@ function loadGlossary() {
       // 预编译：escape 特殊字符后构建 RegExp，运行时直接 replace
       glossaryCompiled = ((r && r.glossary) || [])
         .map(e => {
-          if (!e || !e.source || !e.target) return null;
+          if (!e || !e.source || (!e.target && !e.preserve)) return null;
           const escaped = e.source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           const matchType = e.matchType || 'exact';
           const pattern = matchType === 'fuzzy'
             ? escaped
             : '\\b' + escaped + '\\b';
-          return { re: new RegExp(pattern, 'gi'), target: e.target };
+          return { source: e.source.toLowerCase(), re: new RegExp(pattern, 'gi'), target: e.preserve ? e.source : e.target };
         })
         .filter(Boolean);
     })
@@ -72,14 +79,20 @@ function applyGlossary(text) {
 let errorBannerElement = null;
 let hoverClickRegistered = false;
 let mutationObserver = null;
-let observerPaused = false;
-let translationCompletedOnce = false;
+let rescanPending = false;
+let automaticSession = false;
+let nextSegmentId = 0;
+let autoStartTimer = null;
+let pageRestored = false;
+const originalWrappers = new WeakSet();
+let translatedTitle = null;
+const translatedImages = new Map();
 // v1.0.7 fix: 将 setupMutationObserver 的 quietTimer 提升为模块级变量，
 // 供 resetAll 清除，避免页面重翻译后残留定时器触发意外重翻译
 let mutationQuietTimer = null;
 const textCache = new Map();
 const TEXT_CACHE_MAX_SIZE = 5000;
-let lastRetranslateTime = 0;
+
 
 // v1.0.6 perf: detectPageLanguage 结果缓存，避免同一次翻译流程内 3 次重复遍历 DOM
 // 在 resetAll 中清除，确保 SPA 路由变化后重新检测
@@ -87,12 +100,31 @@ let cachedPageLang = null;
 
 // v1.0.7 perf: skipTags/blockTags 提升为模块常量，避免 extractSegments 每次创建 Set
 // tagName 在 HTML 中始终大写（SVG 中也是大写），用大写比对省去 toLowerCase
-const SKIP_TAGS = new Set(['SCRIPT','STYLE','NOSCRIPT','SVG','TEXTAREA','INPUT','SELECT','OPTION']);
-const BLOCK_TAGS = new Set(['P','LI','H1','H2','H3','H4','H5','H6','TD','TH','BLOCKQUOTE','FIGCAPTION','DT','DD','PRE','CODE','SUMMARY','A','LABEL','LEGEND','CAPTION']);
-const LANG_SKIP_TAGS = new Set(['SCRIPT','STYLE','NOSCRIPT','SVG','CODE','PRE']);
+const INJECTED = '.dual-translate-translation,.dual-translate-placeholder,.dual-translate-hover,.dual-translate-panel,.dual-translate-loading-overlay,.dual-translate-error-banner';
+const EXCLUDED = 'script,style,noscript,svg,math,template,iframe,canvas,form,input,textarea,select,option,[contenteditable]:not([contenteditable="false" i]),[role="textbox" i],[role="searchbox" i],[translate="no" i],.notranslate,[hidden],[inert],[aria-hidden="true" i]';
+const BLOCKS = 'p,li,h1,h2,h3,h4,h5,h6,td,th,blockquote,figcaption,dt,dd,pre,summary,label,legend,caption,div,section,article,button,[role="tab"],body';
+
+function excludedElement(el) {
+  return el.matches(EXCLUDED) || el.matches(INJECTED) ||
+    (!settings?.rules?.translateCodeBlocks && el.matches('code,pre')) ||
+    (settings?.rules?.translateUI === false && el.matches('button,[role="button"]')) ||
+    (isNexusModsDomain() && el.matches('.mod-tile [class*="stat"],.mod-tile [class*="metric"],[data-testid="mod-tile-stats"]'));
+}
+
+function readableElement(el) {
+  if (!el || !el.isConnected || document.designMode === 'on') return false;
+  for (let ancestor = el; ancestor; ancestor = ancestor.parentElement) {
+    if (originalWrappers.has(ancestor)) continue;
+    if (excludedElement(ancestor)) return false;
+    const style = getComputedStyle(ancestor);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' ||
+        style.contentVisibility === 'hidden') return false;
+  }
+  return true;
+}
 
 // v1.0.7 perf: containsUrl 正则合并，4 个正则 -> 1 个
-const URL_RE = /https?:\/\/[^\s]{4,}|(?:^|\s)www\.[a-zA-Z0-9-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}\/[^\s]{2,}/i;
+const URL_RE = /^(?:https?:\/\/\S+|www\.[a-zA-Z0-9-]+\.[a-zA-Z]{2,}\S*|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}\/\S+)$/i;
 
 const METRIC_LABELS = new Set([
   'downloads','download','dls','dl',
@@ -182,26 +214,14 @@ function isMetricOrRepetitiveText(text) {
 
   const low = t.toLowerCase().replace(/\s+/g, ' ');
 
-  if (METRIC_LABELS.has(low)) return true;
-
-  if (/^[a-zA-Z\s]+$/.test(t) && t.length <= 25) {
-    const words = low.replace(/[^a-z\s]/g, '').trim().split(/\s+/);
-    if (words.length >= 1 && words.length <= 3) {
-      const combined1 = words.join(' ');
-      if (METRIC_LABELS.has(combined1)) return true;
-      if (words.length === 2) {
-        if (METRIC_LABELS.has(words[0])) return true;
-        if (METRIC_LABELS.has(words[1])) return true;
-      }
-    }
-  }
+  if (isNexusModsDomain() && METRIC_LABELS.has(low)) return true;
 
   for (const p of METRIC_PATTERNS) { if (p.test(t)) return true; }
 
   return false;
 }
 function isNexusModsDomain() {
-  try { return location.hostname.includes('nexusmods.com'); } catch { return false; }
+  try { return /(^|\.)nexusmods\.com$/i.test(location.hostname); } catch { return false; }
 }
 
 // 检测段落是否已经是中文（无需翻译）
@@ -252,60 +272,11 @@ function isAlreadyChinese(text) {
   return false;
 }
 
-// v1.2.7 fix: 宽松版中文检测 —— 仅用于页面级"中文占比"统计（不参与单段跳过判定）
-// 阈值：CJK 占可分类字符 60% 且绝对数量 ≥ 3
-//   介于 isAlreadyChinese（严格）和纯字符占比（过宽）之间，专门用于判断"这一段中文含量较高"
-//   单独存在时不会跳过翻译（仍由 isAlreadyChinese 决定单段是否翻译）
-//   仅当全页多数段落满足此条件时，才在 startTranslation 阶段提前终止整个翻译流程
-function isAlreadyChineseLenient(text) {
-  const t = text.trim();
-  if (t.length === 0) return false;
-  let cjkCount = 0;
-  let kanaCount = 0;
-  let latinCount = 0;
-  for (let i = 0; i < t.length; i++) {
-    const c = t.codePointAt(i);
-    if (c > 0xFFFF) i++;
-    if ((c >= 0x4E00 && c <= 0x9FFF) ||
-        (c >= 0x3400 && c <= 0x4DBF) ||
-        (c >= 0x20000 && c <= 0x2A6DF) ||
-        (c >= 0x2A700 && c <= 0x2B73F) ||
-        (c >= 0x2B740 && c <= 0x2B81F) ||
-        (c >= 0xF900 && c <= 0xFAFF) ||
-        (c >= 0x2F800 && c <= 0x2FA1F)) {
-      cjkCount++;
-    } else if ((c >= 0x3040 && c <= 0x309F) ||
-               (c >= 0x30A0 && c <= 0x30FF)) {
-      kanaCount++;
-    } else if (c >= 0xAC00 && c <= 0xD7AF) {
-      return false;
-    } else if ((c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)) {
-      latinCount++;
-    }
-  }
-  if (kanaCount > 0) return false;
-  if (cjkCount < 3) return false;
-  const total = cjkCount + latinCount;
-  if (total === 0) return false;
-  const cjkRatio = cjkCount / total;
-  return cjkRatio >= 0.6;
-}
 function containsUrl(text) {
   return URL_RE.test(text);
 }
 function isGarbledText(text) {
-  const t=text.trim(); if(t.length<3) return false;
-  let an=0,nl=0;
-  for(let i=0;i<t.length;i++){
-    const c=t.charCodeAt(i);
-    if((c>=48&&c<=57)||(c>=65&&c<=90)||(c>=97&&c<=122)||(c>=0x4E00&&c<=0x9FFF)||(c>=0x3040&&c<=0x30FF))an++;
-    else if(!((c>=0&&c<=0x7F)||(c>=0x4E00&&c<=0x9FFF)||(c>=0x3040&&c<=0x30FF)))nl++;
-  }
-  if(an/t.length<0.35&&t.length>6) return true;
-  if(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/.test(t)) return true;
-  if(/(.)\1{4,}/.test(t)) return true;
-  if(nl/t.length>0.3&&t.length>8) return true;
-  return false;
+  return !/\p{L}/u.test(text) || /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/.test(text);
 }
 const MODEL_CN_VARIANTS = new Set([
   'pro', 'plus', 'ultra', 'max', 'turbo', 'lite', 'mini', 'air', 'nano',
@@ -402,68 +373,29 @@ function hasAnyCJK(text) {
   return false;
 }
 function shouldSkipText(text) {
-  if (settings && settings.rules && settings.rules.skipChineseSegments !== false && cachedPageLang !== 'ja' && hasAnyCJK(text)) return true;
+  if (settings && settings.rules && settings.rules.skipChineseSegments !== false && cachedPageLang !== 'ja' && hasAnyCJK(text) && !/[\u3040-\u30ff]/.test(text)) return true;
   return isMetricOrRepetitiveText(text)||containsUrl(text)||isGarbledText(text)||isAiModelName(text, settings)||isAlreadyChinese(text);
 }
 
 function hideOriginalText(seg) {
-  if (seg._originalHidden) return;
-  
-  try {
-    if (seg.blockParent) {
-      // Block parent mode: hide all direct text children in the block
-      const walker = document.createTreeWalker(
-        seg.blockParent, 
-        NodeFilter.SHOW_TEXT, 
-        {
-          acceptNode: function(node) {
-            // Skip our own injected elements
-            if (node.parentElement && (
-              node.parentElement.classList.contains('dual-translate-translation') ||
-              node.parentElement.classList.contains('dual-translate-placeholder') ||
-              node.parentElement.classList.contains('dual-translate-original-hidden')
-            )) {
-              return NodeFilter.FILTER_SKIP;
-            }
-            // Skip script, style, etc.
-            const parentTag = node.parentElement.tagName.toLowerCase();
-            if (['script', 'style', 'noscript', 'textarea', 'input', 'select', 'option'].includes(parentTag)) {
-              return NodeFilter.FILTER_SKIP;
-            }
-            return NodeFilter.FILTER_ACCEPT;
-          }
-        }
-      );
-      
-      const hiddenSpans = [];
-      let node;
-      while ((node = walker.nextNode())) {
-        if (node === seg.node) continue; // Skip the main segment node
-        
-        const span = document.createElement('span');
-        span.className = 'dual-translate-original-hidden';
-        span.dataset.original = node.textContent;
-        span.style.display = 'none';
-        node.parentNode.replaceChild(span, node);
-        hiddenSpans.push(span);
-      }
-      
-    } else {
-      // Single node mode: hide the original text node
-      const parent = seg.node.parentElement;
-      if (!parent) return;
-      
-      const span = document.createElement('span');
-      span.className = 'dual-translate-original-hidden';
-      span.dataset.original = seg.node.textContent;
-      span.style.display = 'none';
-      seg.node.parentNode.replaceChild(span, seg.node);
-    }
-    
-    seg._originalHidden = true;
-  } catch (e) {
-    dtError('hideOriginalText error:', e);
+  if (seg.wrappers) return;
+  seg.wrappers = [];
+  for (const node of seg.nodes) {
+    if (!node.isConnected) continue;
+    const wrapper = document.createElement('span');
+    originalWrappers.add(wrapper);
+    wrapper.className = 'dual-translate-original-hidden';
+    node.before(wrapper);
+    wrapper.append(node);
+    seg.wrappers.push(wrapper);
   }
+}
+
+function restoreOriginal(seg) {
+  for (const wrapper of seg.wrappers || []) {
+    if (wrapper.parentNode) wrapper.replaceWith(...wrapper.childNodes);
+  }
+  seg.wrappers = null;
 }
 
 function showLoading(title, subtitle) {
@@ -522,7 +454,9 @@ function showErrorBanner(text, opts = {}) {
       if (actionBtn.dataset.action === 'settings') {
         sendMessage('openOptions').catch(() => {});
       } else {
-        startTranslation().catch(() => {});
+        const wasAutomatic = automaticSession;
+        resetAll();
+        startTranslation({ automatic: wasAutomatic }).catch(() => {});
       }
     });
   }
@@ -536,9 +470,10 @@ function hideErrorBanner() {
   if (el.parentNode) el.remove();
 }
 
-function sendMessage(action, data={}, timeoutMs=8000) {
+function sendMessage(action, data={}, timeoutMs=action === 'translateTexts' ? 0 : 8000) {
   return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('SEND_MESSAGE_TIMEOUT')), timeoutMs);
+    // Translation fetches have provider-level timeouts and may include fallback requests.
+    const t = timeoutMs > 0 ? setTimeout(() => reject(new Error('SEND_MESSAGE_TIMEOUT')), timeoutMs) : null;
     chrome.runtime.sendMessage({action,...data}, (resp) => {
       clearTimeout(t);
       if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
@@ -546,13 +481,14 @@ function sendMessage(action, data={}, timeoutMs=8000) {
     });
   });
 }
-async function loadSettings() {
-  if (settings) return settings;
+async function loadSettings(refresh = false) {
+  if (settings && !refresh) return settings;
+  const firstLoad = !settings;
   const resp = await sendMessage('getSettings');
   settings = resp.settings;
-  if (settings) currentMode = settings.general.lastMode||settings.display.defaultMode||BILINGUAL;
+  if (firstLoad && settings) currentMode = settings.general.lastMode||settings.display.defaultMode||BILINGUAL;
   // v1.0.5 hotfix: 改成 await, 保证首屏翻译能用到术语表
-  await loadGlossary();
+  if (firstLoad) await loadGlossary();
   applyTranslationStyles();
   return settings;
 }
@@ -577,30 +513,18 @@ function applyTranslationStyles() {
   root.style.setProperty('--dt-trans-spacing', spacing);
   root.style.setProperty('--dt-trans-font', font);
 }
-async function checkAndTranslate(url) {
+async function checkAndTranslate() {
   await loadSettings();
-  if (!settings||!settings.general.translationEnabled) return;
-  if (!settings.trigger.autoTranslate) return;
-  const domain = new URL(url).hostname;
-  dtDebug('checkAndTranslate:', domain, 'shouldAutoTranslate:', shouldAutoTranslate(domain));
-  if (!shouldAutoTranslate(domain)) return;
-  
-  // 读取源语言设置
-  const sourceLanguage = settings.api.sourceLanguage || 'auto';
-  const lang = detectPageLanguage(sourceLanguage);
-  
-  // 处理 'all' 源语言的情况
-  if (sourceLanguage === 'all' && lang === 'zh') {
-    return; // 中文页面不翻译
-  }
-  
-  if (!shouldTranslateWithSource(lang)) return;
-  // v1.2.3 fix: 添加 .catch 防止 startTranslation rejection 未捕获（setTimeout 回调中的 promise 不会被外层 try/catch 捕获）
-  // v1.3.0 fix P2-1: 延迟回调内重检开关，避免延迟窗口内用户关闭翻译后页面又被翻回
-  setTimeout(() => {
-    if (settings.general.translationEnabled === false || !settings.trigger.autoTranslate) return;
-    startTranslation().catch(e => dtError('checkAndTranslate startTranslation error:', e));
-  }, settings.trigger.translateDelay||500);
+  if (pageRestored || currentAbortController || !settings?.general.translationEnabled ||
+      !settings.trigger.autoTranslate || !shouldAutoTranslate(location.hostname)) return;
+  clearTimeout(autoStartTimer);
+  autoStartTimer = setTimeout(() => {
+    autoStartTimer = null;
+    if (!pageRestored && !currentAbortController && settings.general.translationEnabled && settings.trigger.autoTranslate &&
+        shouldAutoTranslate(location.hostname)) {
+      startTranslation({ automatic: true }).catch(e => dtError('auto translate error:', e));
+    }
+  }, settings.trigger.translateDelay ?? 500);
 }
 // NOTE: 此函数与 settings-manager.js._hostMatches 逻辑相同，
 // 因 content script 无法 import ESM，只能内联保留副本。修改时需同步两处。
@@ -648,7 +572,7 @@ function detectPageLanguage(forceLanguage) {
   const body = document.body; if(!body){cachedPageLang='unknown';return'unknown';}
   const walker = document.createTreeWalker(body,NodeFilter.SHOW_TEXT,{acceptNode:n=>{
     const p=n.parentElement;if(!p)return NodeFilter.FILTER_SKIP;
-    if(LANG_SKIP_TAGS.has(p.tagName))return NodeFilter.FILTER_SKIP;
+    if(!readableElement(p))return NodeFilter.FILTER_SKIP;
     if(n.textContent.trim().length<5)return NodeFilter.FILTER_SKIP;
     return NodeFilter.FILTER_ACCEPT;
   }});
@@ -669,8 +593,8 @@ function detectPageLanguage(forceLanguage) {
     //   会在含少量中文专有名词/引用的英文页面上被误判为 zh，从而走 "中文页面不翻译" 分支，
     //   但具体段落未做中文检查，API 仍可能收到中文文本并"翻译"。
     //   新阈值 0.4：要求 40% 以上是"非日文"汉字（基本无假名）才视为中文页面，显著降低误判。
-    if(nonJaCjk/total>0.4)result='zh';
-    else if(ja/total>0.12)result='ja';
+    if(ja/total>0.12)result='ja';
+    else if(nonJaCjk/total>0.4)result='zh';
     else if(en/total>0.5)result='en';
     else if(ja>0)result='ja';
     else result='en';
@@ -707,21 +631,7 @@ function shouldTranslateWithSource(detectedLang) {
 function cleanupAllInjections() {
   // 外层 try-catch 兜底，防止任意一步抛错中断整个清理流程
   try {
-    // Restore hidden original text
-    document.querySelectorAll('.dual-translate-original-hidden').forEach(el => {
-      const originalText = el.dataset.original || '';
-      const textNode = document.createTextNode(originalText);
-      if (el.parentNode) {
-        el.parentNode.replaceChild(textNode, el);
-      } else {
-        el.remove();
-      }
-    });
-
-    // Reset segment hidden flags
-    segments.forEach(seg => {
-      seg._originalHidden = false;
-    });
+    segments.forEach(restoreOriginal);
 
     hideLoading();
     hideErrorBanner();
@@ -739,541 +649,264 @@ function cleanupAllInjections() {
     document.querySelectorAll('.dual-translate-hover,.dual-translate-panel,.dual-translate-translation,.dual-translate-placeholder,.dual-translate-spinner').forEach(el=>el.remove());
     // v1.1.0 perf: 上述已移除所有 hover 元素，同步清零计数
     _activeHoverCount=0;
-    document.body.style.marginRight='';
-    document.body.style.marginBottom='';
-    document.body.style.userSelect='';
+    restorePanelStyles();
   } catch (e) {
     dtError('cleanupAllInjections error:', e);
   }
 }
 
+function scheduleRescan() {
+  if (!currentAbortController) return;
+  rescanPending = true;
+  if (isTranslating || mutationQuietTimer || document.hidden) return;
+  mutationQuietTimer = setTimeout(() => {
+    mutationQuietTimer = null;
+    if (rescanPending && !document.hidden) startTranslation({ incremental: true });
+  }, 200);
+}
+
 function setupMutationObserver() {
-  if (mutationObserver) mutationObserver.disconnect();
-  let addedSinceLastCheck = 0;
-  let textChangedSinceLastCheck = 0;
-  const QUIET_PERIOD = 300;
-
-  // v1.2.13 fix: Bug #3 — 扩展观察范围到 characterData，捕捉 React/Vue 等框架
-  // 直接修改文本节点（.textContent = ...）的场景
-  mutationObserver = new MutationObserver((mutations) => {
-    if (observerPaused || !translationCompletedOnce) return;
-
-    let batchAdded = 0;
-    let batchTextChanged = 0;
-    for (const mutation of mutations) {
-      if (mutation.type === 'childList') {
-        // 忽略我们自己注入的翻译元素
-        for (const node of mutation.addedNodes) {
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            // 跳过我们自己注入的元素
-            if (node.classList && (
-              node.classList.contains('dual-translate-translation') ||
-              node.classList.contains('dual-translate-placeholder') ||
-              node.classList.contains('dual-translate-original-hidden') ||
-              node.classList.contains('dual-translate-hover') ||
-              node.classList.contains('dual-translate-panel') ||
-              node.classList.contains('dual-translate-loading-overlay') ||
-              node.classList.contains('dual-translate-error-banner')
-            )) {
-              continue;
-            }
-
-          } else if (node.nodeType === Node.TEXT_NODE) {
-            // v1.1.0 perf: 跳过我们自己注入元素内部的文本节点，避免 observer 自计数触发重翻译
-            const p = node.parentElement;
-            if (p && typeof p.className === 'string' && p.className.includes('dual-translate-')) {
-              continue;
-            }
-          }
-          batchAdded++;
-        }
-      } else if (mutation.type === 'characterData') {
-        // 文本节点内容变化：跳过我们自己注入元素内部的文本
-        const parent = mutation.target && mutation.target.parentElement;
-        if (parent && typeof parent.className === 'string' && parent.className.includes('dual-translate-')) {
-          continue;
-        }
-        batchTextChanged++;
-      }
-    }
-
-    const totalChange = batchAdded + batchTextChanged;
-    // v1.2.13 fix: Bug #3 — 阈值降低为 >= 1（任一变化即触发），并支持文本节点更新
-    if (totalChange > 0) {
-      addedSinceLastCheck += batchAdded;
-      textChangedSinceLastCheck += batchTextChanged;
-
-      clearTimeout(mutationQuietTimer);
-      mutationQuietTimer = setTimeout(() => {
-        if ((addedSinceLastCheck > 0 || textChangedSinceLastCheck > 0) && !isTranslating) {
-          const now = Date.now();
-          // 防止频繁重新翻译
-          if (now - lastRetranslateTime > 2000) {
-            lastRetranslateTime = now;
-            // v1.2.3 fix: 添加 .catch 防止 startTranslation rejection 未捕获（setTimeout 回调中的 promise）
-            startTranslation({ silent: true }).catch(e => dtError('mutation observer startTranslation error:', e));
-          }
-        }
-        addedSinceLastCheck = 0;
-        textChangedSinceLastCheck = 0;
-        mutationQuietTimer = null;
-      }, QUIET_PERIOD);
+  if (mutationObserver) return;
+  mutationObserver = new MutationObserver(records => {
+    for (const record of records) {
+      const target = record.target.nodeType === Node.ELEMENT_NODE ? record.target : record.target.parentElement;
+      if (!target || target.closest(INJECTED)) continue;
+      if (record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].every(node =>
+        node.nodeType === Node.ELEMENT_NODE && node.matches(INJECTED))) continue;
+      scheduleRescan();
+      break;
     }
   });
-
-  // v1.2.13 fix: Bug #3 — 增加 characterData 观察，捕捉文本节点内容更新
-  mutationObserver.observe(document.body, {
-    childList: true,
-    subtree: true,
-    characterData: true
+  mutationObserver.observe(document.documentElement, {
+    subtree: true, childList: true, characterData: true, attributes: true,
+    attributeFilter: ['class','style','hidden','inert','aria-hidden','aria-selected','open','contenteditable','role','translate','alt','lang']
   });
 }
 
-// v1.2.13 fix: Bug #3 — 周期扫描：当 translationEnabled 开启时，定期检测页面是否有新文本/变化文本。
-// 解决 MutationObserver 漏掉的场景：display:none → block、Shadow DOM、iframe 内变化、
-// 框架内部状态驱动的批量 DOM 重写等。
-// 关键设计：先做轻量预检（长度 + 文本抽样指纹），无变化则跳过 startTranslation。
 let _rescanTimer = null;
-let _lastSeenTextFingerprint = '';
 function setupPeriodicRescan() {
-  if (_rescanTimer) {
-    clearInterval(_rescanTimer);
-    _rescanTimer = null;
+  teardownPeriodicRescan();
+  const config = settings?.rules?.autoRescan;
+  if (currentAbortController && config?.enabled) {
+    _rescanTimer = setInterval(() => {
+      if (config.idleOnly === false && document.hidden && !isTranslating) {
+        startTranslation({ incremental: true });
+      } else scheduleRescan();
+    }, Math.max(2, Number(config.interval) || 5) * 1000);
   }
-  const rescanConfig = settings?.rules?.autoRescan;
-  if (!rescanConfig || !rescanConfig.enabled) return;
-  const intervalSec = Math.max(2, Number(rescanConfig.interval) || 5);
-  const idleOnly = rescanConfig.idleOnly !== false;
-  _lastSeenTextFingerprint = getPageTextFingerprint();
-  _rescanTimer = setInterval(() => {
-    if (observerPaused || isTranslating || !translationCompletedOnce) return;
-    if (idleOnly && (typeof document !== 'undefined') && document.visibilityState === 'hidden') return;
-    // 轻量预检：同时比较长度和抽样文本，避免等长度替换漏检。
-    const newFingerprint = getPageTextFingerprint();
-    if (newFingerprint === _lastSeenTextFingerprint) return;
-    _lastSeenTextFingerprint = newFingerprint;
-    const now = Date.now();
-    if (now - lastRetranslateTime < 2000) return;
-    lastRetranslateTime = now;
-    startTranslation({ silent: true }).catch(e => dtError('periodic rescan startTranslation error:', e));
-  }, intervalSec * 1000);
 }
 function teardownPeriodicRescan() {
-  if (_rescanTimer) { clearInterval(_rescanTimer); _rescanTimer = null; }
-  _lastSeenTextFingerprint = '';
-}
-
-function getPageTextFingerprint() {
-  // v1.3.2 fix F4: 采样时排除 dual-translate-* 注入子树（与 MutationObserver 的 text 节点跳过逻辑一致），
-  // 避免译文/注入节点进入指纹，导致动态页每间隔被误判「内容变化」而反复重译、放大 API 消耗
-  let text = '';
-  const body = document.body;
-  if (body) {
-    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null);
-    let node;
-    while ((node = walker.nextNode())) {
-      const p = node.parentElement;
-      if (p && typeof p.className === 'string' && p.className.includes('dual-translate-')) continue;
-      text += node.nodeValue || '';
-    }
-  }
-  const sample = text.length > 4000 ? `${text.slice(0, 2000)}|${text.slice(-2000)}` : text;
-  let hash = 2166136261;
-  for (let i = 0; i < sample.length; i++) {
-    hash ^= sample.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return `${text.length}:${hash >>> 0}`;
-}
-
-function pauseObserver() {
-  observerPaused = true;
-}
-
-function resumeObserver() {
-  observerPaused = false;
-}
-
-async function startTranslation(opts = {}) {
-  if (isTranslating) return;
-  isTranslating = true;
-  const myAbortController = new AbortController();
-  currentAbortController = myAbortController;
-  pauseObserver();
-  try {
-    await sendMessage('setIconState', { state: 'translating' });
-    cleanupAllInjections();
-    await translationCache.clear(); // 必须清空页面级缓存，避免跨页面污染
-    if (!opts.silent) {
-      showLoading('正在分析页面...', '提取需要翻译的文本段落');
-    }
-    await new Promise(r=>setTimeout(r,30));
-    if(!cachedPageLang) { detectPageLanguage(settings.api.sourceLanguage||'auto'); }
-    segments = extractSegments();
-    if (segments.length===0) {
-      updateLoadingProgress(0,0,'未检测到需要翻译的内容');
-      setTimeout(hideLoading,800);
-      await sendMessage('setIconState',{state:'idle'});
-      // Keep observers active for skeleton/SPA pages whose content arrives later.
-      translationCompletedOnce = true;
-      setupMutationObserver();
-      setupPeriodicRescan();
-      return;
-    }
-    // v1.0.6 perf: 构建 segId → seg 查找表，供 fillTranslations O(1) 查找
-    segmentMap = new Map(segments.map(s => [s.id, s]));
-
-    // v1.2.7 fix: 页面级中文段比例检查 —— 复用 isAlreadyChinese 与 isAlreadyChineseLenient 双重判定
-    // 旧实现（v1.2.6）：单段 CJK 占比 > 30% 即视为中文段，> 25% 段数即跳过整页
-    //   问题：CJK 占比 30% 太低，纯英文段落中夹杂的中文专有名词/引用/URL 参数可让该段被算作"中文段"
-    //   例：英文技术博客里的中文用户名/中文示例代码段，CJK 占比约 30-40%，被误算为中文段
-    //   阈值 25% 段数时，混合页面被错误跳过
-    // 新实现：
-    //   - 单段先用 isAlreadyChinese（CJK≥80% + 绝对值≥5）严格判定为"纯中文段"
-    //   - 再用 isAlreadyChineseLenient（CJK≥60% + 绝对值≥3）识别"含较多中文的混合段"
-    //   - 严格段 ≥ 50% 时直接跳过；严格段 ≥ 30% 且含中文段 ≥ 60% 时也跳过
-    //   这样既避免误跳过英文为主页面，也能在中文为主页面尽早停止 API 调用
-    let strictChineseCount = 0;
-    let lenientChineseCount = 0;
-    for (const seg of segments) {
-      if (isAlreadyChinese(seg.text)) {
-        strictChineseCount++;
-        lenientChineseCount++;
-      } else if (isAlreadyChineseLenient(seg.text)) {
-        lenientChineseCount++;
-      }
-    }
-    const total = segments.length;
-    const strictRatio = strictChineseCount / total;
-    const lenientRatio = lenientChineseCount / total;
-    // 条件 1：严格中文段 ≥ 50% → 明显是中文页面，跳过
-    // 条件 2：严格中文段 ≥ 30% 且含中文段（含混合）≥ 60% → 中文为主的页面，跳过
-    if (total > 0 && (strictRatio >= 0.5 || (strictRatio >= 0.3 && lenientRatio >= 0.6))) {
-      updateLoadingProgress(0, 0, '页面中文占比较高，已跳过翻译');
-      setTimeout(hideLoading, 1200);
-      await sendMessage('setIconState', { state: 'idle' });
-      // Keep watching because a mostly-Chinese/skeleton page can change later.
-      translationCompletedOnce = true;
-      setupMutationObserver();
-      setupPeriodicRescan();
-      return;
-    }
-
-    updateLoadingProgress(0,segments.length,'已提取 '+segments.length+' 段文本');
-    // v1.0.3: 懒加载（§3.4 性能优化）—— 仅翻译视口内段落，滚动时再补全
-    const enableLazy = settings?.advanced?.lazyTranslate !== false
-      && currentMode !== HOVER && currentMode !== PANEL
-      && typeof IntersectionObserver !== 'undefined';
-    if (enableLazy) {
-      placePendingSpans();
-      await translateSegmentsLazy(segments, myAbortController.signal);
-    } else {
-      placePendingSpans();
-      await translateSegments(segments, myAbortController.signal);
-    }
-    hideLoading();
-    // v1.0.2: 翻译页面 title 和 img alt（§3.2 / §10.2 修复，独立于正文翻译）
-    // 失败不抛错（已在函数内 try/catch）
-    translatePageMeta().catch(e => dtError('translatePageMeta error:', e));
-    await sendMessage('setIconState',{state:'translated'});
-    translationCompletedOnce = true;
-    setupMutationObserver();
-    // v1.2.13 fix: Bug #3 — 装/拆与 mutationObserver 同周期
-    setupPeriodicRescan();
-  } catch(e) {
-    hideLoading();
-    if (e.name === 'AbortError') {
-      // v1.0.7 fix: 仅当当前仍是自己的 controller 时才 resetAll，
-      // 避免 switchMode abort 旧翻译后，旧 catch 的 resetAll 破坏新翻译
-      if (currentAbortController === myAbortController) {
-        resetAll();
-      }
-    } else {
-      dtError('startTranslation error:', e);
-      showErrorBanner(humanizeTranslateError(e.message || '翻译过程中发生未知错误'), { canRetry: true });
-      try { await sendMessage('setIconState',{state:'idle'}); } catch {}
-    }
-    translationCompletedOnce = false;
-  } finally {
-    if (currentAbortController === myAbortController) {
-      isTranslating = false;
-      currentAbortController = null;
-    }
-    resumeObserver();
-  }
-}
-
-function looksLikeConcatenatedText(text) {
-  const len=text.length;if(len<40)return false;
-  let bc=0;
-  for(let i=0;i<len-1;i++){
-    const ca=text.charCodeAt(i),cb=text.charCodeAt(i+1);
-    const aWord=((ca>=48&&ca<=57)||(ca>=65&&ca<=90)||(ca>=97&&ca<=122)||(ca>=0x4E00&&ca<=0x9FFF)||(ca>=0x3040&&ca<=0x30FF));
-    const bWord=((cb>=48&&cb<=57)||(cb>=65&&cb<=90)||(cb>=97&&cb<=122)||(cb>=0x4E00&&cb<=0x9FFF)||(cb>=0x3040&&cb<=0x30FF));
-    if(aWord&&bWord)continue;
-    const a=text[i],b=text[i+1];
-    if(a===' '||b===' '||a==='\n'||b==='\n'||a==='.'||a===','||a==='!'||a==='?'||a===';'||a===':'||a==='-'||a==='-')continue;
-    bc++;
-  }
-  return bc/len>0.06&&len>60;
+  clearInterval(_rescanTimer);
+  _rescanTimer = null;
 }
 
 function extractSegments() {
-  const skipCache = new Map();
-  const cachedSkip = (t) => { let r = skipCache.get(t); if (r === undefined) { r = shouldSkipText(t); skipCache.set(t, r); } return r; };
-  const result=[];
-  const mTL=settings.rules.minTextLength||3;
-  const tCB=settings.rules.translateCodeBlocks||false;
-  const processedNodes=new Set();
-
-  if(isNexusModsDomain()){
-    const tc=document.querySelectorAll('[class*="mod-tile"],[class*="modtile"],.mod-tile,[class*="tile"],.collection-item,[class*="collection-item"]');
-    tc.forEach(c=>{
-      c.querySelectorAll('[class*="stat"],[class*="stats"],[class*="download"],[class*="endorse"],[class*="file-size"],[class*="filesize"],[class*="meta"],[class*="metric"],[class*="count"],[class*="number"],[class*="badge"]').forEach(se=>{
-        const w=document.createTreeWalker(se,NodeFilter.SHOW_TEXT,{acceptNode:n=>{
-          const p2=n.parentElement;if(!p2)return NodeFilter.FILTER_SKIP;
-          if(SKIP_TAGS.has(p2.tagName))return NodeFilter.FILTER_SKIP;
-          return NodeFilter.FILTER_ACCEPT;
-        }});let sn;while((sn=w.nextNode()))processedNodes.add(sn);
-      });
-    });
-    // v1.1.0 perf: 用 Map<el, Set<text>> 做 O(1) 去重，替代 result.find 线性搜索
-    const nexusTitleSeen = new Map();
-    const titleSelectors=['.mod-tile-title a','.tile-name a','.mod-tile-name a','.mod-name a','[class*="tile-name"] a','[class*="tile-title"] a','[class*="mod-name"] a','a.tile-name','a[class*="tile-name"]','.mod-title-text','[data-testid="mod-tile-title"]','.tile-name','.mod-tile-title','.mod-title-text'];
-    for(const sel of titleSelectors){
-      try{document.querySelectorAll(sel).forEach(el=>{
-        if(el.tagName==='A'||!el.querySelector('a')){
-          const dtn=[];const w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT,{acceptNode:n=>{
-            if(processedNodes.has(n))return NodeFilter.FILTER_SKIP;
-            const p2=n.parentElement;if(!p2)return NodeFilter.FILTER_SKIP;
-            if(SKIP_TAGS.has(p2.tagName))return NodeFilter.FILTER_SKIP;
-            if(p2.closest&&p2.closest('[class*="stat"],[class*="endorse"],[class*="download"],[class*="meta"],[class*="metric"],[class*="count"],[class*="number"],[class*="badge"]'))return NodeFilter.FILTER_SKIP;
-            return NodeFilter.FILTER_ACCEPT;
-          }});let cn;while((cn=w.nextNode()))dtn.push(cn);
-          const tt=dtn.map(n=>n.textContent.trim()).filter(t=>t.length>=mTL&&!cachedSkip(t)&&!/^\s*$/.test(t)&&!/^[\d\s.,!?;:'"()\[\]{}<>/\\|]+$/.test(t)).join(' ');
-          if(tt.length>=mTL&&!cachedSkip(tt)){
-            dtn.forEach(n=>processedNodes.add(n));
-            // v1.1.0 perf: O(1) 去重替代 result.find 线性搜索
-            let seenForEl=nexusTitleSeen.get(el);
-            if(!seenForEl){seenForEl=new Set();nexusTitleSeen.set(el,seenForEl);}
-            if(!seenForEl.has(tt)){
-              seenForEl.add(tt);
-              result.push({id:'seg_'+result.length,text:tt,node:dtn[0]||el,blockParent:el});
-            }
-          }
-        }
-      })}catch{}
+  const groups = [];
+  if (!document.body || !readableElement(document.body)) return groups;
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (node.nodeType === Node.TEXT_NODE) return NodeFilter.FILTER_ACCEPT;
+      if (originalWrappers.has(node)) return NodeFilter.FILTER_SKIP;
+      if (excludedElement(node)) return NodeFilter.FILTER_REJECT;
+      const style = getComputedStyle(node);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' ||
+          style.contentVisibility === 'hidden') return NodeFilter.FILTER_REJECT;
+      // Treat line breaks as boundaries so adjacent lines keep their reading order.
+      return node.tagName === 'BR' ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
     }
+  });
+  let group, node;
+  while ((node = walker.nextNode())) {
+    if (node.nodeType !== Node.TEXT_NODE) { group = null; continue; }
+    let parent = node.parentElement;
+    if (originalWrappers.has(parent)) parent = parent.parentElement;
+    let owner = parent.closest(BLOCKS);
+    if (!owner || owner === document.body) owner = parent;
+    if (!group || group.blockParent !== owner) {
+      group = { blockParent: owner, nodes: [] };
+      groups.push(group);
+    }
+    group.nodes.push(node);
   }
-
-  const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,{acceptNode:n=>{
-    const p=n.parentElement;if(!p)return NodeFilter.FILTER_SKIP;
-    if(SKIP_TAGS.has(p.tagName))return NodeFilter.FILTER_SKIP;
-    if(!tCB&&(p.tagName==='CODE'||p.tagName==='PRE'))return NodeFilter.FILTER_SKIP;
-    if(p.className&&typeof p.className==='string'&&p.className.includes('dual-translate-'))return NodeFilter.FILTER_SKIP;
-    return NodeFilter.FILTER_ACCEPT;
-  }});
-
-  let node;
-  while((node=walker.nextNode())){
-    if(processedNodes.has(node))continue;
-    const text=node.textContent.trim();
-    if(text.length<mTL)continue;
-    if(/^[\d\s.,!?;:'"()\-–+×÷=%&@#$^*_~`\[\]{}<>/\\|]+$/.test(text))continue;
-    if(cachedSkip(text))continue;
-    const parent=node.parentElement;
-    if(parent){
-      // v1.0.7 perf: stat 检查仅对 NexusMods 有意义，包裹在域名条件内
-      if(isNexusModsDomain()){
-        const isStat=parent.closest&&parent.closest('[class*="stat"],[class*="stats"],[class*="download"],[class*="endorse"],[class*="file-size"],[class*="filesize"],[class*="metric"],[class*="count"],[class*="meta"],[class*="number"],[class*="badge"]');
-        if(isStat)continue;
-      }
-    }
-    let bp=parent;
-    while(bp&&!BLOCK_TAGS.has(bp.tagName)&&bp!==document.body)bp=bp.parentElement;
-    if(bp&&BLOCK_TAGS.has(bp.tagName)&&!looksLikeConcatenatedText(text)){
-      const at=bp.textContent.trim();
-      if(at.length>=mTL&&at!==text&&!cachedSkip(at)&&!looksLikeConcatenatedText(at)){
-        const lines=at.split(/[\n\r]+/).filter(l=>l.trim().length>0);
-        if(lines.length>=2&&lines.length<=6){
-          const metricLines=lines.filter(l=>cachedSkip(l.trim()));
-          if(metricLines.length/lines.length>0.5)continue;
-        }
-        const iw=document.createTreeWalker(bp,NodeFilter.SHOW_TEXT,{acceptNode:n=>{const p2=n.parentElement;if(!p2)return NodeFilter.FILTER_SKIP;if(SKIP_TAGS.has(p2.tagName))return NodeFilter.FILTER_SKIP;return NodeFilter.FILTER_ACCEPT;}});
-        const bn=[];let bn2;while((bn2=iw.nextNode()))bn.push(bn2);
-        const ap=bn.every(n=>processedNodes.has(n)||n.textContent.trim().length<mTL);
-        let hbc=false;for(const ch of bp.children){if(BLOCK_TAGS.has(ch.tagName)){hbc=true;break;}}
-        if(!ap&&!hbc){bn.forEach(n=>processedNodes.add(n));result.push({id:'seg_'+result.length,text:at,node:node,blockParent:bp});continue;}
-      }
-    }
-    processedNodes.add(node);
-    result.push({id:'seg_'+result.length,text:text,node:node,blockParent:bp&&BLOCK_TAGS.has(bp.tagName)?bp:null});
+  const result = [];
+  for (const item of groups) {
+    // Drop boundary whitespace nodes so a later insertion cannot move the anchor.
+    while (item.nodes.length && !item.nodes.at(-1).data.trim()) item.nodes.pop();
+    const first = item.nodes.findIndex(n => n.data.trim());
+    if (first < 0) continue;
+    item.nodes = item.nodes.slice(first);
+    item.text = normText(item.nodes.map(n => n.data).join(''));
+    if (item.text.length < (settings.rules.minTextLength || 3) || shouldSkipText(item.text)) continue;
+    item.node = item.nodes[0];
+    result.push(item);
   }
   return result;
 }
 
-// v1.0.2: 翻译页面 <title> 和图片 alt（§3.2 / §10.2 修复）
-// 不进 segments 数组，单独走 sendMessage('translateTexts') batch
-// 失败/用户关闭开关时静默跳过
-async function translatePageMeta() {
-  if (!settings) return;
-  if (currentAbortController && currentAbortController.signal.aborted) return;
+function removeSegment(seg) {
+  restoreOriginal(seg);
+  if (seg.output) lazyTranslateObserver?.unobserve(seg.output);
+  seg.output?.remove();
+  seg.row?.remove();
+  if (seg.blockParent.dataset.dtHoverId === seg.id) delete seg.blockParent.dataset.dtHoverId;
+  translationCache.delete(seg.id);
+  lazyPendingSegs.delete(seg.id);
+  hoverRegisteredSegIds.delete(seg.id);
+  hoverTranslations.delete(seg.id);
+  panelRenderedSegIds.delete(seg.id);
+}
 
-  // v1.2.3 fix: 统一使用 detectPageLanguage(sourceLanguage) 获取源语言，与 translateSegments 保持一致。
-  // 原三元表达式当 sourceLanguage 为 'all' 时直接将 'all' 传给 API，导致：
-  // 1) API 收到无效语言代码 'all'；2) sourceLang==='zh' 判断永远不触发，中文页面标题/alt 被错误翻译。
-  const sourceLang = detectPageLanguage(settings.api.sourceLanguage || 'auto');
-  if (sourceLang === 'zh') return; // 中文页不翻
-
-  // 收集要翻译的 (text, type, target) 三元组
-  const items = [];
-
-  // 1) <title>
-  if (settings.display.translatePageTitle !== false) {
-    const origTitle = (document.title || '').trim();
-    // 跳过中文标题（避免无用 API 调用）
-    if (origTitle.length >= 2 && !isAlreadyChinese(origTitle) && !(settings.rules && settings.rules.skipChineseSegments !== false && sourceLang !== 'ja' && hasAnyCJK(origTitle))) {
-      // 跳过已翻译过的（data 属性标记）
-      if (!document.documentElement.hasAttribute('data-dt-orig-title')) {
-        document.documentElement.setAttribute('data-dt-orig-title', origTitle);
-      }
-      const storedTitle = document.documentElement.getAttribute('data-dt-orig-title');
-      items.push({ text: storedTitle, type: 'title' });
+function reconcileSegments(candidates) {
+  const previous = new Map(segments.map(seg => [seg.node, seg]));
+  const pending = [];
+  segments = candidates.map(candidate => {
+    const old = previous.get(candidate.node);
+    if (old && old.blockParent === candidate.blockParent && old.text === candidate.text &&
+        old.nodes.length === candidate.nodes.length && old.nodes.every((node, i) => node === candidate.nodes[i]) &&
+        (!old.output || old.output.isConnected)) {
+      previous.delete(candidate.node);
+      return old;
     }
+    candidate.id = 'seg_' + nextSegmentId++;
+    pending.push(candidate);
+    return candidate;
+  });
+  for (const old of previous.values()) removeSegment(old);
+  segmentMap = new Map(segments.map(seg => [seg.id, seg]));
+  return pending;
+}
+
+function currentSegment(seg) {
+  return segmentMap.get(seg.id) === seg &&
+    seg.nodes.every(n => n.isConnected && readableElement(n.parentElement)) &&
+    normText(seg.nodes.map(n => n.data).join('')) === seg.text;
+}
+
+async function startTranslation(opts = {}) {
+  await loadSettings();
+  if (isTranslating) { if (opts.incremental) rescanPending = true; return; }
+  if (!settings?.general.translationEnabled || !shouldAutoTranslate(location.hostname)) return;
+  if (!currentAbortController) {
+    if (opts.incremental) return;
+    pageRestored = false;
+    clearTimeout(autoStartTimer);
+    autoStartTimer = null;
+    automaticSession = !!opts.automatic;
+    currentAbortController = new AbortController();
+    setupMutationObserver();
+    setupPeriodicRescan();
   }
-
-  // 2) img[alt] —— 只翻当前视口附近 + 长度合理 + 非空
-  if (settings.display.translateImgAlt !== false) {
-    try {
-      const imgs = Array.from(document.querySelectorAll('img[alt]'));
-      const seen = new Set();
-      for (const img of imgs) {
-        const alt = (img.getAttribute('alt') || '').trim();
-        if (alt.length < 2 || alt.length > 200) continue;
-        if (isAlreadyChinese(alt)) continue; // 已是中文
-        if (settings.rules && settings.rules.skipChineseSegments !== false && sourceLang !== 'ja' && hasAnyCJK(alt)) continue;
-        if (seen.has(alt)) continue;
-        // 跳过已翻译过的（data 属性标记 + ImgSet 跟踪）
-        if (img.hasAttribute('data-dt-orig-alt')) continue;
-        seen.add(alt);
-        // 存原文到 data 属性
-        img.setAttribute('data-dt-orig-alt', alt);
-        items.push({ text: alt, type: 'alt', img });
-      }
-    } catch (e) {
-      dtError('collect alt error:', e);
-    }
-  }
-
-  if (items.length === 0) return;
-  dtInfo('translatePageMeta items:', items.length, 'source:', sourceLang);
-
-  // v1.1.0 fix: 分批发送，避免图片密集页面 items 超过 background 的 500 条上限
-  const META_BATCH_SIZE = 200;
+  const { signal } = currentAbortController;
+  rescanPending = false;
+  isTranslating = true;
   try {
-    for (let start = 0; start < items.length; start += META_BATCH_SIZE) {
-      const batch = items.slice(start, start + META_BATCH_SIZE);
-      const resp = await sendMessage('translateTexts', { texts: batch.map(i => i.text), sourceLang });
-      if (!resp || !resp.translations || resp.error) continue; // 跳过失败批次，继续下一批
-      if (currentAbortController && currentAbortController.signal.aborted) return;
-
-      // 回写
-      for (let i = 0; i < batch.length; i++) {
-        const item = batch[i];
-        const r = resp.translations[i];
-        const tr = (r && r.translation) || '';
-        if (!tr) continue;
-        const preTr = applyGlossary(tr); // 术语再过一遍
-        if (item.type === 'title') {
-          document.title = preTr + ' / ' + (document.documentElement.getAttribute('data-dt-orig-title') || document.title);
-        } else if (item.type === 'alt' && item.img && item.img.isConnected) {
-          item.img.setAttribute('alt', preTr);
-        }
-      }
+    if (!opts.incremental && !opts.silent) showLoading('正在分析页面...', '提取需要翻译的文本段落');
+    cachedPageLang = null;
+    const lang = detectPageLanguage(settings.api.sourceLanguage || 'auto');
+    // Source detection is repeated after hydration and SPA navigation. On mixed Chinese
+    // pages, segment filters still admit English and Japanese sections.
+    const allowed = !automaticSession || lang === 'unknown' || lang === 'zh' || shouldTranslateWithSource(lang);
+    const pending = reconcileSegments(allowed ? extractSegments() : []);
+    if (pending.length) {
+      sendMessage('setIconState', { state: 'translating' }).catch(() => {});
+      placePendingSpans(pending);
+      const lazy = settings.advanced?.lazyTranslate !== false && currentMode !== HOVER && currentMode !== PANEL &&
+        typeof IntersectionObserver !== 'undefined';
+      if (lazy) await translateSegmentsLazy(pending, signal);
+      else await translateSegments(pending, signal);
     }
-  } catch (e) {
-    dtError('translatePageMeta API error:', e);
+    if (signal.aborted) return;
+    if (allowed) await translatePageMeta(signal);
+    if (!signal.aborted && (!opts.incremental || pending.length)) {
+      sendMessage('setIconState', { state: segments.length ? 'translated' : 'idle' }).catch(() => {});
+    }
+  } catch (err) {
+    if (!signal.aborted) showErrorBanner(humanizeTranslateError(err.message), { canRetry: true });
+  } finally {
+    if (!signal.aborted) {
+      hideLoading();
+      isTranslating = false;
+      if (rescanPending) scheduleRescan();
+    }
   }
 }
 
-function placePendingSpans() {
-  // v1.1.0 perf: 按父节点分组，用 DocumentFragment 批量插入，避免每段 append 触发一次 reflow
-  if (currentMode !== BILINGUAL && currentMode !== TRANSLATION_ONLY) return;
-  const buckets = new Map(); // parent -> [{ span, ref }]
-  for (const seg of segments) {
-    const segId = seg.id;
-    let parent, ref;
-    if (seg.blockParent) {
-      parent = seg.blockParent;
-      if (parent.querySelector('[data-dt-seg="'+segId+'"]')) continue;
-      ref = null; // append to end
-    } else {
-      parent = seg.node.parentElement;
-      if (!parent) continue;
-      if (parent.querySelector('[data-dt-seg="'+segId+'"]')) continue;
-      ref = seg.node.nextSibling; // null -> append
-    }
-    const span = document.createElement('span');
-    span.className = 'dual-translate-placeholder';
-    span.dataset.dtSeg = segId;
-    span.innerHTML = '<span class="dual-translate-spinner"></span><span class="dual-translate-loader-text">正在翻译...</span>';
-    let arr = buckets.get(parent);
-    if (!arr) { arr = []; buckets.set(parent, arr); }
-    arr.push({ span, ref });
+async function translatePageMeta(signal) {
+  const items = [];
+  if (translatedTitle && document.title !== translatedTitle.applied) translatedTitle = null;
+  const title = document.title.trim();
+  if (settings.display.translatePageTitle !== false && !translatedTitle && title.length >= 2 && !shouldSkipText(title)) {
+    items.push({ text: title });
   }
-  for (const [parent, arr] of buckets) {
-    if (!parent.isConnected) continue;
-    const frag = document.createDocumentFragment();
-    const insertList = [];
-    for (const item of arr) {
-      if (item.ref) insertList.push(item);
-      else frag.appendChild(item.span);
+  for (const img of translatedImages.keys()) {
+    if (!img.isConnected || img.alt !== translatedImages.get(img).applied) translatedImages.delete(img);
+  }
+  if (settings.display.translateImgAlt !== false) {
+    for (const img of document.querySelectorAll('img[alt]')) {
+      const alt = img.alt.trim();
+      if (alt.length >= 2 && alt.length <= 200 && !translatedImages.has(img) &&
+          readableElement(img) && !shouldSkipText(alt)) items.push({ text: alt, img });
     }
-    if (frag.hasChildNodes()) parent.appendChild(frag);
-    // 有明确参考节点的逐个 insertBefore（参考节点为文本节点，互不影响，安全）
-    for (const item of insertList) parent.insertBefore(item.span, item.ref);
+  }
+  for (let i = 0; i < items.length && !signal.aborted; i += 50) {
+    const batch = items.slice(i, i + 50).filter(item => !item.img || readableElement(item.img));
+    const originals = [...new Set(batch.map(item => item.text))];
+    if (!originals.length) continue;
+    const resp = await sendMessage('translateTexts', { texts: originals, sourceLang: requestLanguage() });
+    if (signal.aborted) return;
+    const translated = new Map(resp.translations?.map(r => [r.original, r.translation]) || []);
+    for (const { text, img } of batch) {
+      const output = translated.get(text);
+      if (!output) continue;
+      const value = applyGlossary(output);
+      if (img && readableElement(img) && img.alt.trim() === text) {
+        translatedImages.set(img, { original: img.alt, applied: value });
+        img.alt = value;
+      } else if (!img && document.title.trim() === text) {
+        const applied = value + ' / ' + text;
+        translatedTitle = { original: document.title, applied };
+        document.title = applied;
+      }
+    }
+  }
+}
+
+function placePendingSpans(pending) {
+  if (currentMode !== BILINGUAL && currentMode !== TRANSLATION_ONLY) return;
+  for (const seg of pending) {
+    const output = document.createElement('span');
+    output.className = 'dual-translate-placeholder';
+    output.dataset.dtSeg = seg.id;
+    output.innerHTML = '<span class="dual-translate-spinner"></span><span class="dual-translate-loader-text">正在翻译...</span>';
+    seg.output = output;
+    // Prefer the end of the containing paragraph, outside inline links/emphasis,
+    // when the anchor is already its last child.
+    let anchor = seg.nodes.at(-1);
+    while (anchor.parentElement !== seg.blockParent && anchor.parentElement && !anchor.nextSibling) {
+      anchor = anchor.parentElement;
+    }
+    anchor.after(output);
   }
 }
 
 function fillTranslations(batchSegs) {
-  const translationMode = currentMode;
-  const placeholders = [];
-  
-  // v1.0.7 perf: 接受当前批次 segments 数组，避免每批全文档 querySelectorAll
-  // null/undefined 时回退到全文档扫描（兼容非批次场景）
-  const segsToFill = batchSegs || segments;
-  for (const seg of segsToFill) {
-    const segId = seg.id;
-    if(!translationCache.has(segId))continue;
-    // 在 seg.blockParent 或 seg.node.parentElement 上查找 placeholder
-    const root = seg.blockParent || (seg.node && seg.node.parentElement);
-    if(!root)continue;
-    const ph = root.querySelector('[data-dt-seg="'+segId+'"]');
-    if(!ph || !ph.classList.contains('dual-translate-placeholder'))continue;
-    const translation = translationCache.get(segId);
-
-    ph.classList.remove('dual-translate-placeholder');
-    ph.classList.add('dual-translate-translation');
-    if(translation&&translation.length>0){
+  for (const seg of batchSegs) {
+    const ph = seg.output;
+    if (!ph?.isConnected || !ph.classList.contains('dual-translate-placeholder') || !translationCache.has(seg.id)) continue;
+    const translation = translationCache.get(seg.id);
+    ph.className = 'dual-translate-translation';
+    if (translation) {
       ph.textContent = translation;
-    }else{
-      // v1.2.17 UX: 段级失败标记为可点击重试，不再是无反馈的死文案
+      if (currentMode === TRANSLATION_ONLY) {
+        ph.title = seg.text;
+        hideOriginalText(seg);
+      }
+    } else {
       ph.textContent = '【该段翻译失败，点击重试】';
       ph.classList.add('dual-translate-failed');
       ph.title = '点击重试该段翻译';
       ensureFailedRetryRegistered();
     }
-    placeholders.push({ segId, ph });
-  }
-  
-  if (translationMode === TRANSLATION_ONLY) {
-    placeholders.forEach(({ segId }) => {
-      // v1.0.6 perf: O(1) 查表替代 O(n) find
-      const seg = segmentMap.get(segId);
-      if (seg) {
-        hideOriginalText(seg);
-      }
-    });
   }
 }
 
@@ -1287,36 +920,17 @@ function ensureFailedRetryRegistered() {
   document.addEventListener('click', (e) => {
     const ph = e.target.closest && e.target.closest('.dual-translate-failed[data-dt-seg]');
     if (!ph) return;
-    retrySegment(ph.dataset.dtSeg);
+    retrySegment(ph.dataset.dtSeg).catch(e => dtError('retry failed:', e));
   });
 }
 
 async function retrySegment(segId) {
   const seg = segmentMap.get(segId);
-  if (!seg || !seg.node) return;
-  const root = seg.blockParent || (seg.node && seg.node.parentElement);
-  const ph = root ? root.querySelector('[data-dt-seg="' + segId + '"]') : null;
-  if (ph && ph.classList.contains('dual-translate-failed')) {
-    ph.classList.remove('dual-translate-failed');
-    ph.classList.add('dual-translate-placeholder');
-    ph.innerHTML = '<span class="dual-translate-spinner"></span><span class="dual-translate-loader-text">正在翻译...</span>';
-  }
-  try {
-    // v1.3.0 fix P2-2: 源语言 'all' 归一化为 'auto'，避免把非法语言代码透传给翻译服务
-    const rawSourceLang = settings?.api?.sourceLanguage || 'auto';
-    const sourceLang = rawSourceLang === 'all' ? 'auto' : rawSourceLang;
-    const resp = await sendMessage('translateTexts', { texts: [seg.text], sourceLang });
-    let translation = '';
-    if (resp && !resp.error && Array.isArray(resp.translations)) {
-      const t = resp.translations[0] && resp.translations[0].translation;
-      if (typeof t === 'string' && t.length > 0) translation = t;
-    }
-    translationCache.set(segId, translation);
-  } catch (e) {
-    dtError('retrySegment error:', e);
-    translationCache.set(segId, '');
-  }
-  fillTranslations([seg]);
+  if (!seg || !currentSegment(seg) || !seg.output?.classList.contains('dual-translate-failed')) return;
+  seg.output.className = 'dual-translate-placeholder';
+  seg.output.textContent = '正在翻译...';
+  translationCache.delete(segId);
+  await translateSegments([seg], currentAbortController.signal);
 }
 
 // v1.0.3: 懒加载翻译（§3.4 性能优化）—— 复用 translateSegments 子流程
@@ -1332,173 +946,130 @@ function teardownLazyObserver() {
 }
 
 // v1.1.0 perf: 视口尺寸由调用方传入，避免在 filter 回调内对每段重复读取 window.innerHeight/innerWidth
-function isSegInViewport(seg, vh, vw) {
-  try {
-    const anchor = seg.blockParent || (seg.node && seg.node.parentElement);
-    if (!anchor || !anchor.getBoundingClientRect) return false;
-    const r = anchor.getBoundingClientRect();
-    return r.bottom > -200 && r.top < vh + 200 && r.right > -200 && r.left < vw + 200;
-  } catch (e) { return false; }
+function isSegInViewport(seg) {
+  const r = seg.output.getBoundingClientRect();
+  return r.bottom > -200 && r.top < innerHeight + 200 && r.right > -200 && r.left < innerWidth + 200;
 }
 
 async function translateSegmentsLazy(segs, signal) {
-  if (segs.length === 0) return;
-  teardownLazyObserver();
-  // v1.1.0 perf: 缓存视口尺寸一次，传入 filter 回调避免每段重复读取
-  const _vh = window.innerHeight || document.documentElement.clientHeight;
-  const _vw = window.innerWidth || document.documentElement.clientWidth;
-  // v1.0.6 perf: 用 Set 替代 includes，O(1) 查找替代 O(n)
-  const initialSegSet = new Set(segs.filter(s => isSegInViewport(s, _vh, _vw)));
-  const initialSegs = [...initialSegSet];
+  if (!lazyTranslateObserver) {
+    lazyTranslateObserver = new IntersectionObserver(entries => {
+      if (signal.aborted) return;
+      const visible = [];
+      for (const { target, isIntersecting } of entries) {
+        const seg = lazyPendingSegs.get(target.dataset.dtSeg);
+        if (!isIntersecting || !seg) continue;
+        lazyTranslateObserver.unobserve(target);
+        lazyPendingSegs.delete(seg.id);
+        visible.push(seg);
+      }
+      translateSegments(visible, signal).catch(e => dtError('lazy translate error:', e));
+    }, { rootMargin: '200px' });
+  }
+  const visible = [];
   for (const seg of segs) {
-    if (!initialSegSet.has(seg)) lazyPendingSegs.set(seg.id, seg);
-  }
-  dtInfo('lazy translate: in-viewport =', initialSegs.length, '/ total =', segs.length);
-  if (!('IntersectionObserver' in window)) {
-    await translateSegments(segs, signal);
-    return;
-  }
-  lazyTranslateObserver = new IntersectionObserver((entries) => {
-    if (signal && signal.aborted) return;
-    const visibleSegs = [];
-    for (const e of entries) {
-      if (!e.isIntersecting) continue;
-      const span = e.target;
-      const segId = span && span.getAttribute && span.getAttribute('data-dt-seg');
-      if (!segId) continue;
-      const seg = lazyPendingSegs.get(segId);
-      if (!seg) continue;
-      lazyPendingSegs.delete(segId);
-      try { lazyTranslateObserver.unobserve(span); } catch (_) {}
-      visibleSegs.push(seg);
+    if (isSegInViewport(seg)) visible.push(seg);
+    else {
+      lazyPendingSegs.set(seg.id, seg);
+      lazyTranslateObserver.observe(seg.output);
     }
-    if (visibleSegs.length > 0) {
-      translateSegments(visibleSegs, signal).catch(err => {
-        if (err && err.name !== 'AbortError') dtError('lazy translate batch error:', err);
-      });
-    }
-  }, { rootMargin: '200px', threshold: 0 });
-  const spans = document.querySelectorAll('.dual-translate-placeholder[data-dt-seg]');
-  spans.forEach(span => {
-    const segId = span.getAttribute('data-dt-seg');
-    if (!segId) return;
-    if (lazyPendingSegs.has(segId)) {
-      try { lazyTranslateObserver.observe(span); } catch (e) { dtWarn('lazy observe:', e); }
-    }
-  });
-  if (initialSegs.length > 0) {
-    await translateSegments(initialSegs, signal);
   }
+  await translateSegments(visible, signal);
+}
+
+function requestLanguage() {
+  const source = settings.api.sourceLanguage || 'auto';
+  if (source !== 'auto' && source !== 'all') return source;
+  return cachedPageLang === 'en' || cachedPageLang === 'ja' ? cachedPageLang : 'auto';
+}
+
+function splitForService(text) {
+  const chunks = [];
+  const encoder = new TextEncoder();
+  while (text) {
+    let end = 0;
+    let bytes = 0;
+    for (const character of text) {
+      const width = encoder.encode(character).length;
+      if (bytes + width > 4000) break;
+      bytes += width;
+      end += character.length;
+    }
+    if (end < text.length) {
+      const head = text.slice(0, end);
+      const boundary = Math.max(head.lastIndexOf(' '), head.lastIndexOf('。'), head.lastIndexOf('！'), head.lastIndexOf('？'));
+      if (boundary > head.length / 2) end = boundary + 1;
+    }
+    chunks.push(text.slice(0, end));
+    text = text.slice(end);
+  }
+  return chunks;
 }
 
 async function translateSegments(segs, signal) {
-  if (segs.length===0) return;
-  const batchSize=settings.advanced.batchSize||10;
-  
-  // 读取源语言设置
-  const sourceLanguage = settings.api.sourceLanguage || 'auto';
-  const sourceLang = detectPageLanguage(sourceLanguage);
-  const total=segs.length;
-
-  // 先从 textCache 填充 translationCache（规范化键，键含 sourceLang 维度）
-  for (const seg of segs) {
-    const cachedTranslation = textCache.get(sourceLang + '::' + normText(seg.text));
-    if (cachedTranslation !== undefined) {
-      translationCache.set(seg.id, cachedTranslation);
+  const encoder = new TextEncoder();
+  const size = Math.max(1, Math.min(50, Number(settings.advanced?.batchSize) || 10));
+  const sourceLang = requestLanguage();
+  let fatal = false;
+  for (let offset = 0; offset < segs.length && !signal.aborted; offset += size) {
+    const batch = segs.slice(offset, offset + size).filter(currentSegment);
+    const missing = new Map();
+    for (const seg of batch) {
+      const key = sourceLang + '::' + seg.text;
+      const term = glossaryCompiled.find(entry => entry.source === seg.text.toLowerCase());
+      const value = term?.target ?? (settings.trigger.translationCache !== false ? textCache.get(key) : undefined);
+      if (value !== undefined) translationCache.set(seg.id, value);
+      else missing.set(seg.text, splitForService(seg.text));
     }
-  }
-
-  let aborted = false;
-
-  for(let i=0;i<total;i+=batchSize){
-    // 每批开始前检查取消信号
-    if (signal?.aborted) {
-      aborted = true;
-      break;
-    }
-
-    const batch=segs.slice(i,i+batchSize);
-    const batchEnd=Math.min(i+batchSize,total);
-    updateLoadingProgress(i,total,`正在翻译 ${batchEnd}/${total} 段`);
-
-    const uncached=[];const uncachedIds=[];
-    for(let j=0;j<batch.length;j++){
-      if(!translationCache.has(batch[j].id)){
-        // v1.0.2: 术语表预处理（先查 glossary，命中则直接填 cache 不调 API）
-        const preText = applyGlossary(batch[j].text);
-        if (preText !== batch[j].text) {
-          // 术语命中，标记为"已翻译"（直接使用预处理结果）
-          translationCache.set(batch[j].id, preText);
-        } else {
-          uncached.push(batch[j].text);
-          uncachedIds.push(batch[j].id);
+    const pieces = [...new Set(Array.from(missing.values()).flat())];
+    const results = new Map();
+    for (let i = 0; i < pieces.length && !fatal;) {
+      if (signal.aborted) return;
+      // Recheck every source before sending another batch: a virtual list can reuse
+      // a paragraph for an editable or hidden item while a previous request runs.
+      const eligible = new Set(batch.filter(currentSegment).flatMap(seg => missing.get(seg.text) || []));
+      const texts = [];
+      let bytes = 0;
+      while (i < pieces.length && texts.length < size) {
+        const text = pieces[i];
+        const width = encoder.encode(text).length;
+        if (texts.length && bytes + width > 4500) break;
+        i++;
+        if (!eligible.has(text)) continue;
+        texts.push(text);
+        bytes += width;
+      }
+      if (!texts.length) continue;
+      try {
+        const resp = await sendMessage('translateTexts', { texts, sourceLang });
+        if (signal.aborted) return;
+        if (resp.error) throw new Error(resp.error);
+        for (const row of resp.translations || []) {
+          if (typeof row.translation === 'string' && row.translation.trim()) results.set(normText(row.original), row.translation.trim());
         }
+      } catch (err) {
+        if (signal.aborted) return;
+        const msg = String(err.message);
+        fatal = /NO_API|AUTH_ERROR|QUOTA_EXCEEDED|RATE_LIMITED|所有翻译服务|暂时不可用/.test(msg);
+        showErrorBanner(humanizeTranslateError(msg), { canRetry: !msg.includes('NO_API'), showSettings: msg.includes('NO_API') });
       }
     }
-
-    if(uncached.length>0){
-      const resp=await sendMessage('translateTexts',{texts:uncached,sourceLang:sourceLang});
-      if(signal?.aborted){aborted=true;break;}
-      if(resp&&!resp.error&&Array.isArray(resp.translations)){
-        const cMap=new Map();
-        for(const r of resp.translations){
-          if(r&&typeof r.translation==='string'){
-            cMap.set(normText(r.original||''),r.translation);
-          }
-        }
-        for(let j=0;j<uncached.length;j++){
-          const nt=normText(uncached[j]);
-          const mt=cMap.get(nt);
-          let translation = '';
-          if(mt!==undefined&&mt!==null&&mt.length>0){
-            translation = mt;
-          }else if(j<resp.translations.length&&resp.translations[j]&&typeof resp.translations[j].translation==='string'&&resp.translations[j].translation.length>0){
-            translation = resp.translations[j].translation;
-          }
-          translationCache.set(uncachedIds[j], translation);
-          if(translation && translation.length > 0){
-            textCache.set(sourceLang + '::' + nt, translation);
-            if (textCache.size > TEXT_CACHE_MAX_SIZE) {
-              const firstKey = textCache.keys().next().value;
-              textCache.delete(firstKey);
-            }
-          }
-        }
-      }else{
-        if(resp&&resp.translations&&!Array.isArray(resp.translations)){
-          dtWarn('translateSegments: resp.translations is not an array', resp);
-        }
-        const errMsg=(resp&&resp.error)?resp.error:'翻译失败';
-        if(errMsg.includes('所有翻译服务')||errMsg.includes('NO_API')||errMsg.includes('暂时不可用')||errMsg.includes('AUTH_ERROR')||errMsg.includes('QUOTA_EXCEEDED')||errMsg.includes('RATE_LIMITED')){
-          // v1.2.17 UX: 未配置 API 时引导去设置，其余全局性错误提供整页重试入口
-          const isNoApi=errMsg.includes('NO_API');
-          showErrorBanner(humanizeTranslateError(errMsg),{showSettings:isNoApi,canRetry:!isNoApi});
-          // v1.1.0 fix: 仅标记当前批次失败，避免误清空其它批次未翻译段
-          for(let k=0;k<batch.length;k++){if(!translationCache.has(batch[k].id))translationCache.set(batch[k].id,'');}
-          break;
-        }
-        for(let j=0;j<uncachedIds.length;j++){
-          if(!translationCache.has(uncachedIds[j]))translationCache.set(uncachedIds[j],'');
-        }
+    for (const seg of batch.filter(currentSegment)) {
+      const chunks = missing.get(seg.text);
+      if (!chunks) continue;
+      const values = chunks.map(chunk => results.get(normText(chunk)));
+      const translated = values.every(Boolean) ? applyGlossary(values.join(' ')) : '';
+      translationCache.set(seg.id, translated);
+      if (translated && settings.trigger.translationCache !== false) {
+        textCache.set(sourceLang + '::' + seg.text, translated);
+        if (textCache.size > TEXT_CACHE_MAX_SIZE) textCache.delete(textCache.keys().next().value);
       }
     }
-
-    if(currentMode===BILINGUAL||currentMode===TRANSLATION_ONLY){fillTranslations(batch);}
-    // v1.0.6 perf: 只传当前批次，updateHover/updatePanel 内部用 Set 去重做增量追加
-    if(currentMode===HOVER){updateHover(batch);}
-    if(currentMode===PANEL){updatePanel(batch);}
-  }
-
-  // 仅在未取消时执行最终填充
-  if (!aborted) {
-    for(let i=0;i<segs.length;i++){
-      if(!translationCache.has(segs[i].id))translationCache.set(segs[i].id,'');
-    }
-    if(currentMode===BILINGUAL||currentMode===TRANSLATION_ONLY){fillTranslations(segs);}
-    if(currentMode===HOVER){updateHover(segs);}
-    if(currentMode===PANEL){updatePanel(segs);}
-  } else {
-    throw new DOMException('Translation cancelled', 'AbortError');
+    const current = batch.filter(currentSegment);
+    updateLoadingProgress(Math.min(offset + size, segs.length), segs.length, '正在翻译');
+    if (currentMode === HOVER) updateHover(current);
+    else if (currentMode === PANEL) updatePanel(current);
+    else fillTranslations(current);
   }
 }
 
@@ -1597,12 +1168,14 @@ function showHover(e,tr,sid){
 
 function updatePanel(segSubset) {
   // v1.0.6 perf: 增量追加——首次创建 panel 骨架，后续只追加新行，避免每批 O(n²) 重建
-  const color=settings.display.translationColor,pos=settings.display.panelPosition||'right',w=settings.display.panelWidth||400;
+  const pos=settings.display.panelPosition||'right',w=settings.display.panelWidth||400;
 
   // 首次创建 panel 骨架
   if(!panelInstance||!panelInstance.parentNode){
     if(panelInstance&&panelInstance.parentNode)panelInstance.remove();
-    panelInstance=null;document.body.style.marginRight='';document.body.style.marginBottom='';
+    panelInstance=null;
+    originalPanelStyles ??= { marginRight: document.body.style.marginRight, marginBottom: document.body.style.marginBottom, userSelect: document.body.style.userSelect };
+    document.body.style.marginRight=originalPanelStyles.marginRight;document.body.style.marginBottom=originalPanelStyles.marginBottom;
     const panel=document.createElement('div');panel.className='dual-translate-panel';
     panel.style.cssText=`position:fixed;${pos==='right'?`right:0;top:0;bottom:0;width:${w}px;`:'left:0;right:0;bottom:0;height:300px;'}background:var(--dt-bg-primary);border-left:1px solid var(--dt-border-primary);z-index:2147483646;display:flex;flex-direction:column;box-shadow:-2px 0 8px var(--dt-shadow);`;
     const hd=document.createElement('div');hd.style.cssText=`display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--dt-bg-secondary);border-bottom:1px solid var(--dt-border-light);color:var(--dt-text-primary);font-size:14px;flex-shrink:0;`;
@@ -1615,11 +1188,11 @@ function updatePanel(segSubset) {
       sendMessage('updateSettings',{path:'display.panelCollapsed',value:collapsed}).catch(()=>{});});
     // v1.2.17 UX: 按持久化偏好应用初始折叠状态
     if(collapsed){panel.style.transform=pos==='right'?'translateX(calc(100% - 30px))':'translateY(calc(100% - 30px))';hd.querySelector('.panel-toggle-btn').textContent='▶';}
-    hd.querySelector('.panel-close-btn').addEventListener('click',()=>{panel.remove();panelInstance=null;panelRenderedSegIds.clear();document.body.style.marginRight='';document.body.style.marginBottom='';if(panelCleanup){try{panelCleanup()}catch{}const idx=globalCleanupHandlers.indexOf(panelCleanup);if(idx>=0)globalCleanupHandlers.splice(idx,1);panelCleanup=null;}});
+    hd.querySelector('.panel-close-btn').addEventListener('click',()=>{panel.remove();panelInstance=null;panelRenderedSegIds.clear();restorePanelStyles();if(panelCleanup){try{panelCleanup()}catch{}const idx=globalCleanupHandlers.indexOf(panelCleanup);if(idx>=0)globalCleanupHandlers.splice(idx,1);panelCleanup=null;}});
     let isDragging=false,sX,sY,sW,sH;
     // v1.1.0 perf: mousemove/mouseup 仅在拖拽期间注册，拖拽结束即移除，避免常驻 document 监听
     const mmh=e=>{if(!isDragging)return;if(pos==='right')panel.style.width=Math.max(200,Math.min(800,sW-(e.clientX-sX)))+'px';else panel.style.height=Math.max(150,Math.min(600,sH-(e.clientY-sY)))+'px';};
-    const muh=()=>{isDragging=false;document.body.style.userSelect='';document.removeEventListener('mousemove',mmh);document.removeEventListener('mouseup',muh);};
+    const muh=()=>{isDragging=false;document.body.style.userSelect=originalPanelStyles?.userSelect || '';document.removeEventListener('mousemove',mmh);document.removeEventListener('mouseup',muh);};
     const mdh=e=>{if(e.target.tagName==='BUTTON')return;isDragging=true;sX=e.clientX;sY=e.clientY;const r=panel.getBoundingClientRect();sW=r.width;sH=r.height;document.body.style.userSelect='none';document.addEventListener('mousemove',mmh);document.addEventListener('mouseup',muh);};
     hd.addEventListener('mousedown',mdh);
     // v1.1.0 fix: 鼠标移出窗口时兜底清理拖拽状态
@@ -1639,8 +1212,9 @@ function updatePanel(segSubset) {
     const tr=translationCache.get(seg.id);if(!tr)continue;
     panelRenderedSegIds.add(seg.id);
     const row=document.createElement('div');row.style.cssText=`display:flex;gap:14px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--dt-border-light);cursor:pointer;`;
-    row.innerHTML=`<div style="flex:1;font-size:13px;color:var(--dt-text-primary);min-width:0;line-height:1.6">${escapeContent(seg.text)}</div><div style="flex:1;font-size:13px;color:${color};min-width:0;line-height:1.6">${escapeContent(tr)}</div>`;
+    row.innerHTML=`<div style="flex:1;font-size:13px;color:var(--dt-text-primary);min-width:0;line-height:1.6">${escapeContent(seg.text)}</div><div style="flex:1;font-size:13px;color:var(--dt-trans-color);min-width:0;line-height:1.6">${escapeContent(tr)}</div>`;
     row.addEventListener('click',()=>{if(seg.node&&seg.node.parentElement){seg.node.parentElement.scrollIntoView({behavior:'smooth',block:'center'});seg.node.parentElement.style.transition='background 0.3s';seg.node.parentElement.style.background='var(--dt-bg-highlight)';const pe=seg.node.parentElement;setTimeout(()=>{if(pe)pe.style.background=''},2000);}});
+    seg.row = row;
     frag.appendChild(row);
   }
   if(frag.hasChildNodes())ct.appendChild(frag);
@@ -1651,95 +1225,90 @@ function positionAt(el,x,y){const r=el.getBoundingClientRect();let px=x,py=y;if(
 const _DT_ESCAPE_RE=/[&<>"']/g;
 const _DT_ESCAPE_MAP={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
 function escapeContent(s){return String(s==null?'':s).replace(_DT_ESCAPE_RE,ch=>_DT_ESCAPE_MAP[ch]);}
-function toggleTranslation() {
-  if (isTranslating) return;
-  // v1.3.0 fix P2-3: 以权威的 settings.general.translationEnabled 决定开关方向，避免依赖 segments/cache 是否非空导致快捷键失灵/反向
-  if (settings && settings.general.translationEnabled !== false) {
+async function toggleTranslation() {
+  await loadSettings();
+  if (currentAbortController) {
     resetAll();
-    // v1.3.2 fix F1: 先 await updateSettings 完成再发 setIconState，消除并发竞态导致 ⏸ 徽章偶发缺失
-    sendMessage('updateSettings', {path:'general.translationEnabled', value:false})
-      .then(() => sendMessage('setIconState', {state:'idle'}).catch(()=>{}))
-      .catch(()=>{});
+    await sendMessage('setIconState', { state: 'idle' });
   } else {
-    sendMessage('updateSettings', {path:'general.translationEnabled', value:true}).catch(()=>{});
-    // v1.2.3 fix: 添加 .catch 防止 startTranslation rejection 未捕获
-    startTranslation().catch(e => dtError('toggleTranslation startTranslation error:', e));
+    if (!settings.general.translationEnabled) {
+      await sendMessage('updateSettings', { path: 'general.translationEnabled', value: true });
+      await loadSettings(true);
+    }
+    startTranslation().catch(e => dtError('toggle translate error:', e));
   }
 }
-function switchMode(nm) {
-  if (!nm || !['bilingual', 'translation-only', 'hover', 'panel'].includes(nm)) return;
-  if(nm===currentMode)return;
-  currentMode=nm;
-  if(settings){settings.general.lastMode=nm;settings.display.defaultMode=nm;}
-  sendMessage('updateSettings',{path:'general.lastMode',value:nm}).catch(()=>{});
-  sendMessage('updateSettings',{path:'display.defaultMode',value:nm}).catch(()=>{});
-  // 切模式统一走 resetAll + startTranslation 全流程
-  // 原因：in-place 重渲染（旧的 cleanupAllInjections+placePendingSpans+fillTranslations
-  //   +hideOriginalText 路径）会留下 detached seg.node，导致 TRANSLATION_ONLY 模式下
-  //   hideOriginalText 的 replaceChild 静默失败，原文不被隐藏，视觉上还是双语。
-  // 由 startTranslation 重新提取 segments 后，fillTranslations 内的 hideOriginalText
-  // (line 823-829) 才能在 fresh DOM 上正确工作。
-  if(isTranslating){
-    // 正在翻译中：先 abort 当前批次，新的 startTranslation 会自然走完
-    if(currentAbortController){
-      currentAbortController.abort();
-      currentAbortController=null;
-    }
+
+function switchMode(mode) {
+  if (![BILINGUAL, TRANSLATION_ONLY, HOVER, PANEL].includes(mode) || mode === currentMode) return;
+  const wasActive = !!currentAbortController;
+  const wasAutomatic = automaticSession;
+  currentMode = mode;
+  if (settings) {
+    settings.general.lastMode = mode;
+    settings.display.defaultMode = mode;
   }
   resetAll();
-  // v1.0.5 hotfix: resetAll 本身不清 isTranslating, 但这里必须清掉才能让
-  // startTranslation 内部 line 533 的 guard 放行。仅在 switchMode 路径清,
-  // 不动 resetAll 函数体, 避免影响 popstate / hashchange 等其他调用点
-  isTranslating = false;
-  if(settings&&settings.general.translationEnabled!==false){
-    // v1.2.3 fix: 添加 .catch 防止 startTranslation rejection 未捕获
-    startTranslation({ silent: true }).catch(e => dtError('switchMode startTranslation error:', e));
-  }
+  if (wasActive) startTranslation({ silent: true, automatic: wasAutomatic }).catch(e => dtError('mode change error:', e));
 }
+
 function resetAll() {
+  pageRestored = true;
+  currentAbortController?.abort();
+  currentAbortController = null;
   isTranslating = false;
-  if (currentAbortController) {
-    currentAbortController.abort();
-    currentAbortController = null;
-  }
-  if (mutationObserver) { mutationObserver.disconnect(); mutationObserver = null; }
-  // v1.0.7 fix: 清除 setupMutationObserver 残留的 quietTimer，避免重翻译后旧定时器意外触发
-  if (mutationQuietTimer) { clearTimeout(mutationQuietTimer); mutationQuietTimer = null; }
-  // v1.2.15 fix: C-1 - clear pending SPA route timer to prevent unexpected re-translation after restore
-  if (_spaRouteTimer) { clearTimeout(_spaRouteTimer); _spaRouteTimer = null; }
-  // v1.2.13 fix: Bug #3 - 同步拆除周期扫描定时器
+  rescanPending = false;
+  automaticSession = false;
+  clearTimeout(autoStartTimer);
+  autoStartTimer = null;
+  clearTimeout(mutationQuietTimer);
+  mutationQuietTimer = null;
+  mutationObserver?.disconnect();
+  mutationObserver = null;
   teardownPeriodicRescan();
-  // v1.0.3: 清理懒加载 observer（§3.4）
   teardownLazyObserver();
-  observerPaused = false;
-  translationCompletedOnce = false;
   cleanupAllInjections();
-  // v1.0.2: 还原页面 title 和图片 alt（§3.2 / §10.2 修复）
-  if (document.documentElement.hasAttribute('data-dt-orig-title')) {
-    document.title = document.documentElement.getAttribute('data-dt-orig-title');
-    document.documentElement.removeAttribute('data-dt-orig-title');
+  if (translatedTitle && document.title === translatedTitle.applied) document.title = translatedTitle.original;
+  translatedTitle = null;
+  for (const [img, value] of translatedImages) {
+    if (img.alt === value.applied) img.alt = value.original;
   }
-  try {
-    document.querySelectorAll('img[data-dt-orig-alt]').forEach(img => {
-      img.setAttribute('alt', img.getAttribute('data-dt-orig-alt'));
-      img.removeAttribute('data-dt-orig-alt');
-    });
-  } catch (e) { dtError('resetAll alt restore error:', e); }
-  segments=[];
+  translatedImages.clear();
+  segments = [];
   translationCache.clear();
   segmentMap.clear();
-  // v1.0.6 perf: 清除增量渲染追踪和语言检测缓存
-  hoverRegisteredSegIds.clear();
-  panelRenderedSegIds.clear();
   cachedPageLang = null;
-  hoverCleanupHandlers=[];
-  globalCleanupHandlers=[];
-  panelInstance=null;
-  // v1.0.7 perf: 重置 hover 事件委托状态
-  hoverDelegationRegistered=false;
-  hoverTranslations.clear();
-  // v1.1.0 perf: 移除冗余的 [data-dt-hover-id] 查询——cleanupAllInjections 已在上文清理过
+  panelInstance = null;
 }
+
+async function refreshPageSettings() {
+  const previous = settings;
+  await loadSettings(true);
+  if (!settings.general.translationEnabled || !shouldAutoTranslate(location.hostname)) {
+    resetAll();
+    return;
+  }
+  const mode = settings.general.lastMode || settings.display.defaultMode || BILINGUAL;
+  if (mode !== currentMode) switchMode(mode);
+  if (currentAbortController) {
+    const translationChanged = JSON.stringify(previous?.rules) !== JSON.stringify(settings.rules) ||
+      previous?.api.sourceLanguage !== settings.api.sourceLanguage ||
+      previous?.trigger.translationCache !== settings.trigger.translationCache;
+    if (translationChanged) {
+      textCache.clear();
+      const wasAutomatic = automaticSession;
+      resetAll();
+      startTranslation({ silent: true, automatic: wasAutomatic }).catch(e => dtError('settings refresh error:', e));
+    } else {
+      setupPeriodicRescan();
+      scheduleRescan();
+    }
+  } else if (previous?.trigger.autoTranslate === false && settings.trigger.autoTranslate) {
+    pageRestored = false;
+    await checkAndTranslate();
+  }
+}
+
 function showSelectionTranslation(original,translation){
   const removed=document.querySelectorAll('.dual-translate-hover:not(.pinned)');
   removed.forEach(h=>h.remove());
@@ -1758,134 +1327,75 @@ function showSelectionTranslation(original,translation){
   _activeHoverCount++;
 }
 
-chrome.runtime.onMessage.addListener((m,s,resp)=>{
-  (async()=>{
-    try {
-    switch(m.action){
-      case'checkAndTranslate':await checkAndTranslate(m.url);resp({success:true});break;
-      case'toggleTranslate':toggleTranslation();resp({success:true});break;
-      case'startTranslation':
-        startTranslation().catch(e => console.warn('[content] startTranslation error:', e));
-        resp({success:true});
+chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  (async () => {
+    await loadSettings();
+    switch (message.action) {
+      case 'getStatus':
+        return { mode: currentMode, translating: isTranslating, pageActive: !!currentAbortController,
+          siteAllowed: shouldAutoTranslate(location.hostname), segmentCount: segments.length };
+      case 'checkAndTranslate':
+        await checkAndTranslate();
         break;
-      case'switchMode':switchMode(m.mode);resp({success:true});break;
-      case'getStatus':resp({mode:currentMode,translating:isTranslating,segmentCount:segments.length});break;
-      case'showSelectionTranslation':showSelectionTranslation(m.original,m.translation);resp({success:true});break;
-      case'restoreAll':
+      case 'toggleTranslate':
+        await toggleTranslation();
+        break;
+      case 'startTranslation':
+        await loadSettings(true);
+        if (!settings.general.translationEnabled) return { error: '请先开启翻译总开关' };
+        if (!shouldAutoTranslate(location.hostname)) return { error: '此网站已被翻译规则排除，请在设置中调整网站列表' };
+        startTranslation().catch(e => dtError('start translate error:', e));
+        break;
+      case 'switchMode':
+        switchMode(message.mode);
+        break;
+      case 'showSelectionTranslation':
+        showSelectionTranslation(message.original, message.translation);
+        break;
+      case 'restoreAll':
+      case 'cancelTranslation':
         resetAll();
-        // v1.2.17 UX: 还原原文后同步刷新扩展图标状态（含翻译已关闭的 ⏸ 标记）
-        sendMessage('setIconState',{state:'idle'}).catch(()=>{});
-        resp({success:true});
+        await sendMessage('setIconState', { state: 'idle' }).catch(() => {});
         break;
-      case'retranslateWithSource':
+      case 'settingsChanged':
+        await refreshPageSettings();
+        break;
+      case 'cacheCleared':
+        textCache.clear();
+        break;
+      case 'glossaryChanged': {
+        await loadGlossary();
+        textCache.clear();
+        const wasActive = !!currentAbortController;
+        const wasAutomatic = automaticSession;
         resetAll();
-        startTranslation({silent:true}).catch(e => console.warn('[content] retranslate error:', e));
-        resp({success:true});
+        if (wasActive) startTranslation({ silent: true, automatic: wasAutomatic }).catch(e => dtError('glossary refresh error:', e));
         break;
-      case'cancelTranslation':
-        // v1.2.2 fix: 只 abort，不置 currentAbortController=null。
-        // 原先置 null 会导致 startTranslation 的 finally/catch 块中
-        // `currentAbortController === myAbortController` 永远为 false，
-        // isTranslating 无法归零而卡在 true，popup 取消按钮永不消失。
-        // 现仅触发 abort，交由 startTranslation 的 catch(AbortError)→resetAll
-        // 与 finally 块自行完成 isTranslating=false / currentAbortController=null 清理。
-        if (currentAbortController) {
-          currentAbortController.abort();
-        }
-        resp({ success: true });
+      }
+      case 'retranslateWithSource':
+        await refreshPageSettings();
         break;
-      default:resp({error:'Unknown action'});
+      default:
+        return { error: 'Unknown action' };
     }
-    } catch(err) {
-      dtError('onMessage error:', err);
-      try { resp({error: err && err.message ? err.message : String(err)}); } catch {}
-    }
-  })();return true;
+    return { success: true };
+  })().then(respond).catch(() => respond({ error: '页面翻译暂时不可用，请刷新页面后重试' }));
+  return true;
 });
 
-// v1.2.3 fix: 添加 .catch 防止模块级 loadSettings() 的 rejection 未捕获（无外层 try/catch 保护）
-loadSettings().catch(e => dtError('init loadSettings error:', e));
-
-// SPA 路由变化时清理模块级状态并重新翻译
-// v1.1.0 perf: 300ms 防抖，避免 SPA 快速路由变化时多次 resetAll+startTranslation
-let _spaRouteTimer = null;
-function onSpaRouteChange() {
-  if (_spaRouteTimer) clearTimeout(_spaRouteTimer);
-  _spaRouteTimer = setTimeout(() => {
-    _spaRouteTimer = null;
-    try {
-      resetAll();
-      if (settings && settings.general.translationEnabled !== false && settings.trigger.autoTranslate) {
-        isTranslating = false;
-        const url = location.href;
-        if (url.startsWith('http') && shouldAutoTranslate(new URL(url).hostname)) {
-          // v1.2.3 fix: 添加 .catch 防止 startTranslation rejection 未捕获（setTimeout 回调中的 promise 不会被外层 try/catch 捕获）
-          setTimeout(() => startTranslation().catch(e => dtError('SPA route startTranslation error:', e)), settings.trigger.translateDelay || 500);
-        }
-      }
-    } catch (err) { dtError('spa route change error:', err); }
-  }, 300);
+function resumePage() {
+  if (document.hidden) return;
+  if (currentAbortController) scheduleRescan();
+  else checkAndTranslate().catch(e => dtError('page check error:', e));
 }
-window.addEventListener('popstate', onSpaRouteChange);
-window.addEventListener('hashchange', onSpaRouteChange);
 
-// v1.2.13 fix: Bug #3 (P3-5) — 拦截 history.pushState/replaceState，
-// 解决 React Router / Vue Router / Next.js 等 SPA 路由切换不触发 popstate 的问题
-(function wrapHistoryApi() {
-  if (!window.history || !window.history.pushState) return;
-  const origPush = window.history.pushState;
-  const origReplace = window.history.replaceState;
-  // 用 bind 包装确保 this 正确
-  window.history.pushState = function(...args) {
-    const ret = origPush.apply(this, args);
-    try { window.dispatchEvent(new Event('dual-translate-locationchange')); } catch {}
-    return ret;
-  };
-  window.history.replaceState = function(...args) {
-    const ret = origReplace.apply(this, args);
-    try { window.dispatchEvent(new Event('dual-translate-locationchange')); } catch {}
-    return ret;
-  };
-  // 监听自定义事件，复用 onSpaRouteChange
-  window.addEventListener('dual-translate-locationchange', onSpaRouteChange);
-})();
-
-// v1.2.13 fix: P2-7 / Bug #4 — 同时监听 sync 和 local 区域，
-// 避免 sync 变更（来自 getSettings 写入）把 content.js 的 settings.api.apiKeys 重置为 undefined
-// （因为 syncData 中不含 apiKeys，被同步过来后 settings.api.apiKeys 会被覆盖成 undefined）
-let _lastLocalApiKeys = null;
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (!settings) return;
-  if (area === 'sync') {
-    const sc = changes.dual_translate_settings;
-    if (sc && sc.newValue) {
-      // 保留当前 local 的 apiKeys 引用，因为 sync 写入不会带 apiKeys
-      const preservedApiKeys = settings.api && settings.api.apiKeys;
-      settings = sc.newValue;
-      if (preservedApiKeys && settings.api) {
-        settings.api.apiKeys = preservedApiKeys;
-      }
-      const oldD = sc.oldValue && sc.oldValue.display;
-      const newD = settings.display;
-      if (newD && JSON.stringify(oldD) !== JSON.stringify(newD)) {
-        applyTranslationStyles();
-      }
-    }
-  } else if (area === 'local') {
-    // local 区：用户可能在 popup 改了 apiKeys（虽然 apiKeys 在 background 内存中），
-    // 或修改了翻译缓存、自定义 prompt 等；不影响当前翻译会话，只记录
-    if (changes.dual_translate_api_keys_local) {
-      _lastLocalApiKeys = changes.dual_translate_api_keys_local.newValue || null;
-    }
-    // v1.2.15 fix: C-2 - reload glossary when it changes in local storage
-    // v1.3.3 fix F-2: v1.3.3 起术语表存储于 local 区域（见 settings-manager getGlossary/saveGlossary），
-    // 此监听分支真正生效——设置页修改术语表后已打开标签页实时刷新，兑现 v1.2.15 的承诺。
-    if (changes.dual_translate_glossary) {
-      loadGlossary().catch(e => dtError('storage.onChanged glossary reload error:', e));
-    }
-  }
-  // v1.2.13 fix: Bug #3 — sync 变更后若 autoRescan 配置变化，重启周期扫描
-  if (area === 'sync' && settings && settings.rules && settings.rules.autoRescan) {
-    setupPeriodicRescan();
-  }
-});
+// DOM observation also covers pushState navigation when the site replaces its content.
+// Returning from a browser tab or the back/forward cache requires a fresh visibility pass.
+document.addEventListener('visibilitychange', resumePage);
+window.addEventListener('pageshow', resumePage);
+window.addEventListener('focus', resumePage);
+window.addEventListener('resize', () => scheduleRescan());
+window.addEventListener('popstate', resumePage);
+window.addEventListener('hashchange', resumePage);
+document.addEventListener('transitionend', () => scheduleRescan());
+checkAndTranslate().catch(e => dtError('init load settings error:', e));

@@ -12,14 +12,12 @@
       <h1 class="popup-title">双语翻译助手</h1>
     </div>
 
-    <div class="popup-toggle">
-      <button id="toggleBtn" class="toggle-btn active">
+    <div class="popup-section page-actions">
+      <button id="pageTranslateBtn" class="toggle-btn active" disabled>翻译此页</button>
+      <p id="pageStatus" class="page-status" role="status">正在读取页面状态…</p>
+      <button id="toggleBtn" class="toggle-btn inactive global-toggle">
         <span class="toggle-icon">⏸</span>
-        <span class="toggle-text">关闭翻译</span>
-      </button>
-      <button id="cancelBtn" class="cancel-btn" title="停止当前页正在进行的翻译任务">
-        <span>⏹</span>
-        <span class="cancel-text">停止翻译</span>
+        <span class="toggle-text">暂停所有网页翻译</span>
       </button>
     </div>
 

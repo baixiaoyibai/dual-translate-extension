@@ -58,6 +58,17 @@ npm run verify
 
 该命令会依次执行语法检查和现有回归测试。
 
+### Edge 浏览器回归
+
+在装有 Microsoft Edge 的机器上，可以运行包含真实扩展加载与本机模拟接口的集成测试。测试使用临时浏览器配置和合成网页。
+
+```bash
+npm install --no-save --package-lock=false playwright-core
+npm run test:edge
+```
+
+该测试覆盖翻译/还原、选项卡显隐、SPA 复用节点、长文、异常批量响应、四种模式和内容脚本存储隔离。翻译结果使用模拟响应，服务商的实际翻译质量和账户额度需另行验证。
+
 ## 代码规范
 
 ### 版本迭代规则

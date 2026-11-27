@@ -136,7 +136,12 @@ async function init() {
   if (initPromise) return initPromise;
   initPromise = (async () => {
     try {
-      await settingsManager.loadSettings();
+      await Promise.all([
+        chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
+        chrome.storage.sync.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })
+      ]);
+      // Discard the pre-session cache, which contains plaintext page text.
+      await chrome.storage.local.remove('dual_translate_text_cache');
       await apiManager.init();
       try { await translationCache.sweep(); } catch {}
       setupContextMenu();
@@ -235,7 +240,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       if (!apiManager.translators || apiManager.translators.size === 0) {
         await apiManager.reload();
       }
-      const results = await apiManager.translate([info.selectionText], 'auto', 'zh');
+      const results = await apiManager.translate([info.selectionText], 'auto', 'zh', pageHostname(info.frameUrl || info.pageUrl));
       const translation = results[0]?.translation || humanizeTranslateError('翻译结果为空');
       chrome.tabs.sendMessage(tab.id, {
         action: 'showSelectionTranslation',
@@ -285,7 +290,7 @@ function _isExtensionSender(sender) {
   if (!sender) return false;
   // v1.1.0 security: 双重校验——URL 前缀 + 扩展 ID，防止跨扩展伪造
   const url = typeof sender.url === 'string' ? sender.url : '';
-  return url.startsWith('chrome-extension://') && sender.id === chrome.runtime.id;
+  return sender.id === chrome.runtime.id && url.startsWith(chrome.runtime.getURL(''));
 }
 
 // v1.1.0 perf: 将写操作白名单提升为模块级常量，避免每条消息都重新构造 Set
@@ -294,6 +299,28 @@ const WRITE_ACTIONS = new Set([
   'updateSettings', 'saveSettings', 'importAllSettings', 'reloadApis', 'clearApi',
   'setupPin', 'resetPin', 'saveGlossary', 'clearCache', 'clearLogs', 'testApi'
 ]);
+
+function pageHostname(url) {
+  try {
+    const page = new URL(url);
+    return ['http:', 'https:'].includes(page.protocol) ? page.hostname : '';
+  } catch { return ''; }
+}
+
+async function notifyContentScripts(action) {
+  const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });
+  await Promise.allSettled(tabs.map(tab => chrome.tabs.sendMessage(tab.id, { action })));
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'sync' && changes.dual_translate_settings) {
+    notifyContentScripts('settingsChanged').catch(() => {});
+  }
+  if (area === 'local' && changes.dual_translate_glossary) {
+    translationCache.clear().catch(() => {});
+    notifyContentScripts('glossaryChanged').catch(() => {});
+  }
+});
 
 async function handleMessage(message, sender) {
   await init();
@@ -321,37 +348,12 @@ async function handleMessage(message, sender) {
       return await handleTranslateTexts(message, sender);
 
     case 'getSettings': {
-      // v1.0.6 fix: 确保返回的 settings 包含 local storage 中的最新 apiKeys
-      // 场景：SW 重启后 settingsManager.settings 可能未正确合并 apiKeys，
-      //       导致设置页 API 卡片密钥为空，但 popup（走 apiManager）仍正常
-      await settingsManager.reloadApiKeys();
-      // 安全修复：区分 sender 来源，避免向 content script 暴露 apiKeys
-      // 扩展自身页面（popup/options）返回完整 settings（含 apiKeys）
-      // content script（sender.tab 存在，sender.url 为网页地址）返回不含 apiKeys 的精简 settings
-      // v1.2.2 fix: BUG-1 改用 _isExtensionSender 双重校验（URL 前缀 + 扩展 ID），
-      //             与其他敏感读操作保持一致，防止跨扩展伪造 sender.url 绕过校验
-      const isExtensionPage = _isExtensionSender(sender);
-      if (isExtensionPage) {
-        // v1.2.12 fix: P2-2 — 返回深拷贝，避免扩展页面直接修改 settingsManager.settings 活引用
+      if (_isExtensionSender(sender)) {
+        await settingsManager.reloadApiKeys();
         return { settings: _cloneSettingsForExport(settingsManager.settings) };
       }
-      // 非 extension 页面（content script 等）：深拷贝并将 apiKeys 置空，防止密钥泄露给网页
-      // v1.1.0 perf: 优先 structuredClone；回退时仅深拷贝 api 段，避免整体 JSON 序列化开销
-      const _raw = settingsManager.settings;
-      let safeSettings;
-      if (typeof structuredClone === 'function') {
-        safeSettings = structuredClone(_raw);
-      } else {
-        safeSettings = { ..._raw };
-        if (_raw && _raw.api) safeSettings.api = JSON.parse(JSON.stringify(_raw.api));
-      }
-      if (safeSettings && safeSettings.api) {
-        safeSettings.api.apiKeys = {};
-        if (Array.isArray(safeSettings.api.customProviders)) {
-          for (const p of safeSettings.api.customProviders) { if (p) p.apiKey = ''; }
-        }
-      }
-      return { settings: safeSettings };
+      const { general, display, trigger, advanced, rules, api } = await settingsManager.getPageSettings();
+      return { settings: { general, display, trigger, advanced, rules, api: { sourceLanguage: api.sourceLanguage } } };
     }
 
     case 'updateSettings':
@@ -364,6 +366,7 @@ async function handleMessage(message, sender) {
         }
       }
       await settingsManager.updateSetting(message.path, message.value);
+      if (message.path === 'trigger.translationCache' && !message.value) await translationCache.clear();
 
       // 如果更新的是 api.sourceLanguage，通知活跃 tab 重新翻译
       if (message.path === 'api.sourceLanguage' || message.path === 'rules.skipChineseSegments') {
@@ -435,7 +438,7 @@ async function handleMessage(message, sender) {
       return { glossary: await settingsManager.getGlossary() };
 
     case 'getGlossaryForDomain':
-      return { glossary: await settingsManager.getGlossaryForDomain(message.domain) };
+      return { glossary: await settingsManager.getGlossaryForDomain(_isExtensionSender(sender) ? message.domain : pageHostname(sender.url)) };
 
     case 'saveGlossary':
       await settingsManager.saveGlossary(message.glossary);
@@ -504,6 +507,7 @@ async function handleMessage(message, sender) {
 
     case 'clearCache':
       await translationCache.clear();
+      await notifyContentScripts('cacheCleared');
       return { success: true };
 
     case 'openOptions':
@@ -715,6 +719,11 @@ function _sanitizeErrorCode(message) {
 
 async function handleTranslateTexts(message, sender) {
   try {
+    if (!_isExtensionSender(sender)) {
+      if (!settingsManager.settings.general.translationEnabled) return { error: '翻译总开关已暂停', translations: [] };
+      const domain = pageHostname(sender.url);
+      if (!domain || !settingsManager.isDomainAllowed(domain)) return { error: '此网站已被翻译规则排除', translations: [] };
+    }
     // v1.1.0 security: 输入校验，防止畸形/超大请求耗尽资源
     const MAX_TEXTS = 500;
     const MAX_TEXT_LEN = 10000;
@@ -743,22 +752,24 @@ async function handleTranslateTexts(message, sender) {
     const sourceLang = message.sourceLang === 'all' ? 'auto' : (message.sourceLang || 'auto');
     const targetLang = message.targetLang || 'zh';
     const texts = message.texts;
-    const cacheEnabled = settingsManager.settings.trigger.translationCache !== false;
+    const domain = pageHostname(sender.url);
+    const cacheGeneration = translationCache.generation;
+    const cacheEnabled = !sender.tab?.incognito && settingsManager.settings.trigger.translationCache !== false;
 
     let hits = new Map();
     let misses = texts;
     if (cacheEnabled && texts.length > 0) {
       // v1.2.12 fix: P1-4 — 缓存键纳入 targetLang
-      const r = await translationCache.lookup(texts, sourceLang, targetLang);
+      const r = await translationCache.lookup(texts, sourceLang, targetLang, domain);
       hits = r.hits;
       misses = r.misses;
     }
 
     let freshResults = [];
     if (misses.length > 0) {
-      freshResults = await apiManager.translate(misses, sourceLang, targetLang);
+      freshResults = await apiManager.translate(misses, sourceLang, targetLang, domain);
       if (cacheEnabled) {
-        try { await translationCache.store(freshResults, sourceLang, targetLang); } catch {}
+        try { await translationCache.store(freshResults, sourceLang, targetLang, domain, cacheGeneration); } catch {}
       }
     }
 
@@ -781,8 +792,6 @@ async function handleTranslateTexts(message, sender) {
       return { index: i, original: text, translation: '' };
     });
 
-    // v1.1.0 fix: 翻译完成后强制落盘，确保缓存数据在 SW 休眠前持久化
-    try { await translationCache.flush(true); } catch {}
     return { translations };
   } catch (error) {
     const isExtSender = _isExtensionSender(sender);

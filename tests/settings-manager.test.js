@@ -51,6 +51,14 @@ const { settingsManager, DEFAULT_SETTINGS } = factory(console, chromeMock, value
 
 async function main() {
   if (DEFAULT_SETTINGS.settingsVersion !== 1) throw new Error('missing settingsVersion');
+  if (DEFAULT_SETTINGS.trigger.autoTranslate !== false) throw new Error('new installs must start manually');
+  await settingsManager.loadSettings();
+  await settingsManager.updateSetting('trigger.autoTranslate', true);
+  await settingsManager.loadSettings();
+  if (settingsManager.settings.trigger.autoTranslate !== true) throw new Error('saved automatic preference lost on reload');
+  for (const endpoint of ['https://key@example.com', 'https://example.com?token=secret', 'https://example.com#secret']) {
+    if (settingsManager._isEndpointAllowed(endpoint)) throw new Error('unsafe endpoint accepted');
+  }
 
   syncData.dual_translate_settings = {
     display: { tooltipDelay: 777 },
@@ -282,7 +290,7 @@ async function main() {
   if (imported.display.defaultMode === null || imported.display.defaultMode === undefined) {
     throw new Error('F-9: null display.defaultMode should be stripped, not persisted');
   }
-  if (imported.trigger.autoTranslate !== true) {
+  if (imported.trigger.autoTranslate !== false) {
     throw new Error('F-9: null trigger.autoTranslate should be stripped (base value retained)');
   }
   const persistedImport = syncWrites.find(w => w.dual_translate_settings);

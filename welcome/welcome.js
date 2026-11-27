@@ -31,7 +31,7 @@ document.getElementById('closeBtn').addEventListener('click', async () => {
       notice.style.display = 'block';
       goBtn.textContent = '去配置 API 密钥';
     } else if (available > 0) {
-      notice.textContent = `已检测到 ${available} 个可用翻译 API，可直接打开外文网页体验`;
+      notice.textContent = `已检测到 ${available} 个可用翻译 API，可打开网页后点击「翻译此页」`;
       notice.classList.add('notice-ok');
       notice.style.display = 'block';
     } else {

@@ -1,7 +1,9 @@
 let currentMode = 'bilingual';
 let translationEnabled = true;
 let cachedSettings = null;
-let cancelPollTimer = null;
+let pageStatusTimer = null;
+let activeTabId = null;
+let pageActive = false;
 
 // v1.2.2 fix: chrome.runtime.sendMessage 在 MV3 下可能因 Service Worker
 // 冷启动而瞬时失败（如 "Could not establish connection"）。此包装函数提供
@@ -10,7 +12,9 @@ async function sendMessageWithRetry(message, retries = 3) {
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await chrome.runtime.sendMessage(message);
+      const response = await chrome.runtime.sendMessage(message);
+      if (response?.error) throw new Error(response.error);
+      return response;
     } catch (e) {
       lastError = e;
       if (attempt < retries) {
@@ -53,21 +57,11 @@ async function loadState() {
     updateModeButtons();
   }
 
-  if (tab) {
-    try {
-      const statusRes = await chrome.tabs.sendMessage(tab.id, { action: 'getStatus' });
-      if (statusRes) {
-        currentMode = statusRes.mode || currentMode;
-        updateModeButtons();
-        const translating = statusRes?.translating || false;
-        updateCancelButton(translating);
-        if (translating) {
-          startCancelButtonPolling(tab.id);
-        }
-      }
-    } catch {}
-  }
-  
+  activeTabId = tab?.id ?? null;
+  await refreshPageStatus();
+  pageStatusTimer = setInterval(refreshPageStatus, 750);
+  window.addEventListener('unload', () => clearInterval(pageStatusTimer), { once: true });
+
   await loadSourceLanguage();
   await loadSkipChineseSegments();
 }
@@ -77,13 +71,13 @@ function updateToggleButton() {
   const icon = btn.querySelector('.toggle-icon');
   const text = btn.querySelector('.toggle-text');
   if (translationEnabled) {
-    btn.className = 'toggle-btn active';
+    btn.className = 'toggle-btn active global-toggle';
     if (icon) icon.textContent = '⏸';
-    if (text) text.textContent = '关闭翻译';
+    if (text) text.textContent = '暂停所有网页翻译';
   } else {
-    btn.className = 'toggle-btn inactive';
+    btn.className = 'toggle-btn inactive global-toggle';
     if (icon) icon.textContent = '▶';
-    if (text) text.textContent = '开启翻译';
+    if (text) text.textContent = '开启翻译总开关';
   }
 }
 
@@ -93,42 +87,23 @@ function updateModeButtons() {
   });
 }
 
-function updateCancelButton(translating) {
-  const btn = document.getElementById('cancelBtn');
-  if (!btn) return;
-  if (translating) {
-    btn.style.display = 'flex';
-    btn.disabled = false;
-    btn.classList.remove('cancelling');
-    btn.querySelector('.cancel-text').textContent = '取消翻译';
-  } else {
-    btn.style.display = 'none';
-    btn.disabled = false;
-    btn.classList.remove('cancelling');
-  }
-}
-
-function startCancelButtonPolling(tabId) {
-  stopCancelButtonPolling();
-  cancelPollTimer = setInterval(async () => {
-    try {
-      const res = await chrome.tabs.sendMessage(tabId, { action: 'getStatus' });
-      if (!res || !res.translating) {
-        updateCancelButton(false);
-        stopCancelButtonPolling();
-      }
-    } catch {
-      // content script 不可用，隐藏按钮
-      updateCancelButton(false);
-      stopCancelButtonPolling();
-    }
-  }, 1000);
-}
-
-function stopCancelButtonPolling() {
-  if (cancelPollTimer) {
-    clearInterval(cancelPollTimer);
-    cancelPollTimer = null;
+async function refreshPageStatus() {
+  const button = document.getElementById('pageTranslateBtn');
+  const status = document.getElementById('pageStatus');
+  if (!button) return;
+  try {
+    if (activeTabId === null) throw new Error('unavailable');
+    const result = await chrome.tabs.sendMessage(activeTabId, { action: 'getStatus' });
+    if (result?.error || !result) throw new Error('unavailable');
+    pageActive = !!result.pageActive;
+    button.textContent = pageActive ? '还原此页' : '翻译此页';
+    button.disabled = !translationEnabled || result.siteAllowed === false;
+    status.textContent = !translationEnabled ? '翻译总开关已暂停' : result.siteAllowed === false ?
+      '此网站已被翻译规则排除' : result.translating ? '正在翻译，可随时还原此页' :
+      pageActive ? '此页翻译已开启，切换内容后会继续翻译' : '点击后将此页可读文本发送给已配置的翻译服务';
+  } catch {
+    button.disabled = true;
+    status.textContent = '请打开普通网页；更新扩展后请刷新网页';
   }
 }
 
@@ -224,22 +199,7 @@ function setupEventListeners() {
     try {
       await sendMessageWithRetry({ action: 'updateSettings', path: 'general.translationEnabled', value: translationEnabled });
       updateToggleButton();
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab) {
-        try {
-          if (translationEnabled) {
-            await chrome.tabs.sendMessage(tab.id, { action: 'startTranslation' });
-            updateCancelButton(true);
-            startCancelButtonPolling(tab.id);
-          } else {
-            await chrome.tabs.sendMessage(tab.id, { action: 'restoreAll' });
-          }
-        } catch (e) {
-          // v1.3.2 fix F2: 全局开关已成功持久化，不应因「当前页无 content script」回滚并弹误导性 alert。
-          // chrome:// 等内部页本就无法翻译；开关状态保留，下次导航到普通网页即自动生效
-          console.warn('[popup] 当前页无法执行翻译指令（可能无 content script），已保留全局开关状态:', e && e.message);
-        }
-      }
+      await refreshPageStatus();
     } catch (e) {
       translationEnabled = prevState;
       updateToggleButton();
@@ -258,10 +218,9 @@ function setupEventListeners() {
     try {
       await sendMessageWithRetry({ action: 'updateSettings', path: 'general.lastMode', value: mode });
       await sendMessageWithRetry({ action: 'updateSettings', path: 'display.defaultMode', value: mode });
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab) {
+      if (activeTabId !== null) {
         try {
-          await chrome.tabs.sendMessage(tab.id, { action: 'switchMode', mode });
+          await chrome.tabs.sendMessage(activeTabId, { action: 'switchMode', mode });
         } catch (e) {
           currentMode = prevMode;
           updateModeButtons();
@@ -348,6 +307,20 @@ function setupEventListeners() {
     });
   }
 
+  document.getElementById('pageTranslateBtn').addEventListener('click', async () => {
+    const button = document.getElementById('pageTranslateBtn');
+    button.disabled = true;
+    try {
+      const result = await chrome.tabs.sendMessage(activeTabId, { action: pageActive ? 'restoreAll' : 'startTranslation' });
+      if (result?.error) throw new Error(result.error);
+      await refreshPageStatus();
+    } catch (error) {
+      document.getElementById('pageStatus').textContent = error.message || '当前页面暂时无法翻译，请刷新后重试';
+    } finally {
+      button.disabled = !translationEnabled;
+    }
+  });
+
   document.getElementById('settingsBtn').addEventListener('click', () => {
     chrome.runtime.openOptionsPage().catch(() => alert('无法打开设置页'));
   });
@@ -361,52 +334,6 @@ function setupEventListeners() {
     });
   }
 
-  document.getElementById('restoreBtn').addEventListener('click', async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab) {
-      try {
-        await chrome.tabs.sendMessage(tab.id, { action: 'restoreAll' });
-      } catch (e) {
-        alert('当前页面无法翻译，请在普通网页上重试');
-      }
-    }
-  });
-
-  // 停止翻译按钮点击事件（v1.2.17 UX: 文案由「取消翻译」改为「停止翻译」，与「关闭翻译」明确区分）
-  document.getElementById('cancelBtn').addEventListener('click', async () => {
-    const btn = document.getElementById('cancelBtn');
-    const cancelText = btn.querySelector('.cancel-text');
-    const originalText = cancelText.textContent;
-    const restoreCancelBtn = () => { btn.disabled = false; btn.classList.remove('cancelling'); cancelText.textContent = originalText; };
-    btn.disabled = true;
-    btn.classList.add('cancelling');
-    cancelText.textContent = '正在停止...';
-    let recovered = false;
-    const timeoutId = setTimeout(() => {
-      if (!recovered) {
-        restoreCancelBtn();
-        alert('停止超时，当前页面可能无响应，建议刷新页面');
-      }
-    }, 5000);
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab) {
-        try {
-          await chrome.tabs.sendMessage(tab.id, { action: 'cancelTranslation' });
-        } catch (e) {
-          throw new Error('当前页面未能确认停止操作');
-        }
-      }
-      recovered = true;
-      clearTimeout(timeoutId);
-      restoreCancelBtn();
-    } catch (e) {
-      recovered = true;
-      clearTimeout(timeoutId);
-      restoreCancelBtn();
-      alert('当前页面无法停止翻译，可能是页面未加载翻译脚本，请刷新页面后重试');
-    }
-  });
 }
 
 async function loadCacheInfo() {
@@ -415,7 +342,7 @@ async function loadCacheInfo() {
   try {
     const stats = await sendMessageWithRetry({ action: 'getCacheStats' });
     if (stats && stats.total !== undefined) {
-      el.textContent = `已缓存 ${stats.active} 条译文（${stats.sizeKB} KB）`;
+      el.textContent = `本次浏览器会话缓存 ${stats.active} 条（${stats.sizeKB} KB）`;
     } else {
       el.textContent = '缓存未启用';
     }
