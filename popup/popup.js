@@ -1,458 +1,240 @@
-let currentMode = 'bilingual';
-let translationEnabled = true;
 let cachedSettings = null;
-let pageStatusTimer = null;
 let activeTabId = null;
-let pageActive = false;
+let pageStatus = null;
+let statusPort = null;
+let pageBusy = false;
+let modeBusy = false;
+let servicesConfigured = null;
 
-// v1.2.2 fix: chrome.runtime.sendMessage 在 MV3 下可能因 Service Worker
-// 冷启动而瞬时失败（如 "Could not establish connection"）。此包装函数提供
-// 最多 3 次重试、递增间隔（200/400/800ms），提升 popup 与 background 通信可靠性。
-async function sendMessageWithRetry(message, retries = 3) {
-  let lastError;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const response = await chrome.runtime.sendMessage(message);
-      if (response?.error) throw new Error(response.error);
-      return response;
-    } catch (e) {
-      lastError = e;
-      if (attempt < retries) {
-        await new Promise(r => setTimeout(r, 200 * Math.pow(2, attempt)));
-      }
-    }
-  }
-  throw lastError;
+const $ = id => document.getElementById(id);
+
+async function send(message) {
+  // A translation request is sent once. Providers handle their own retry policy.
+  const response = await chrome.runtime.sendMessage(message);
+  if (response?.error || response?.success === false) throw new Error(response.error || '操作未完成，请重试');
+  return response;
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
-  // v1.2.2 fix: loadState 失败不应导致 popup 完全失灵。
-  // 原先无 try/catch，loadState 抛错会中断后续 setupEventListeners()，
-  // 使所有按钮无响应。现包裹 try/catch，失败时设置默认状态并继续初始化。
-  try {
-    await loadState();
-  } catch (e) {
-    console.warn('[popup] loadState failed:', e);
-    cachedSettings = null;
-    currentMode = 'bilingual';
-    translationEnabled = true;
-    updateToggleButton();
-    updateModeButtons();
-  }
-  await Promise.all([loadApiStatus(), loadDailyUsage(), loadCacheInfo()]);
-  setupEventListeners();
-  setupManualTranslate();
-});
-
-async function loadState() {
-  const [response, [tab]] = await Promise.all([
-    sendMessageWithRetry({ action: 'getSettings' }),
-    chrome.tabs.query({ active: true, currentWindow: true })
-  ]);
-  cachedSettings = response?.settings || null;
-  if (response && response.settings) {
-    currentMode = response.settings.general.lastMode || response.settings.display.defaultMode || 'bilingual';
-    translationEnabled = response.settings.general.translationEnabled !== false;
-    updateToggleButton();
-    updateModeButtons();
-  }
-
-  activeTabId = tab?.id ?? null;
-  await refreshPageStatus();
-  pageStatusTimer = setInterval(refreshPageStatus, 750);
-  window.addEventListener('unload', () => clearInterval(pageStatusTimer), { once: true });
-
-  await loadSourceLanguage();
-  await loadSkipChineseSegments();
+function feedback(message = '') {
+  $('feedback').textContent = message;
+  $('feedback').hidden = !message;
 }
 
-function updateToggleButton() {
-  const btn = document.getElementById('toggleBtn');
-  const icon = btn.querySelector('.toggle-icon');
-  const text = btn.querySelector('.toggle-text');
-  if (translationEnabled) {
-    btn.className = 'toggle-btn active global-toggle';
-    if (icon) icon.textContent = '⏸';
-    if (text) text.textContent = '暂停所有网页翻译';
-  } else {
-    btn.className = 'toggle-btn inactive global-toggle';
-    if (icon) icon.textContent = '▶';
-    if (text) text.textContent = '开启翻译总开关';
-  }
+function renderPage() {
+  const enabled = cachedSettings?.general.translationEnabled !== false;
+  const active = !!pageStatus?.pageActive;
+  const allowed = pageStatus?.siteAllowed !== false;
+  const needsSetup = pageStatus && enabled && allowed && !active && servicesConfigured === false;
+  $('toggleBtn').setAttribute('aria-checked', String(enabled));
+  $('pageTranslateBtn').disabled = pageBusy || !pageStatus || (!active && (!enabled || !allowed));
+  $('pageTranslateBtn').classList.toggle('restore', active);
+  $('pageTranslateBtn').textContent = pageBusy ? '正在处理…' : active ? '还原此页' : needsSetup ? '配置翻译服务' : '翻译此页';
+  $('pageHeading').textContent = !pageStatus ? '当前页面无法翻译' : !enabled ? '网页翻译已暂停' : !allowed ? '此网站已排除' : needsSetup ? '先配置翻译服务' : active ? '继续阅读' : '准备翻译';
+  const done = pageStatus?.translatedCount ?? 0;
+  const failed = pageStatus?.failedCount ?? 0;
+  $('pageStatus').textContent = !pageStatus ? '请打开普通网页，更新扩展后请刷新已有网页。' : !enabled ? '开启下方总开关后，可继续翻译。' : !allowed ? '可在设置的「翻译规则」中调整网站列表。' : active ?
+    (pageStatus.translating ? `已完成 ${done} 段，正在继续翻译。` : failed ? `已完成 ${done} 段，${failed} 段失败，可点击页面提示重试。` : `已完成 ${done} 段，新内容出现时会继续补译。`) : needsSetup ? '填写一个信任服务的密钥后，即可开始翻译。' : '按当前阅读方式翻译，随时可还原原文。';
+  if (pageStatus?.mode) renderMode(pageStatus.mode);
 }
 
-function updateModeButtons() {
-  document.querySelectorAll('.mode-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.mode === currentMode);
+function renderMode(mode) {
+  document.querySelectorAll('.mode-btn').forEach(button => {
+    const selected = button.dataset.mode === mode;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-pressed', String(selected));
+    button.disabled = modeBusy;
   });
 }
 
 async function refreshPageStatus() {
-  const button = document.getElementById('pageTranslateBtn');
-  const status = document.getElementById('pageStatus');
-  if (!button) return;
   try {
-    if (activeTabId === null) throw new Error('unavailable');
-    const result = await chrome.tabs.sendMessage(activeTabId, { action: 'getStatus' });
-    if (result?.error || !result) throw new Error('unavailable');
-    pageActive = !!result.pageActive;
-    button.textContent = pageActive ? '还原此页' : '翻译此页';
-    button.disabled = !translationEnabled || result.siteAllowed === false;
-    status.textContent = !translationEnabled ? '翻译总开关已暂停' : result.siteAllowed === false ?
-      '此网站已被翻译规则排除' : result.translating ? '正在翻译，可随时还原此页' :
-      pageActive ? '此页翻译已开启，切换内容后会继续翻译' : '点击后将此页可读文本发送给已配置的翻译服务';
-  } catch {
-    button.disabled = true;
-    status.textContent = '请打开普通网页；更新扩展后请刷新网页';
-  }
+    const response = await chrome.tabs.sendMessage(activeTabId, { action: 'getStatus' });
+    if (!response || response.error) throw new Error('unavailable');
+    applyStatus(response);
+  } catch { pageStatus = null; renderPage(); }
 }
 
-async function loadSourceLanguage() {
-  const settings = cachedSettings;
-  if (settings && settings.api) {
-    const sourceLang = settings.api.sourceLanguage || 'auto';
-    const select = document.getElementById('sourceLangSelect');
-    if (select) {
-      select.value = sourceLang;
-    }
-  }
+function applyStatus(status) {
+  pageStatus = status;
+  if (cachedSettings && typeof status.enabled === 'boolean') cachedSettings.general.translationEnabled = status.enabled;
+  renderPage();
 }
 
-async function loadSkipChineseSegments() {
-  const skip = cachedSettings?.rules?.skipChineseSegments !== false;
-  const toggle = document.getElementById('skipChineseSegmentsToggle');
-  if (toggle) toggle.checked = !skip;
+function subscribeToStatus() {
+  const port = chrome.tabs.connect(activeTabId, { name: 'translation-status' });
+  statusPort = port;
+  port.onMessage.addListener(applyStatus);
+  port.onDisconnect.addListener(() => {
+    void chrome.runtime.lastError;
+    if (statusPort !== port) return;
+    statusPort = null;
+    pageStatus = null;
+    renderPage();
+  });
 }
 
-async function loadApiStatus() {
-  const container = document.getElementById('apiStatus');
-  if (!container) return;
+chrome.tabs.onUpdated.addListener(async (tabId, change) => {
+  if (tabId !== activeTabId || change.status !== 'complete' || !cachedSettings) return;
+  await refreshPageStatus();
+  if (pageStatus && !statusPort) subscribeToStatus();
+});
+
+async function savePreference(path, value, control) {
+  control.disabled = true;
+  feedback();
   try {
-    const res = await sendMessageWithRetry({ action: 'getApiStatus' });
-    if (!res || res.error) {
-      // v1.2.17 UX: 未配置 API 时提供一键跳转设置的入口，而不是只给一句提示
-      container.innerHTML = '<div class="no-api-warning">请先配置至少一个翻译 API<button id="goSettingsFromApiStatus" class="go-settings-btn">前往设置 →</button></div>';
-      bindGoSettings(container);
-      return;
-    }
-    if (!res || !res.status || Object.keys(res.status).length === 0) {
-      container.innerHTML = '<div class="no-api-warning">未检测到已配置的 API<button id="goSettingsFromApiStatus" class="go-settings-btn">前往设置 →</button></div>';
-      bindGoSettings(container);
-      return;
-    }
-    renderApiStatus(res.status, res.configuredCount, res.availableCount);
-  } catch {
-    container.innerHTML = '<div class="no-api-warning">无法获取 API 状态</div>';
-  }
+    await send({ action: 'updateSettings', path, value });
+    const keys = path.split('.');
+    cachedSettings[keys[0]][keys[1]] = value;
+    return true;
+  } catch (error) { feedback(error.message); return false; }
+  finally { control.disabled = false; }
 }
 
-// v1.2.17 UX: 绑定「前往设置」跳转（供 API 状态区使用）
-function bindGoSettings(container) {
-  const btn = container.querySelector('#goSettingsFromApiStatus');
-  if (btn) {
-    btn.addEventListener('click', () => {
-      chrome.runtime.openOptionsPage().catch(() => {});
-    });
-  }
+function humanizeTranslateError(message) {
+  const text = String(message || '');
+  if (/NO_API|没有可用/.test(text)) return '请先在设置中配置翻译服务。';
+  if (/QUOTA|quota|额度/.test(text)) return '翻译服务额度不足，请检查余额或切换服务。';
+  if (/RATE_LIMITED|频率/.test(text)) return '请求过于频繁，请稍后重试。';
+  if (/timeout|abort|超时/i.test(text)) return '请求超时，请检查网络后重试。';
+  if (/auth|401|403|密钥/i.test(text)) return '密钥校验失败，请在设置中检查。';
+  if (/fetch|network/i.test(text)) return '网络连接失败，请稍后重试。';
+  return '翻译未完成，请重试或打开故障排查。';
 }
 
-function renderApiStatus(statusMap, configuredCount, availableCount) {
-  const container = document.getElementById('apiStatus');
-  const displayNames = (typeof API_DISPLAY_NAMES !== 'undefined') ? API_DISPLAY_NAMES : {};
-  const statusTexts = {
-    available: '可用',
-    quota_exceeded: '额度不足',
-    rate_limited: '频率限制',
-    error: '异常',
-    auth_error: '密钥错误',
-    unconfigured: '未配置'
-  };
-
-  let html = '';
-  for (const [name, info] of Object.entries(statusMap)) {
-    const status = info.status || 'unconfigured';
-    const displayName = info.displayName || displayNames[name] || name;
-    const statusLabel = statusTexts[status] || '未知';
-    const reason = (info.reason && info.reason !== 'daily_reset' && info.reason !== 'monthly_reset') ? info.reason : '';
-    const text = reason ? `${statusLabel} (${escapeAttr(reason)})` : statusLabel;
-    html += `
-      <div class="api-status-item">
-        <span class="api-status-dot ${status}"></span>
-        <span class="api-status-name">${escapeAttr(displayName)}</span>
-        <span class="api-status-text">${text}</span>
-      </div>
-    `;
-  }
-  if (configuredCount > 0 && availableCount === 0) {
-    html += '<div class="no-api-warning" style="margin-top:8px">所有 API 暂时不可用</div>';
-  }
-  container.innerHTML = html;
-}
-
-function setupEventListeners() {
-  document.getElementById('toggleBtn').addEventListener('click', async () => {
-    const btn = document.getElementById('toggleBtn');
-    if (btn.disabled) return;
-    btn.disabled = true;
-    const prevState = translationEnabled;
-    translationEnabled = !translationEnabled;
-    try {
-      await sendMessageWithRetry({ action: 'updateSettings', path: 'general.translationEnabled', value: translationEnabled });
-      updateToggleButton();
-      await refreshPageStatus();
-    } catch (e) {
-      translationEnabled = prevState;
-      updateToggleButton();
-    } finally {
-      btn.disabled = false;
-    }
-  });
-
-  document.getElementById('modeSelector').addEventListener('click', async (e) => {
-    const btn = e.target.closest('.mode-btn');
-    if (!btn || btn.classList.contains('active')) return;
-    const mode = btn.dataset.mode;
-    const prevMode = currentMode;
-    currentMode = mode;
-    updateModeButtons();
-    try {
-      await sendMessageWithRetry({ action: 'updateSettings', path: 'general.lastMode', value: mode });
-      await sendMessageWithRetry({ action: 'updateSettings', path: 'display.defaultMode', value: mode });
-      if (activeTabId !== null) {
-        try {
-          await chrome.tabs.sendMessage(activeTabId, { action: 'switchMode', mode });
-        } catch (e) {
-          currentMode = prevMode;
-          updateModeButtons();
-          sendMessageWithRetry({ action: 'updateSettings', path: 'general.lastMode', value: prevMode }).catch(() => {});
-          sendMessageWithRetry({ action: 'updateSettings', path: 'display.defaultMode', value: prevMode }).catch(() => {});
-          alert('切换显示模式失败，请在普通网页上重试');
-        }
-      }
-    } catch (e) {
-      currentMode = prevMode;
-      updateModeButtons();
-      sendMessageWithRetry({ action: 'updateSettings', path: 'general.lastMode', value: prevMode }).catch(() => {});
-      sendMessageWithRetry({ action: 'updateSettings', path: 'display.defaultMode', value: prevMode }).catch(() => {});
-    }
-  });
-
-  // 源语言选择器变更监听
-  const sourceLangSelect = document.getElementById('sourceLangSelect');
-  const sourceLangHint = document.getElementById('sourceLangHint');
-  if (sourceLangSelect) {
-    let sourceLangDebounceTimer = null;
-    // v1.2.13 fix: Bug #2 — 之前 oldLang 在 change 触发时已被浏览器更新为 NEW value，
-    // 回滚等于无操作。改为在 mousedown/focus 时缓存真正的旧值
-    let previousSourceLang = sourceLangSelect.value;
-    sourceLangSelect.addEventListener('mousedown', () => {
-      previousSourceLang = sourceLangSelect.value;
-    });
-    sourceLangSelect.addEventListener('focus', () => {
-      previousSourceLang = sourceLangSelect.value;
-    });
-    sourceLangSelect.addEventListener('keydown', (e) => {
-      if (e.key !== 'Tab') previousSourceLang = sourceLangSelect.value;
-    });
-    sourceLangSelect.addEventListener('change', (e) => {
-      const oldLang = previousSourceLang;
-      const newLang = e.target.value;
-      previousSourceLang = newLang;
-      sourceLangSelect.disabled = true;
-      if (sourceLangHint) sourceLangHint.style.display = 'block';
-      clearTimeout(sourceLangDebounceTimer);
-      sourceLangDebounceTimer = setTimeout(async () => {
-        try {
-          await sendMessageWithRetry({
-            action: 'updateSettings',
-            path: 'api.sourceLanguage',
-            value: newLang
-          });
-        } catch (err) {
-          sourceLangSelect.value = oldLang;
-          previousSourceLang = oldLang;
-          alert('切换源语言失败');
-        } finally {
-          sourceLangSelect.disabled = false;
-          if (sourceLangHint) sourceLangHint.style.display = 'none';
-        }
-      }, 300);
-      // background 中已根据 api.sourceLanguage 变更触发 retranslateWithSource，避免重复触发
-    });
-  }
-
-  const skipToggle = document.getElementById('skipChineseSegmentsToggle');
-  if (skipToggle) {
-    // v1.2.13 fix: Bug #2 — 缓存旧 checked 状态，失败时回滚到旧值
-    let previousSkipChecked = skipToggle.checked;
-    skipToggle.addEventListener('mousedown', () => {
-      previousSkipChecked = skipToggle.checked;
-    });
-    skipToggle.addEventListener('focus', () => {
-      previousSkipChecked = skipToggle.checked;
-    });
-    skipToggle.addEventListener('keydown', (e) => {
-      if (e.key === ' ') previousSkipChecked = skipToggle.checked;
-    });
-    skipToggle.addEventListener('change', async () => {
-      const skipChinese = previousSkipChecked;
-      try {
-        // v1.3.2 fix F7: 开关语义为 checked=!skip，写入应取旧 checked（=新 skip 值）；原 !skipChinese 方向写反，导致开关功能失效/反向
-        await sendMessageWithRetry({ action: 'updateSettings', path: 'rules.skipChineseSegments', value: skipChinese });
-        previousSkipChecked = !skipChinese;
-      } catch (e) {
-        skipToggle.checked = skipChinese;
-        previousSkipChecked = skipChinese;
-      }
-    });
-  }
-
-  document.getElementById('pageTranslateBtn').addEventListener('click', async () => {
-    const button = document.getElementById('pageTranslateBtn');
-    button.disabled = true;
-    try {
-      const result = await chrome.tabs.sendMessage(activeTabId, { action: pageActive ? 'restoreAll' : 'startTranslation' });
-      if (result?.error) throw new Error(result.error);
-      await refreshPageStatus();
-    } catch (error) {
-      document.getElementById('pageStatus').textContent = error.message || '当前页面暂时无法翻译，请刷新后重试';
-    } finally {
-      button.disabled = !translationEnabled;
-    }
-  });
-
-  document.getElementById('settingsBtn').addEventListener('click', () => {
-    chrome.runtime.openOptionsPage().catch(() => alert('无法打开设置页'));
-  });
-
-  // v1.2.17 UX: 诊断工具入口——修复「入口不可发现」问题，翻译异常时用户可自助排查
-  const diagnoseBtn = document.getElementById('diagnoseBtn');
-  if (diagnoseBtn) {
-    diagnoseBtn.addEventListener('click', () => {
-      chrome.tabs.create({ url: chrome.runtime.getURL('diagnose.html') });
-      window.close();
-    });
-  }
-
-}
-
-async function loadCacheInfo() {
-  const el = document.getElementById('cacheInfo');
-  if (!el) return;
+async function loadServices() {
   try {
-    const stats = await sendMessageWithRetry({ action: 'getCacheStats' });
-    if (stats && stats.total !== undefined) {
-      el.textContent = `本次浏览器会话缓存 ${stats.active} 条（${stats.sizeKB} KB）`;
-    } else {
-      el.textContent = '缓存未启用';
-    }
-  } catch {
-    el.textContent = '缓存信息不可用';
-  }
-}
-
-async function loadDailyUsage() {
-  const container = document.getElementById('apiUsage');
-  if (!container) return;
-  try {
-    const usage = await sendMessageWithRetry({ action: 'getDailyUsage' });
-    if (!usage) {
-      container.innerHTML = '<div class="status-loading">暂无数据</div>';
-      return;
-    }
-    const today = new Date().toDateString();
-    const displayNames = (typeof API_DISPLAY_NAMES !== 'undefined') ? API_DISPLAY_NAMES : {};
-    const items = [];
-    if (usage._date === today) {
-      for (const [name, count] of Object.entries(usage)) {
-        if (name === '_date' || typeof count !== 'number') continue;
-        const displayName = displayNames[name] || name;
-        items.push({ name, displayName, count });
-      }
-    }
-    if (items.length === 0) {
-      container.innerHTML = '<div class="status-loading">今日尚未使用</div>';
-      return;
-    }
-    const max = Math.max(...items.map(i => i.count), 1);
-    container.innerHTML = items.map(i => {
-      const pct = Math.min(100, Math.round((i.count / max) * 100));
-      return `
-        <div class="api-usage-item">
-          <span class="name">${escapeAttr(i.displayName)}</span>
-          <div class="bar"><div class="bar-fill" style="width:${pct}%"></div></div>
-          <span class="count">${i.count.toLocaleString()}</span>
-        </div>
-      `;
+    const response = await send({ action: 'getApiStatus' });
+    servicesConfigured = response.configuredCount > 0;
+    renderPage();
+    $('serviceSummary').textContent = response.configuredCount ? `${response.availableCount} / ${response.configuredCount} 可用` : '待配置';
+    const statusNames = { available: '可用', quota_exceeded: '额度不足', rate_limited: '频率限制', error: '异常', auth_error: '密钥错误', unconfigured: '未配置' };
+    $('apiStatus').innerHTML = Object.entries(response.status || {}).map(([name, item]) => {
+      const status = Object.hasOwn(statusNames, item.status) ? item.status : 'unconfigured';
+      return `<div class="api-status-item"><span class="api-status-dot ${status}"></span><span>${escapeAttr(item.displayName || API_DISPLAY_NAMES[name] || name)}</span><span class="api-status-text">${escapeAttr(statusNames[status])}</span></div>`;
     }).join('');
-  } catch {
-    container.innerHTML = '<div class="status-loading">无法获取用量</div>';
-  }
+    if (!response.configuredCount) {
+      $('apiStatus').innerHTML = '<p class="no-api-warning">配置一个信任的服务后即可翻译。</p><button id="configureServiceBtn" class="secondary-button">配置翻译服务</button>';
+      $('configureServiceBtn').addEventListener('click', () => chrome.runtime.openOptionsPage());
+    }
+  } catch { $('serviceSummary').textContent = '暂时不可用'; }
 }
 
-// v1.2.17 UX: 将技术性错误映射为普通用户可理解的文案（popup 文本翻译用）
-function humanizeTranslateError(m) {
-  const s = String(m || '');
-  if (s.includes('NO_API') || s.includes('没有可用')) return '尚未配置翻译 API，请先在设置中添加密钥';
-  if (s.includes('额度') || /quota/i.test(s)) return '翻译服务额度不足，请检查额度或更换翻译源';
-  if (s.includes('频率') || /rate.?limit/i.test(s)) return '翻译请求过于频繁，请稍后再试';
-  if (s.includes('超时') || /timeout/i.test(s)) return '网络超时，请稍后重试';
-  if (/auth|401|403|密钥/i.test(s)) return '密钥校验失败，请检查 API 密钥是否正确';
-  if (/network|fetch/i.test(s)) return '网络异常，请检查网络后重试';
-  return s || '翻译失败，请稍后重试';
+async function loadServiceDetails() {
+  const outcomes = await Promise.allSettled([send({ action: 'getDailyUsage' }), send({ action: 'getCacheStats' })]);
+  if (outcomes[0].status === 'fulfilled') {
+    const usage = outcomes[0].value;
+    const rows = usage?._date === new Date().toDateString() ? Object.entries(usage).filter(([name, value]) => name !== '_date' && typeof value === 'number') : [];
+    $('apiUsage').innerHTML = rows.length ? rows.map(([name, value]) => `<div class="api-usage-item"><span>${escapeAttr(API_DISPLAY_NAMES[name] || name)}</span><span>${value.toLocaleString()} 字符</span></div>`).join('') : '今日尚未使用';
+  } else $('apiUsage').textContent = '用量暂时不可用';
+  if (outcomes[1].status === 'fulfilled') {
+    const stats = outcomes[1].value;
+    $('cacheInfo').textContent = `会话缓存 ${stats.active} 条 · ${stats.sizeKB} KB，关闭浏览器后清除`;
+  } else $('cacheInfo').textContent = '缓存信息暂时不可用';
 }
 
-// v1.2.15: Manual text translation - bilingual side-by-side layout
-function setupManualTranslate() {
-  const input = document.getElementById('manualTranslateInput');
-  const btn = document.getElementById('manualTranslateBtn');
-  const result = document.getElementById('manualTranslateResult');
-  if (!input || !btn || !result) return;
-
-  btn.addEventListener('click', async () => {
-    const text = input.value.trim();
-    if (!text) {
-      result.textContent = '请输入要翻译的文本';
-      result.className = 'manual-translate-result error';
+function setupEvents() {
+  $('settingsBtn').addEventListener('click', () => chrome.runtime.openOptionsPage().catch(() => feedback('无法打开设置，请重试。')));
+  $('diagnoseBtn').addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('diagnose.html') }).catch(() => feedback('无法打开诊断页面。')));
+  $('pageTranslateBtn').addEventListener('click', async () => {
+    if (pageBusy || !pageStatus) return;
+    if (!pageStatus.pageActive && servicesConfigured === false) {
+      chrome.runtime.openOptionsPage().catch(() => feedback('无法打开设置，请重试。'));
       return;
     }
-    if (text.length > 10000) {
-      result.textContent = '文本超过 10000 字符限制';
-      result.className = 'manual-translate-result error';
-      return;
-    }
-
-    btn.disabled = true;
-    btn.textContent = '翻译中...';
-    result.textContent = '正在翻译...';
-    result.className = 'manual-translate-result loading';
-
+    pageBusy = true;
+    feedback();
+    renderPage();
     try {
-      // v1.3.0 fix P2-2: 源语言 'all' 归一化为 'auto'，避免把非法语言代码透传给翻译服务
-      const rawSourceLang = (cachedSettings && cachedSettings.api && cachedSettings.api.sourceLanguage) || 'auto';
-      const sourceLang = rawSourceLang === 'all' ? 'auto' : rawSourceLang;
-      const resp = await sendMessageWithRetry({
-        action: 'translateTexts',
-        texts: [text],
-        sourceLang: sourceLang
-      });
-      if (resp && resp.translations && resp.translations.length > 0 && resp.translations[0].translation) {
-        result.textContent = resp.translations[0].translation;
-        result.className = 'manual-translate-result';
-      } else if (resp && resp.error) {
-        // v1.2.17 UX: 错误文案人话化，避免向用户暴露原始技术错误
-        result.textContent = humanizeTranslateError(resp.error);
-        result.className = 'manual-translate-result error';
-      } else {
-        result.textContent = '翻译失败，未获得结果';
-        result.className = 'manual-translate-result error';
+      const response = await chrome.tabs.sendMessage(activeTabId, { action: pageStatus.pageActive ? 'restoreAll' : 'startTranslation' });
+      if (response?.error) throw new Error(response.error);
+      await refreshPageStatus();
+    } catch (error) { feedback(error.message || '页面暂时无法响应，请刷新后重试。'); }
+    finally { pageBusy = false; renderPage(); }
+  });
+  $('toggleBtn').addEventListener('click', async () => {
+    const value = cachedSettings.general.translationEnabled === false;
+    await savePreference('general.translationEnabled', value, $('toggleBtn'));
+    await refreshPageStatus();
+  });
+  $('modeSelector').addEventListener('click', async event => {
+    const button = event.target.closest('.mode-btn');
+    if (!button || modeBusy || button.classList.contains('active')) return;
+    modeBusy = true;
+    renderMode(button.dataset.mode);
+    const ok = await savePreference('display.defaultMode', button.dataset.mode, button);
+    modeBusy = false;
+    renderMode(ok ? button.dataset.mode : cachedSettings.general.lastMode);
+    if (ok) {
+      cachedSettings.general.lastMode = button.dataset.mode;
+      if (pageStatus) {
+        try { await chrome.tabs.sendMessage(activeTabId, { action: 'switchMode', mode: button.dataset.mode }); }
+        catch { feedback('偏好已保存，刷新网页后生效。'); }
       }
-    } catch (e) {
-      result.textContent = humanizeTranslateError(e && e.message ? e.message : String(e));
-      result.className = 'manual-translate-result error';
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '翻译';
     }
   });
+  $('sourceLangSelect').addEventListener('change', async event => {
+    const control = event.target;
+    const previous = cachedSettings.api.sourceLanguage;
+    if (!await savePreference('api.sourceLanguage', control.value, control)) control.value = previous;
+  });
+  $('skipChineseSegmentsToggle').addEventListener('change', async event => {
+    const control = event.target;
+    if (!await savePreference('rules.skipChineseSegments', !control.checked, control)) control.checked = !control.checked;
+  });
+  $('serviceSection').addEventListener('toggle', () => {
+    if ($('serviceSection').open) loadServiceDetails();
+  });
+  $('manualSection').addEventListener('toggle', () => {
+    if ($('manualSection').open) $('manualTranslateInput').focus();
+  });
+  const input = $('manualTranslateInput');
+  input.addEventListener('input', () => { $('inputCount').textContent = `${input.value.length.toLocaleString()} / 10,000`; });
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); $('manualTranslateBtn').click(); }
+  });
+  $('manualTranslateBtn').addEventListener('click', async () => {
+    const text = input.value.trim();
+    const result = $('manualTranslateResult');
+    result.hidden = false;
+    result.classList.remove('error');
+    if (!text) { result.textContent = '请输入要翻译的文本。'; input.focus(); return; }
+    const button = $('manualTranslateBtn');
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = '翻译中…';
+    result.textContent = '正在翻译…';
+    result.setAttribute('aria-busy', 'true');
+    try {
+      const source = cachedSettings.api.sourceLanguage;
+      const response = await send({ action: 'translateTexts', texts: [text], sourceLang: source === 'all' ? 'auto' : source });
+      const value = response?.translations?.[0]?.translation;
+      if (!value) throw new Error('empty');
+      result.textContent = value;
+    } catch (error) { result.classList.add('error'); result.textContent = humanizeTranslateError(error.message); }
+    finally { button.disabled = false; button.textContent = '翻译文本'; result.setAttribute('aria-busy', 'false'); }
+  });
 }
+
+document.addEventListener('DOMContentLoaded', async () => {
+  $('extensionVersion').textContent = 'v' + chrome.runtime.getManifest().version;
+  try {
+    const [response, [tab], commands] = await Promise.all([
+      send({ action: 'getPageSettings' }), chrome.tabs.query({ active: true, currentWindow: true }), chrome.commands.getAll()
+    ]);
+    cachedSettings = response.settings;
+    activeTabId = tab?.id ?? null;
+    try { const url = new URL(tab.url); $('pageHost').textContent = /^https?:$/.test(url.protocol) ? url.hostname : '浏览器页面'; } catch { $('pageHost').textContent = '当前页面'; }
+    const shortcut = commands.find(command => command.name === 'toggle-translate')?.shortcut;
+    if (shortcut) { $('shortcutHint').textContent = shortcut; $('shortcutHint').hidden = false; }
+    $('sourceLangSelect').value = cachedSettings.api.sourceLanguage || 'auto';
+    $('skipChineseSegmentsToggle').checked = cachedSettings.rules.skipChineseSegments === false;
+    renderMode(cachedSettings.general.lastMode || cachedSettings.display.defaultMode);
+    setupEvents();
+    $('toggleBtn').disabled = false;
+    await refreshPageStatus();
+    if (pageStatus) subscribeToStatus();
+    loadServices();
+  } catch { feedback('无法读取设置，请重新打开弹窗。'); renderPage(); }
+});
+window.addEventListener('pagehide', () => { statusPort?.disconnect(); statusPort = null; });

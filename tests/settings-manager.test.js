@@ -56,6 +56,9 @@ async function main() {
   await settingsManager.updateSetting('trigger.autoTranslate', true);
   await settingsManager.loadSettings();
   if (settingsManager.settings.trigger.autoTranslate !== true) throw new Error('saved automatic preference lost on reload');
+  await settingsManager.updateSetting('display.defaultMode', 'hover');
+  await settingsManager.loadSettings();
+  if (settingsManager.settings.general.lastMode !== 'hover') throw new Error('reading mode preference did not persist consistently');
   for (const endpoint of ['https://key@example.com', 'https://example.com?token=secret', 'https://example.com#secret']) {
     if (settingsManager._isEndpointAllowed(endpoint)) throw new Error('unsafe endpoint accepted');
   }

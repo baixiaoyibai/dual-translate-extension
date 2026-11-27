@@ -4,111 +4,54 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>双语翻译助手</title>
+  <link rel="stylesheet" href="../lib/ui-theme.css">
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="popup-container">
-    <div class="popup-header">
-      <h1 class="popup-title">双语翻译助手</h1>
-    </div>
-
-    <div class="popup-section page-actions">
-      <button id="pageTranslateBtn" class="toggle-btn active" disabled>翻译此页</button>
+  <header class="popup-header">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">译</span><div><h1>双语翻译助手</h1><span id="extensionVersion" class="version"></span></div></div>
+    <button id="settingsBtn" class="text-button">设置</button>
+  </header>
+  <main>
+    <section class="page-card" aria-label="当前页面">
+      <div class="page-heading"><span id="pageHost">当前页面</span><kbd id="shortcutHint" hidden></kbd></div>
+      <h2 id="pageHeading">准备翻译</h2>
       <p id="pageStatus" class="page-status" role="status">正在读取页面状态…</p>
-      <button id="toggleBtn" class="toggle-btn inactive global-toggle">
-        <span class="toggle-icon">⏸</span>
-        <span class="toggle-text">暂停所有网页翻译</span>
-      </button>
-    </div>
-
-    <div class="popup-section">
-      <div class="section-title">显示模式</div>
-      <div class="mode-selector" id="modeSelector">
-        <button class="mode-btn active" data-mode="bilingual">
-          <span class="mode-icon">📄</span>
-          <span class="mode-label">双语对照</span>
-        </button>
-        <button class="mode-btn" data-mode="translation-only">
-          <span class="mode-icon">🔄</span>
-          <span class="mode-label">仅译文</span>
-        </button>
-        <button class="mode-btn" data-mode="hover">
-          <span class="mode-icon">🖱</span>
-          <span class="mode-label">悬停翻译</span>
-        </button>
-        <button class="mode-btn" data-mode="panel">
-          <span class="mode-icon">📋</span>
-          <span class="mode-label">对照面板</span>
-        </button>
+      <button id="pageTranslateBtn" class="primary-button" disabled>翻译此页</button>
+      <div class="global-row"><span>网页翻译总开关</span><button id="toggleBtn" class="switch-button" role="switch" aria-checked="true" aria-label="网页翻译总开关" disabled><span></span></button></div>
+    </section>
+    <section class="preferences" aria-label="翻译偏好">
+      <h2 class="section-label">阅读方式</h2>
+      <div class="mode-selector" id="modeSelector" role="group" aria-label="阅读方式">
+        <button class="mode-btn active" data-mode="bilingual" aria-pressed="true"><span class="mode-preview" aria-hidden="true">Aa <i>译</i></span><span>双语对照</span></button>
+        <button class="mode-btn" data-mode="translation-only" aria-pressed="false"><span class="mode-preview" aria-hidden="true">译</span><span>仅译文</span></button>
+        <button class="mode-btn" data-mode="hover" aria-pressed="false"><span class="mode-preview hover-preview" aria-hidden="true">Aa</span><span>悬停翻译</span></button>
+        <button class="mode-btn" data-mode="panel" aria-pressed="false"><span class="mode-preview panel-preview" aria-hidden="true">A <i>译</i></span><span>对照面板</span></button>
       </div>
-    </div>
-
-    <div class="popup-section">
-      <div class="section-title">源语言</div>
-      <div class="source-lang-selector">
-        <select id="sourceLangSelect">
-          <option value="auto">自动检测</option>
-          <option value="en">英文</option>
-          <option value="ja">日文</option>
-          <option value="all">所有非中文</option>
-        </select>
-        <div id="sourceLangHint" class="source-lang-hint">翻译中...</div>
+      <div class="preference-row"><label for="sourceLangSelect">源语言</label><select id="sourceLangSelect"><option value="auto">自动检测</option><option value="en">英文</option><option value="ja">日文</option><option value="all">所有非中文</option></select></div>
+      <label class="preference-row checkbox-row" for="skipChineseSegmentsToggle"><span>翻译中英混合段落</span><input type="checkbox" id="skipChineseSegmentsToggle"></label>
+    </section>
+    <details id="manualSection" class="disclosure">
+      <summary>文本翻译<span class="summary-hint">粘贴一段文字</span></summary>
+      <div class="disclosure-content">
+        <label class="field-label" for="manualTranslateInput">原文</label>
+        <textarea id="manualTranslateInput" placeholder="输入或粘贴文本…" rows="4" maxlength="10000"></textarea>
+        <div class="text-actions"><span id="inputCount" class="muted">0 / 10,000</span><button id="manualTranslateBtn" class="secondary-button">翻译文本</button></div>
+        <div id="manualTranslateResult" class="manual-translate-result" role="status" hidden></div>
       </div>
-    </div>
-
-    <div class="popup-section">
-      <div class="setting-row compact">
-        <div class="setting-info">
-          <div class="setting-label">翻译中文页英文</div>
-          <div class="setting-desc">关闭时跳过含中文的段落，开启时翻译所有英文内容</div>
-        </div>
-        <label class="mini-toggle"><input type="checkbox" id="skipChineseSegmentsToggle"><span class="mini-toggle-slider"></span></label>
+    </details>
+    <details id="serviceSection" class="disclosure">
+      <summary>翻译服务<span id="serviceSummary" class="summary-hint">读取中…</span></summary>
+      <div class="disclosure-content">
+        <div id="apiStatus" class="api-status"></div>
+        <h3 class="field-label">今日用量</h3><div id="apiUsage" class="muted">展开后读取</div>
+        <p id="cacheInfo" class="cache-info muted"></p>
+        <button id="diagnoseBtn" class="text-button">打开故障排查</button>
       </div>
-    </div>
-
-    <div class="popup-section manual-translate-section">
-      <div class="section-title manual-translate-title">文本翻译</div>
-      <div class="manual-translate-layout">
-        <div class="manual-translate-col">
-          <div class="manual-col-label">原文</div>
-          <textarea id="manualTranslateInput" class="manual-text-input" placeholder="粘贴或输入要翻译的文本..." rows="5" maxlength="10000"></textarea>
-        </div>
-        <div class="manual-translate-divider"></div>
-        <div class="manual-translate-col">
-          <div class="manual-col-label">译文</div>
-          <div id="manualTranslateResult" class="manual-translate-result"></div>
-        </div>
-      </div>
-      <button id="manualTranslateBtn" class="manual-translate-btn">翻译</button>
-    </div>
-
-    <div class="popup-section">
-      <div class="section-title">API 状态</div>
-      <div id="apiStatus" class="api-status">
-        <div class="status-loading">加载中...</div>
-      </div>
-    </div>
-
-    <div class="popup-section">
-      <div class="section-title">今日用量</div>
-      <div id="apiUsage" class="api-usage">
-        <div class="status-loading">加载中...</div>
-      </div>
-    </div>
-
-    <div class="popup-section">
-      <div class="section-title">缓存</div>
-      <div id="cacheInfo" class="cache-info">
-        加载中...
-      </div>
-    </div>
-
-    <div class="popup-footer">
-      <button id="settingsBtn" class="footer-btn">⚙ 设置</button>
-      <button id="restoreBtn" class="footer-btn">↺ 还原原文</button>
-      <button id="diagnoseBtn" class="footer-btn" title="打开故障排查工具">🩺 诊断</button>
-    </div>
-  </div>
+    </details>
+    <p id="feedback" class="feedback" role="status" hidden></p>
+  </main>
+  <footer>翻译文本将发送至你配置的服务</footer>
   <script src="../lib/escape-utils.js"></script>
   <script src="../lib/api-metadata.js"></script>
   <script src="popup.js"></script>

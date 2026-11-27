@@ -66,10 +66,11 @@ async function main() {
   assert(!hint.includes('PrivateGlossarySentinel') && !hint.includes('OtherDomainSentinel'));
 
   const storage = {};
+  let sessionWrites = 0;
   const chrome = { storage: { session: {
     QUOTA_BYTES: 1024 * 1024,
     get: async key => ({ [key]: structuredClone(storage[key]) }),
-    set: async values => Object.assign(storage, structuredClone(values)),
+    set: async values => { sessionWrites++; Object.assign(storage, structuredClone(values)); },
     remove: async key => { delete storage[key]; }
   } } };
   const { translationCache: cache } = loadModule('lib/translation-cache.js', { chrome }, 'translationCache');
@@ -82,6 +83,12 @@ async function main() {
   await Promise.all([cache.clear(), cache.store(row, 'en', 'zh', 'one.example', oldGeneration)]);
   assert.equal((await cache.getStats()).active, 0, 'a request begun before clear must not repopulate the cache');
   assert.equal(storage.dual_translate_text_cache, undefined);
+  for (let i = 0; i < 20; i++) await cache.store(row, 'en', 'zh', 'one.example', cache.generation);
+  assert.equal(sessionWrites, 0, 'session storage was rewritten for every translation batch');
+  await new Promise(resolve => setTimeout(resolve, 1150));
+  await cache.pending;
+  assert.equal(sessionWrites, 1, 'cache writes should be coalesced');
+  await cache.clear();
   console.log('PASS translation boundaries, singleton repair, request privacy, scoped glossary and concurrent cache clearing');
 }
 

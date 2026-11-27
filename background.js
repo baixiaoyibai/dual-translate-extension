@@ -347,8 +347,9 @@ async function handleMessage(message, sender) {
       // v1.1.0 perf: 移除翻译前的冗余 flush——handleTranslateTexts 在翻译结束后已统一 flush
       return await handleTranslateTexts(message, sender);
 
-    case 'getSettings': {
-      if (_isExtensionSender(sender)) {
+    case 'getSettings':
+    case 'getPageSettings': {
+      if (message.action === 'getSettings' && _isExtensionSender(sender)) {
         await settingsManager.reloadApiKeys();
         return { settings: _cloneSettingsForExport(settingsManager.settings) };
       }

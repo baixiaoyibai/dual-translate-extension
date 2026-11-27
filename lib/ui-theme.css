@@ -1,0 +1,50 @@
+:root {
+  color-scheme: light dark;
+  --ui-bg: #f5f5f2;
+  --ui-surface: #ffffff;
+  --ui-inset: #eeeee9;
+  --ui-hover: #e7e8e1;
+  --ui-border: #dddfd6;
+  --ui-text: #242a25;
+  --ui-muted: #666f66;
+  --ui-accent: #35674c;
+  --ui-accent-hover: #28543d;
+  --ui-accent-soft: #e7efe8;
+  --ui-on-accent: #ffffff;
+  --ui-error: #a53635;
+  --ui-error-soft: #fbebea;
+  --ui-success: #35674c;
+  --ui-warning: #956221;
+  --ui-warning-soft: #fff4dc;
+  --ui-shadow: 0 8px 28px rgb(28 44 32 / 7%);
+  --ui-font: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ui-bg: #171c19;
+    --ui-surface: #212823;
+    --ui-inset: #1b211d;
+    --ui-hover: #303a32;
+    --ui-border: #364138;
+    --ui-text: #edf1e9;
+    --ui-muted: #a7b3a7;
+    --ui-accent: #a6c7a8;
+    --ui-accent-hover: #bdd8be;
+    --ui-accent-soft: #2d3f31;
+    --ui-on-accent: #192b1d;
+    --ui-error: #f2a6a0;
+    --ui-error-soft: #402b29;
+    --ui-success: #a6c7a8;
+    --ui-warning: #e8c07c;
+    --ui-warning-soft: #393123;
+    --ui-shadow: 0 8px 28px rgb(0 0 0 / 15%);
+  }
+}
+:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+button, input, select, textarea { font-family: inherit; }
+button:disabled { cursor: default; }
+[hidden] { display: none !important; }
+::selection { background: var(--ui-accent-soft); color: var(--ui-text); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}

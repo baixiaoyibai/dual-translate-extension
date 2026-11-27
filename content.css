@@ -10,13 +10,13 @@
   --dt-text-secondary: #737373;
   --dt-text-muted: #a3a3a3;
   --dt-text-error: #dc2626;
-  --dt-text-brand: #F97316;
+  --dt-text-brand: #477455;
   --dt-text-fail: #bbbbbb;
   --dt-border-primary: #e5e5e5;
   --dt-border-light: #f5f5f5;
   --dt-border-error: #fecaca;
   --dt-spinner-track: #fed7aa;
-  --dt-spinner-active: #F97316;
+  --dt-spinner-active: #477455;
   --dt-shadow: rgba(0,0,0,0.1);
   --dt-shadow-lg: rgba(0,0,0,0.15);
   /* 译文样式变量（由 content.js applyTranslationStyles 动态设置） */
@@ -167,26 +167,11 @@
 
 .dual-translate-loading-progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, #F97316, #fb923c);
+  background: linear-gradient(90deg, #477455, #6b9573);
   border-radius: 3px;
   transition: width 0.3s ease;
   position: relative;
   overflow: hidden;
-}
-
-.dual-translate-loading-progress-bar::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
-  animation: dual-translate-shimmer 1.5s infinite;
-}
-
-@keyframes dual-translate-shimmer {
-  to { left: 100%; }
 }
 
 /* ===== 加载占位符（行内） - 保留旋转动画 ===== */
@@ -231,13 +216,13 @@
     --dt-text-secondary: #a3a3a3;
     --dt-text-muted: #737373;
     --dt-text-error: #f87171;
-    --dt-text-brand: #F97316;
+    --dt-text-brand: #477455;
     --dt-text-fail: #525252;
     --dt-border-primary: #404040;
     --dt-border-light: #333333;
     --dt-border-error: #7f1d1d;
-    --dt-spinner-track: #7c2d12;
-    --dt-spinner-active: #F97316;
+    --dt-spinner-track: #344d3c;
+    --dt-spinner-active: #477455;
     --dt-shadow: rgba(0,0,0,0.5);
     --dt-shadow-lg: rgba(0,0,0,0.6);
   }
@@ -372,4 +357,11 @@
 
 .dual-translate-panel-content p {
   margin-bottom: 12px;
+}
+
+.dual-translate-placeholder { font-size: 12px; color: var(--dt-text-muted); }
+.dual-translate-failed[role="button"]:focus-visible { outline: 2px solid var(--dt-spinner-active); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  .dual-translate-loading-spinner, .dual-translate-spinner { animation: none; }
+  .dual-translate-loading-overlay, .dual-translate-loading-progress-bar { transition: none; }
 }

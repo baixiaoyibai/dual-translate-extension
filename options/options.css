@@ -1,56 +1,43 @@
 /* ==========================================================================
    Claude Code Inspired Dark Theme
-   Anthropic Orange (#F97316) on Dark Neutrals
+   Anthropic Orange (var(--accent)) on Dark Neutrals
    ========================================================================== */
 
 :root {
-  /* Core palette */
-  --bg-sidebar: #171717;
-  --bg-main: #1c1c1c;
-  --bg-card: #262626;
-  --bg-input: #1a1a1a;
-  --bg-code: #171717;
-  --bg-header: #1a1a1a;
-  --bg-hover: #333333;
-  --bg-track: #333333;
-  --bg-toggle-off: #3f3f3f;
-
-  /* Borders */
-  --border: #3f3f3f;
-  --border-bright: #525252;
-  --border-accent: #F97316;
-
-  /* Text */
-  --text-primary: #e5e5e5;
-  --text-secondary: #a3a3a3;
-  --text-heading: #fafafa;
-  --text-muted: #737373;
-  --text-on-accent: #ffffff;
-
-  /* Accent & semantic */
-  --accent: #F97316;
-  --accent-hover: #ea580c;
-  --accent-soft: rgba(249, 115, 22, 0.12);
-  --success: #22c55e;
-  --success-bg: rgba(34, 197, 94, 0.1);
-  --error: #ef4444;
-  --error-bg: rgba(239, 68, 68, 0.1);
-  --warning: #eab308;
-  --warning-bg: rgba(234, 179, 8, 0.1);
-  --info: #3b82f6;
-  --info-bg: rgba(59, 130, 246, 0.1);
-
-  /* Typography */
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
-  --font-mono: 'SF Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
-
-  /* Shape */
-  --radius: 6px;
-  --radius-pill: 12px;
-
-  /* Motion */
-  --dur: 180ms;
-  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --bg-sidebar: var(--ui-surface);
+  --bg-main: var(--ui-bg);
+  --bg-card: var(--ui-surface);
+  --bg-input: var(--ui-inset);
+  --bg-code: var(--ui-inset);
+  --bg-header: var(--ui-inset);
+  --bg-hover: var(--ui-hover);
+  --bg-track: var(--ui-border);
+  --bg-toggle-off: var(--ui-border);
+  --border: var(--ui-border);
+  --border-bright: var(--ui-muted);
+  --border-accent: var(--ui-accent);
+  --text-primary: var(--ui-text);
+  --text-secondary: var(--ui-muted);
+  --text-heading: var(--ui-text);
+  --text-muted: var(--ui-muted);
+  --text-on-accent: var(--ui-on-accent);
+  --accent: var(--ui-accent);
+  --accent-hover: var(--ui-accent-hover);
+  --accent-soft: var(--ui-accent-soft);
+  --success: var(--ui-success);
+  --success-bg: var(--ui-accent-soft);
+  --error: var(--ui-error);
+  --error-bg: var(--ui-error-soft);
+  --warning: var(--ui-warning);
+  --warning-bg: var(--ui-warning-soft);
+  --info: var(--ui-accent);
+  --info-bg: var(--ui-accent-soft);
+  --font-sans: var(--ui-font);
+  --font-mono: 'Consolas', 'Courier New', monospace;
+  --radius: 12px;
+  --radius-pill: 16px;
+  --dur: 150ms;
+  --ease: ease;
 }
 
 /* ==========================================================================
@@ -92,20 +79,20 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--border);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: var(--border);
 }
 
 .sidebar-nav::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--border);
 }
 
 .sidebar-nav::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--border);
 }
 
 /* ==========================================================================
@@ -240,7 +227,7 @@ body {
   width: 600px;
   height: 600px;
   background: radial-gradient(ellipse at top right,
-    rgba(249, 115, 22, 0.04) 0%,
+    var(--accent-soft) 0%,
     transparent 60%);
   pointer-events: none;
   z-index: 0;
@@ -315,7 +302,7 @@ body {
   color: var(--accent);
   padding: 14px 20px;
   border-bottom: 1px solid var(--border);
-  background: rgba(249, 115, 22, 0.04);
+  background: var(--accent-soft);
   border-radius: var(--radius) var(--radius) 0 0;
 }
 
@@ -436,14 +423,14 @@ input[type="number"]:focus,
 input[type="password"]:focus,
 textarea:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.15);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 select {
   cursor: pointer;
   padding-right: 30px;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23F97316' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  appearance: auto;
+  background-image: none;
   background-repeat: no-repeat;
   background-position: right 10px center;
 }
@@ -1933,7 +1920,7 @@ textarea {
               transform 200ms var(--ease);
   z-index: 500;
   border-radius: var(--radius);
-  box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
+  box-shadow: 0 4px 12px var(--accent-soft);
 }
 
 .saved-tip.show {
@@ -2166,7 +2153,7 @@ textarea {
    ========================================================================== */
 
 ::selection {
-  background: rgba(249, 115, 22, 0.3);
+  background: var(--accent-soft);
   color: var(--text-heading);
 }
 
@@ -2588,7 +2575,7 @@ textarea {
 }
 
 .tag-add-row input:focus {
-  border-color: var(--accent, #f97316);
+  border-color: var(--accent, var(--accent));
 }
 
 .btn-restore-default {
@@ -2605,12 +2592,42 @@ textarea {
 }
 
 .btn-restore-default:hover {
-  color: var(--accent, #f97316);
-  border-color: var(--accent, #f97316);
+  color: var(--accent, var(--accent));
+  border-color: var(--accent, var(--accent));
 }
 
 .section-card-header {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* Reading comfort and keyboard navigation */
+.sidebar { width: 232px; min-width: 232px; }
+.sidebar-header { padding: 27px 22px; gap: 11px; }
+.sidebar-header-icon { border-radius: 12px; }
+.sidebar-tab { border-radius: 8px; margin: 3px 12px; width: calc(100% - 24px); }
+.sidebar-tab.active { background: var(--accent-soft); color: var(--accent); }
+.main-content::before { display: none; }
+.tab-content { max-width: 1040px; padding: 40px 48px; }
+.tab-content h2 { font-size: 28px; font-weight: 600; }
+.tab-content h2::after { display: none; }
+.section-subtitle { margin-top: 10px; margin-bottom: 25px; }
+.section-card { box-shadow: 0 2px 5px rgb(0 0 0 / 2%); }
+.section-card-header { font-size: 13px; letter-spacing: 0; color: var(--text-primary); background: var(--bg-card); padding: 18px 22px; }
+.setting-row { padding: 17px 22px; border-bottom-color: var(--border); }
+.setting-label { font-size: 14px; }
+.setting-desc { font-size: 12px; line-height: 1.75; }
+input, select, textarea { accent-color: var(--accent); }
+.btn-primary, .btn-primary:hover { color: var(--text-on-accent); }
+.saved-tip { border-radius: 10px; box-shadow: var(--ui-shadow); }
+@media (max-width: 800px) {
+  body { display: block; overflow: auto; }
+  .sidebar { width: 100%; min-width: 0; height: auto; position: sticky; top: 0; }
+  .sidebar-header { padding: 14px 20px; }
+  .sidebar-nav { display: flex; overflow-x: auto; padding: 2px 10px 10px; }
+  .sidebar-tab { width: auto; margin: 0 3px; flex-shrink: 0; padding: 10px 13px; }
+  .sidebar-footer { display: none; }
+  .main-content { height: auto; overflow: visible; }
+  .tab-content { max-width: 100%; padding: 26px 20px; }
 }

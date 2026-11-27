@@ -120,6 +120,36 @@ async function run() {
     await page.bringToFront();
     await popup.goto(root + '/popup/popup.html');
     await popup.waitForFunction(() => !document.getElementById('pageTranslateBtn')?.disabled);
+    assert.equal(await popup.locator('#extensionVersion').textContent(), 'v1.5.0');
+    assert.equal(await popup.locator('#manualSection').getAttribute('open'), null);
+    assert.equal(await popup.locator('#serviceSection').getAttribute('open'), null);
+    assert(await popup.locator('body').evaluate(el => el.scrollHeight <= 600), 'default popup should fit within 600px');
+    await popup.evaluate(() => {
+      window.idleMessages = 0;
+      const tabSend = chrome.tabs.sendMessage.bind(chrome.tabs);
+      chrome.tabs.sendMessage = (...args) => { window.idleMessages++; return tabSend(...args); };
+      const runtimeSend = chrome.runtime.sendMessage.bind(chrome.runtime);
+      chrome.runtime.sendMessage = (...args) => { window.idleMessages++; return runtimeSend(...args); };
+    });
+    await popup.waitForTimeout(1400);
+    assert.equal(await popup.evaluate(() => window.idleMessages), 0, 'idle popup should not poll the worker or content script');
+    if (process.env.SCREENSHOT_DIR) {
+      require('node:fs').mkdirSync(process.env.SCREENSHOT_DIR, { recursive: true });
+      await popup.setViewportSize({ width: 380, height: 600 });
+      for (const scheme of ['light', 'dark']) {
+        await popup.emulateMedia({ colorScheme: scheme });
+        await popup.waitForTimeout(200);
+        await popup.screenshot({ path: path.join(process.env.SCREENSHOT_DIR, 'popup-' + scheme + '.png'), fullPage: true });
+      }
+      await popup.emulateMedia({ colorScheme: 'light' });
+    }
+    await popup.locator('#manualSection > summary').evaluate(el => el.click());
+    await popup.locator('#manualTranslateInput').fill('ManualTextSentinel through the forest.');
+    await popup.locator('#manualTranslateInput').press('Control+Enter');
+    await popup.waitForFunction(() => document.getElementById('manualTranslateResult').textContent.includes('译·'));
+    await popup.locator('#manualSection > summary').evaluate(el => el.click());
+    await page.bringToFront();
+    console.log('PASS compact popup, real version display, idle push subscription and keyboard text translation');
     await popup.locator('#pageTranslateBtn').evaluate(button => button.click());
     await translated('#intro', 'silver river');
     await translated('#mixed', 'public announcement');
@@ -326,6 +356,45 @@ async function run() {
     await send({ action: 'updateSettings', path: 'general.translationEnabled', value: false });
     assert((await tabMessage('startTranslation')).error);
     assert.equal((await tabMessage('getStatus')).pageActive, false);
+    await popup.waitForFunction(() => document.getElementById('toggleBtn').getAttribute('aria-checked') === 'false');
+    assert.equal(await popup.locator('#pageTranslateBtn').isDisabled(), true);
+    console.log('PASS status pushes and disabled state after an external global pause');
+
+    await send({ action: 'updateSettings', path: 'general.hasCompletedWelcome', value: true });
+    await settingsPage.reload();
+    await settingsPage.locator('.sidebar-tab[data-tab="rules"]').click();
+    await settingsPage.waitForFunction(() => document.querySelector('#tab-rules').classList.contains('active'));
+    const autoBefore = await settingsPage.locator('#autoTranslate').isChecked();
+    await settingsPage.evaluate(() => {
+      window.originalSettingsSend = chrome.runtime.sendMessage.bind(chrome.runtime);
+      chrome.runtime.sendMessage = message => message.path === 'trigger.autoTranslate' ?
+        Promise.resolve({ success: false, error: '模拟写入失败' }) : window.originalSettingsSend(message);
+    });
+    await settingsPage.locator('#autoTranslate').evaluate(el => el.click());
+    await settingsPage.waitForFunction(() => document.getElementById('savedTip').classList.contains('error'));
+    assert.equal(await settingsPage.locator('#autoTranslate').isChecked(), autoBefore, 'failed save should restore the toggle');
+    await settingsPage.evaluate(() => { chrome.runtime.sendMessage = window.originalSettingsSend; });
+    await settingsPage.locator('#translateDelay').fill('-1');
+    await settingsPage.locator('#translateDelay').dispatchEvent('change');
+    assert.equal(await settingsPage.locator('#translateDelay').getAttribute('aria-invalid'), 'true');
+    assert.notEqual((await send({ action: 'getSettings' })).settings.trigger.translateDelay, -1);
+    await settingsPage.locator('#translateDelay').fill('100');
+    await settingsPage.locator('#translateDelay').dispatchEvent('change');
+    await settingsPage.waitForFunction(() => document.getElementById('savedTip').textContent === '已保存');
+    await settingsPage.locator('.sidebar-tab[data-tab="display"]').click();
+    await settingsPage.reload();
+    await settingsPage.waitForFunction(() => document.getElementById('tab-display').classList.contains('active'));
+    if (process.env.SCREENSHOT_DIR) {
+      await settingsPage.setViewportSize({ width: 1280, height: 900 });
+      await settingsPage.waitForTimeout(200);
+      await settingsPage.screenshot({ path: path.join(process.env.SCREENSHOT_DIR, 'settings-light.png') });
+      await settingsPage.emulateMedia({ colorScheme: 'dark' });
+      await settingsPage.waitForTimeout(200);
+      await settingsPage.screenshot({ path: path.join(process.env.SCREENSHOT_DIR, 'settings-dark.png') });
+    }
+    await settingsPage.setViewportSize({ width: 640, height: 900 });
+    assert(await settingsPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'settings page overflowed a narrow viewport');
+    console.log('PASS failed-save feedback and rollback, numeric validation, remembered navigation and narrow layout');
     assert.deepEqual(pageErrors, [], 'extension documents or content scripts threw uncaught errors');
     console.log('PASS global pause and uncaught-error checks');
   } finally {

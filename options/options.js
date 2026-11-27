@@ -115,8 +115,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 诊断工具提前初始化（不依赖 settings 数据，确保一定能用）
   try { setupDiagnostics(); } catch(e) { console.error('[options] setupDiagnostics 失败:', e); }
 
-  // 预热 background 的 API 缓存（fire-and-forget，失败不影响设置页加载）
-  chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
 
   // v1.0.7 fix: 带重试的 loadAllData —— SW 冷启动时首批消息可能超时
   let loadSuccess = false;
@@ -221,23 +219,28 @@ async function refreshApiSettings() {
   }
 }
 
+let saveTipTimer = null;
+let pendingSettingWrites = 0;
+let saveBatchFailed = false;
 function showSavedTip() {
+  if (pendingSettingWrites || saveBatchFailed) return;
   const tip = document.getElementById('savedTip');
   if (!tip) return;
+  clearTimeout(saveTipTimer);
+  tip.textContent = '已保存';
+  tip.classList.remove('error');
   tip.classList.add('show');
-  setTimeout(() => tip.classList.remove('show'), 1500);
+  saveTipTimer = setTimeout(() => tip.classList.remove('show'), 1800);
 }
 
 function showSaveError(message) {
   const tip = document.getElementById('savedTip');
   if (!tip) return;
-  tip.textContent = `保存失败：${message || '未知错误'}`;
+  clearTimeout(saveTipTimer);
+  tip.textContent = '保存失败，' + (message || '请重试');
   tip.classList.add('show', 'error');
-  setTimeout(() => {
-    tip.classList.remove('show', 'error');
-    tip.textContent = '✓ 已保存';
-  }, 2500);
 }
+
 
 async function loadAllData() {
   // 使用 Promise.allSettled 确保单个消息失败不会导致全部数据加载失败
@@ -296,26 +299,30 @@ async function loadAllData() {
   // 保存当前 settings 到 window，供 checkAllApiCompleteness 使用
   window.__currentSettings = settings;
 
-  // v1.2.17 UX: 智能默认 Tab——未配置任何翻译 API 时直接落在「API 管理」，
-  // 与欢迎页第一步引导对齐，缩短新用户「装好即用」的最短路径
-  if (!apiRes || !apiRes.configuredCount) {
-    activateTabByName('api');
-  }
+  const preferredTab = location.hash.slice(1) || sessionStorage.getItem('dual_translate_settings_tab');
+  if (preferredTab) activateTabByName(preferredTab);
+  else if (!apiRes || !apiRes.configuredCount) activateTabByName('api');
 
   // 检查所有 API 完整性，页内横幅持续提示（不阻塞 UI）
   checkAllApiCompleteness();
 }
 
 async function saveSetting(path, value) {
+  if (!pendingSettingWrites) saveBatchFailed = false;
+  pendingSettingWrites++;
   try {
     const resp = await chrome.runtime.sendMessage({ action: 'updateSettings', path, value });
     if (!resp || resp.success === false || resp.error) {
       throw new Error(resp?.error || '保存失败');
     }
   } catch (e) {
+    saveBatchFailed = true;
     console.warn('[options] saveSetting error:', path, e);
     showSaveError(e.message);
     throw e;
+  } finally {
+    pendingSettingWrites--;
+    showSavedTip();
   }
 }
 
@@ -414,6 +421,10 @@ function activateTabByName(name) {
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   tab.classList.add('active');
   document.getElementById('tab-' + name).classList.add('active');
+  sessionStorage.setItem('dual_translate_settings_tab', name);
+  history.replaceState(null, '', '#' + name);
+  document.querySelector('.main-content').scrollTop = 0;
+  document.querySelectorAll('.sidebar-tab').forEach(item => item.setAttribute('aria-current', item === tab ? 'page' : 'false'));
   // v1.0.8: 切换到关于页时，将当前显示设置应用到翻译示例
   if (name === 'tips') {
     setupTips();
@@ -478,13 +489,7 @@ function setupDisplaySettings() {
     showSavedTip();
   });
 
-  const hoverDelay = document.getElementById('hoverDelay');
-  hoverDelay.value = d.hoverDelay;
-  hoverDelay.addEventListener('change', () => {
-    settings.display.hoverDelay = parseInt(hoverDelay.value);
-    saveSetting('display.hoverDelay', parseInt(hoverDelay.value)).catch(err => console.error('[options] saveSetting failed:', err));
-    showSavedTip();
-  });
+  bindNumber('hoverDelay', 'display.hoverDelay', d.hoverDelay);
 
   const panelPosition = document.getElementById('panelPosition');
   panelPosition.value = d.panelPosition;
@@ -494,13 +499,7 @@ function setupDisplaySettings() {
     showSavedTip();
   });
 
-  const panelWidth = document.getElementById('panelWidth');
-  panelWidth.value = d.panelWidth;
-  panelWidth.addEventListener('change', () => {
-    settings.display.panelWidth = parseInt(panelWidth.value);
-    saveSetting('display.panelWidth', parseInt(panelWidth.value)).catch(err => console.error('[options] saveSetting failed:', err));
-    showSavedTip();
-  });
+  bindNumber('panelWidth', 'display.panelWidth', d.panelWidth);
 
   // v1.0.2: §3.2 页面元素翻译开关
   bindToggle('translatePageTitle', 'display.translatePageTitle', d.translatePageTitle !== false);
@@ -682,17 +681,19 @@ function bindToggle(elementId, path, value) {
   const el = document.getElementById(elementId);
   if (!el) return;
   el.checked = value;
-  el.addEventListener('change', () => {
-    saveSetting(path, el.checked).catch(err => console.error('[options] saveSetting failed:', err));
+  el.addEventListener('change', async () => {
     const keys = path.split('.');
     let current = settings;
     for (let i = 0; i < keys.length - 1; i++) current = current[keys[i]];
-    current[keys[keys.length - 1]] = el.checked;
-    if (path === 'trigger.contextMenu') {
-      // v1.2.2 fix: reloadApis 添加 .catch 避免未捕获 promise 拒绝
-      chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
-    }
-    showSavedTip();
+    const key = keys[keys.length - 1];
+    const previous = current[key];
+    el.disabled = true;
+    try {
+      await saveSetting(path, el.checked);
+      current[key] = el.checked;
+      if (path === 'trigger.contextMenu') chrome.runtime.sendMessage({ action: 'reloadApis' }).catch(() => {});
+    } catch { el.checked = previous; }
+    finally { el.disabled = false; }
   });
 }
 
@@ -700,13 +701,18 @@ function bindNumber(elementId, path, value) {
   const el = document.getElementById(elementId);
   if (!el) return;
   el.value = value;
-  el.addEventListener('change', () => {
-    saveSetting(path, parseInt(el.value)).catch(err => console.error('[options] saveSetting failed:', err));
+  el.addEventListener('input', () => { el.setCustomValidity(''); el.removeAttribute('aria-invalid'); });
+  el.addEventListener('change', async () => {
+    el.setCustomValidity(Number.isFinite(el.valueAsNumber) ? '' : '请输入有效数字');
+    if (!el.checkValidity()) { el.setAttribute('aria-invalid', 'true'); el.reportValidity(); return; }
     const keys = path.split('.');
     let current = settings;
     for (let i = 0; i < keys.length - 1; i++) current = current[keys[i]];
-    current[keys[keys.length - 1]] = parseInt(el.value);
-    showSavedTip();
+    const key = keys[keys.length - 1];
+    el.disabled = true;
+    try { await saveSetting(path, el.valueAsNumber); current[key] = el.valueAsNumber; }
+    catch { el.value = current[key]; }
+    finally { el.disabled = false; }
   });
 }
 
